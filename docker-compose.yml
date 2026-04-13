@@ -1,0 +1,70 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: integrationhub-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: integrationhub
+      POSTGRES_USER: integrationhub
+      POSTGRES_PASSWORD: integrationhub_password_2026
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - integrationhub-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U integrationhub"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Backend API (FastAPI)
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: integrationhub-backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://integrationhub:integrationhub_password_2026@postgres:5432/integrationhub
+      SECRET_KEY: change-this-secret-key-in-production-2026
+      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:80
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-https://n8n.base-datateam.com/rest/oauth2-credential/callback}
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - integrationhub-network
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  # Frontend (React + Vite)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: integrationhub-frontend
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    depends_on:
+      - backend
+    networks:
+      - integrationhub-network
+
+networks:
+  integrationhub-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
