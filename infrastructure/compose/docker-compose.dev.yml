@@ -1,5 +1,4 @@
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:15-alpine
     container_name: integrationhub-db
@@ -12,7 +11,7 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./packages/database/src/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - ../../packages/database/src/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - integrationhub-network
     healthcheck:
@@ -21,10 +20,9 @@ services:
       timeout: 5s
       retries: 5
 
-  # Backend API (FastAPI)
   backend:
     build:
-      context: .
+      context: ../..
       dockerfile: apps/api/Dockerfile
     container_name: integrationhub-backend
     restart: unless-stopped
@@ -39,7 +37,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - ./:/app
+      - ../../:/app
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,10 +45,9 @@ services:
       - integrationhub-network
     command: uvicorn apps.api.src.main:app --host 0.0.0.0 --port 8000 --reload
 
-  # Frontend (React + Vite)
   frontend:
     build:
-      context: .
+      context: ../..
       dockerfile: apps/web/Dockerfile
     container_name: integrationhub-frontend
     restart: unless-stopped
