@@ -1,0 +1,3 @@
+[submodule "external/n8n-nodes-basevn-service"]
+	path = external/n8n-nodes-basevn-service
+	url = https://github.com/QuangChinhDE/n8n-nodes-basevn-service.git
