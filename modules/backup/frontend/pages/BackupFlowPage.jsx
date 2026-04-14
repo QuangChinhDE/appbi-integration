@@ -1,46 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react'
-import axios from 'axios'
-import { Layout, Card, Steps, Button, Checkbox, Form, Input, Select, message, Space, Tag, Alert, Modal, Tree, Row, Col, Typography, Divider, Table, Spin, Empty, Tooltip, Drawer, Tabs, Descriptions, Progress } from 'antd'
+import api from '@shared/api/client'
 import {
-  InboxOutlined,
-  ProjectOutlined,
-  BankOutlined,
-  CustomerServiceOutlined,
-  CloudOutlined,
-  SettingOutlined,
-  CheckOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-  GoogleOutlined,
-  FileExcelOutlined,
-  FolderOutlined,
-  DatabaseOutlined,
-  ApiOutlined,
-  LockOutlined,
-  WarningOutlined,
-  RocketOutlined,
-  PlusOutlined,
-  ArrowLeftOutlined,
-  PlayCircleOutlined,
-  EditOutlined,
-  DeleteOutlined,
-  ClockCircleOutlined,
-  ReloadOutlined
-} from '@ant-design/icons'
-import Sidebar from '@packages/ui/src/components/layout/Sidebar'
-import Topbar from '@packages/ui/src/components/layout/Topbar'
-
-const { Content } = Layout
-const { Option } = Select
-const { Text, Title, Paragraph } = Typography
-const { Password } = Input
+  Inbox, FolderKanban, Building2, Headphones,
+  Cloud, Check, Eye, EyeOff,
+  FileSpreadsheet, Folder, Database,
+  Lock, Rocket, Plus,
+  ArrowLeft, Play, Pencil, Trash2,
+  Clock, RefreshCw, Loader2, X,
+  ChevronRight, Info, CheckCircle, Globe
+} from 'lucide-react'
+import { Tag, Alert, Spinner, SpinCenter, Progress, Modal, Drawer, Tabs, Empty, message } from '@packages/ui/src/components/common/ui'
+import AppLayout from '@packages/ui/src/components/layout/AppLayout'
 
 // App definitions
 const APPS = {
   request: {
     id: 'request',
     name: 'Request',
-    icon: <InboxOutlined />,
+    icon: <Inbox className="w-5 h-5" />,
     color: '#ea580c',
     bg: '#fff7ed',
     description: 'Manage and backup request data',
@@ -51,7 +28,7 @@ const APPS = {
   workflow: {
     id: 'workflow',
     name: 'Workflow',
-    icon: <ProjectOutlined />,
+    icon: <FolderKanban className="w-5 h-5" />,
     color: '#7c3aed',
     bg: '#f5f3ff',
     description: 'Backup workflow configurations',
@@ -62,7 +39,7 @@ const APPS = {
   wework: {
     id: 'wework',
     name: 'WeWork',
-    icon: <BankOutlined />,
+    icon: <Building2 className="w-5 h-5" />,
     color: '#2563eb',
     bg: '#eff6ff',
     description: 'Backup organizational data',
@@ -73,7 +50,7 @@ const APPS = {
   service: {
     id: 'service',
     name: 'Service',
-    icon: <CustomerServiceOutlined />,
+    icon: <Headphones className="w-5 h-5" />,
     color: '#059669',
     bg: '#f0fdf4',
     description: 'Service desk and ticket backup',
@@ -118,12 +95,10 @@ const MOCK_FIELDS = {
   ]
 }
 
-const API_BASE = 'http://localhost:8000'
-const DEFAULT_GOOGLE_REDIRECT = 'http://localhost:8000/api/google/callback'
+const DEFAULT_GOOGLE_REDIRECT = `${window.location.origin}/api/google/callback`
 const SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE = 'This folder is shared with the service account, but it still belongs to regular My Drive, not a Shared Drive. Google service accounts can browse directly shared My Drive folders, but they cannot upload backup files there because they have no storage quota. Choose a folder inside a Shared Drive or switch this destination to OAuth User authentication.'
 
 const BackupFlowPage = () => {
-  const [collapsed, setCollapsed] = useState(false)
   const [viewMode, setViewMode] = useState('list')
   const [currentStep, setCurrentStep] = useState(0)
   const [draftFlowId, setDraftFlowId] = useState(null)
@@ -144,7 +119,7 @@ const BackupFlowPage = () => {
   const fetchFlows = async () => {
     setLoadingFlows(true)
     try {
-      const res = await axios.get(`${API_BASE}/api/backup-flows`)
+      const res = await api.get(`/api/backup-flows`)
       setFlows(res.data)
     } catch (err) {
       message.error('Failed to load backup flows')
@@ -161,7 +136,7 @@ const BackupFlowPage = () => {
   // Load an existing flow into wizard state for editing
   const loadFlowForEdit = async (flowId) => {
     try {
-      const res = await axios.get(`${API_BASE}/api/backup-flows/${flowId}`)
+      const res = await api.get(`/api/backup-flows/${flowId}`)
       const f = res.data
 
       // Reset everything first
@@ -353,7 +328,9 @@ const BackupFlowPage = () => {
   const [googleSecretSet, setGoogleSecretSet] = useState(false)
   const [googleRedirectUri, setGoogleRedirectUri] = useState(DEFAULT_GOOGLE_REDIRECT)
   const [googleConfigError, setGoogleConfigError] = useState('')
-  const [googleConfigForm] = Form.useForm()
+  const [gcClientId, setGcClientId] = useState('')
+  const [gcClientSecret, setGcClientSecret] = useState('')
+  const [gcRedirectUri, setGcRedirectUri] = useState(DEFAULT_GOOGLE_REDIRECT)
   const servicePreviewListRef = useRef(null)
   const shouldResetServicePreviewScrollRef = useRef(false)
 
@@ -374,34 +351,34 @@ const BackupFlowPage = () => {
   const getStepLabels = () => {
     if (usesCondensedServiceWizard) {
       return [
-        { title: 'App & Objects', icon: <CloudOutlined /> },
-        { title: 'Backup Setup', icon: <DatabaseOutlined /> },
-        { title: 'Review', icon: <CheckOutlined /> }
+        { title: 'Nguồn & Kết nối' },
+        { title: 'Cấu hình lưu trữ' },
+        { title: 'Xem lại & Tạo' }
       ]
     }
 
     if (isRequestApp) {
       return [
-        { title: 'Choose App', icon: <CloudOutlined /> },
-        { title: 'Connection', icon: <ApiOutlined /> },
-        { title: 'Backup Type', icon: <DatabaseOutlined /> },
-        ...(hasServiceAccountStep ? [{ title: 'Service Account', icon: <ApiOutlined /> }] : []),
-        { title: 'Review', icon: <CheckOutlined /> }
+        { title: 'Đặt tên & Chọn App' },
+        { title: 'Thông tin kết nối' },
+        { title: 'Backup & Lưu trữ' },
+        ...(hasServiceAccountStep ? [{ title: 'Xác thực Google' }] : []),
+        { title: 'Xem lại & Tạo' }
       ]
     } else if (isServiceApp) {
       return [
-        { title: 'Choose App', icon: <CloudOutlined /> },
-        { title: 'Objects', icon: <FolderOutlined /> },
-        { title: 'Backup Setup', icon: <DatabaseOutlined /> },
-        ...(hasServiceAccountStep ? [{ title: 'Service Account', icon: <ApiOutlined /> }] : []),
-        { title: 'Source Review', icon: <CheckOutlined /> }
+        { title: 'Đặt tên & Chọn App' },
+        { title: 'Chọn dữ liệu' },
+        { title: 'Backup & Lưu trữ' },
+        ...(hasServiceAccountStep ? [{ title: 'Xác thực Google' }] : []),
+        { title: 'Xem lại & Tạo' }
       ]
     } else {
       return [
-        { title: 'Choose App', icon: <CloudOutlined /> },
-        { title: 'Objects', icon: <FolderOutlined /> },
-        { title: isServiceApp ? 'Connection' : 'Access Token', icon: <LockOutlined /> },
-        { title: 'Config & Review', icon: <CheckOutlined /> }
+        { title: 'Đặt tên & Chọn App' },
+        { title: 'Chọn dữ liệu' },
+        { title: 'Kết nối nguồn' },
+        { title: 'Xem lại & Tạo' }
       ]
     }
   }
@@ -577,10 +554,6 @@ const BackupFlowPage = () => {
           message.warning('Please provide Service domain and access token')
           return
         }
-        if (!serviceSourceSetupSaved) {
-          message.warning('Please save the Service source information first')
-          return
-        }
         if (selectedObjects.length === 0) {
           message.warning('Please select at least one object')
           return
@@ -598,10 +571,6 @@ const BackupFlowPage = () => {
         }
         if (googleAuthMethod === 'service_account' && (!googleAuth || googleAuth.auth_method !== 'service_account')) {
           message.warning('Please upload and analyze a Google service account JSON file')
-          return
-        }
-        if (!serviceBackupSetupSaved) {
-          message.warning('Please save the backup destination settings first')
           return
         }
       }
@@ -652,7 +621,7 @@ const BackupFlowPage = () => {
     // Auto-save current step data silently
     if (draftFlowId) {
       const payload = buildAutosavePayload(currentStep)
-      await axios.patch(`${API_BASE}/api/backup-flows/${draftFlowId}/autosave`, payload).catch(() => {})
+      await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, payload).catch(() => {})
     }
 
     setCurrentStep(currentStep + 1)
@@ -749,10 +718,10 @@ const BackupFlowPage = () => {
 
     try {
       message.loading({ content: actionLabel, key: 'save' })
-      await axios.post(`${API_BASE}/api/backup-flows/${draftFlowId}/save`, savePayload)
+      await api.post(`/api/backup-flows/${draftFlowId}/save`, savePayload)
       saveCompleted = true
       if (runAfterSave) {
-        await axios.post(`${API_BASE}/api/backup-flows/${draftFlowId}/run`)
+        await api.post(`/api/backup-flows/${draftFlowId}/run`)
       }
       message.success({ content: successLabel, key: 'save' })
     } catch (err) {
@@ -922,24 +891,22 @@ const BackupFlowPage = () => {
     if (!summary) return null
 
     return (
-      <Space size={6} wrap style={{ marginTop: 6 }}>
+      <div className="flex flex-wrap gap-1.5 mt-1.5">
         <Tag color={summary.color}>{summary.tag}</Tag>
-        <Tag>{summary.driveName}</Tag>
-        <Text type="secondary" style={{ fontSize: 12 }}>{summary.help}</Text>
-      </Space>
+        <Tag color="default">{summary.driveName}</Tag>
+        <span className="text-xs text-gray-400 self-center">{summary.help}</span>
+      </div>
     )
   }
 
-  const renderServiceRootArchiveNotice = (appId, destinationType = 'gdrive', style = {}) => {
+  const renderServiceRootArchiveNotice = (appId, destinationType = 'gdrive') => {
     if (appId !== 'service' || destinationType !== 'gdrive') return null
-
     return (
       <Alert
         type="info"
-        showIcon
         message="Rerun sẽ đưa Base Service cũ vào Trash"
         description="Mỗi lần chạy backup Service mới, hệ thống sẽ chuyển folder Base Service cũ vào Google Drive Trash trước khi tạo lại cây Base Service mới."
-        style={style}
+        className="mb-3"
       />
     )
   }
@@ -951,7 +918,7 @@ const BackupFlowPage = () => {
   ) => {
     if (!draftFlowId || !storageDestination) return
 
-    await axios.patch(`${API_BASE}/api/backup-flows/${draftFlowId}/autosave`, {
+    await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
       destination: {
         type: storageDestination,
         name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
@@ -972,7 +939,7 @@ const BackupFlowPage = () => {
     try {
       const rawText = await file.text()
       const parsed = JSON.parse(rawText)
-      const res = await axios.post(`${API_BASE}/api/google/service-account/analyze`, {
+      const res = await api.post(`/api/google/service-account/analyze`, {
         service_account_json: parsed,
       })
 
@@ -1013,7 +980,7 @@ const BackupFlowPage = () => {
     shouldResetServicePreviewScrollRef.current = true
     setLoadingServicePreview(true)
     try {
-      const res = await axios.post(`${API_BASE}/api/connectors/service/preview`, {
+      const res = await api.post(`/api/connectors/service/preview`, {
         domain,
         access_token: accessToken,
         ticket_sample_limit: 2,
@@ -1152,77 +1119,28 @@ const BackupFlowPage = () => {
     setGoogleConfigError('')
     setGoogleConfigLoading(true)
     try {
-      const res = await axios.get(`${API_BASE}/api/settings/google`)
+      const res = await api.get(`/api/settings/google`)
       const data = res.data || {}
       const redirectUri = data.redirect_uri || DEFAULT_GOOGLE_REDIRECT
       setGoogleRedirectUri(redirectUri)
       setGoogleSecretSet(!!(data.client_secret && data.client_secret !== ''))
-      googleConfigForm.setFieldsValue({
-        client_id: data.client_id || '',
-        client_secret: '',
-        redirect_uri: redirectUri,
-      })
+      setGcClientId(data.client_id || '')
+      setGcClientSecret('')
+      setGcRedirectUri(redirectUri)
     } catch {
       setGoogleRedirectUri(DEFAULT_GOOGLE_REDIRECT)
       setGoogleSecretSet(false)
-      googleConfigForm.setFieldsValue({
-        client_id: '',
-        client_secret: '',
-        redirect_uri: DEFAULT_GOOGLE_REDIRECT,
-      })
+      setGcClientId('')
+      setGcClientSecret('')
+      setGcRedirectUri(DEFAULT_GOOGLE_REDIRECT)
     } finally {
       setGoogleConfigLoading(false)
     }
   }
 
-  const handleSaveGoogleConfigAndConnect = async () => {
-    let values
-    try {
-      values = await googleConfigForm.validateFields()
-    } catch {
-      return
-    }
-
-    if (!values.client_secret?.trim() && !googleSecretSet) {
-      setGoogleConfigError('Client Secret is required')
-      return
-    }
-
-    setGoogleConfigSaving(true)
-    setGoogleConfigError('')
-    try {
-      await axios.put(`${API_BASE}/api/settings/google`, {
-        client_id: values.client_id.trim(),
-        client_secret: values.client_secret?.trim() || '__KEEP__',
-        redirect_uri: values.redirect_uri?.trim() || googleRedirectUri,
-      })
-
-      const authRes = await axios.get(`${API_BASE}/api/google/auth-url`)
-      const data = await startGoogleOAuthPopup(authRes.data.url)
-      setGoogleAuthMethod('oauth')
-      setGoogleAuth({
-        auth_method: 'oauth',
-        connection_id: data.connection_id,
-        email: data.email,
-        display_name: data.display_name || data.email,
-        picture_url: data.picture_url || '',
-        folder_id: null,
-        folder_name: null,
-        drive_id: null
-      })
-      setGoogleConfigModalOpen(false)
-      setGoogleSecretSet(true)
-      message.success(`Connected as ${data.email}`)
-    } catch (err) {
-      setGoogleConfigError(err.response?.data?.detail || err.message || 'Failed to configure Google OAuth')
-    } finally {
-      setGoogleConfigSaving(false)
-    }
-  }
-
   const handleGoogleConnect = async () => {
     try {
-      const res = await axios.get(`${API_BASE}/api/google/auth-url`)
+      const res = await api.get(`/api/google/auth-url`)
       const data = await startGoogleOAuthPopup(res.data.url)
       setGoogleAuthMethod('oauth')
       setServiceBackupSetupSaved(false)
@@ -1269,7 +1187,7 @@ const BackupFlowPage = () => {
 
     setLoadingSharedFolders(true)
     try {
-      const res = await axios.post(`${API_BASE}/api/google/service-account/shared-folders`, {
+      const res = await api.post(`/api/google/service-account/shared-folders`, {
         auth: buildGoogleDestinationAuth(),
         query,
       })
@@ -1330,7 +1248,7 @@ const BackupFlowPage = () => {
 
     setResolvingSharedFolder(true)
     try {
-      const res = await axios.post(`${API_BASE}/api/google/service-account/folder-info`, {
+      const res = await api.post(`/api/google/service-account/folder-info`, {
         auth: buildGoogleDestinationAuth(),
         folder_id_or_url: folderReference,
       })
@@ -1352,10 +1270,10 @@ const BackupFlowPage = () => {
     setSharedFolderReference('')
     try {
       const res = isServiceAccountDestinationAuth
-        ? await axios.post(`${API_BASE}/api/google/service-account/drives`, {
+        ? await api.post(`/api/google/service-account/drives`, {
             auth: buildGoogleDestinationAuth()
           })
-        : await axios.get(`${API_BASE}/api/google/drives`, {
+        : await api.get(`/api/google/drives`, {
             params: { connection_id: googleAuth.connection_id }
           })
       setDrives(res.data)
@@ -1384,12 +1302,12 @@ const BackupFlowPage = () => {
     setLoadingFolders(true)
     try {
       const res = isServiceAccountDestinationAuth
-        ? await axios.post(`${API_BASE}/api/google/service-account/folders`, {
+        ? await api.post(`/api/google/service-account/folders`, {
             auth: buildGoogleDestinationAuth(),
             parent_id: parentId,
             drive_id: driveId || null,
           })
-        : await axios.get(`${API_BASE}/api/google/folders`, {
+        : await api.get(`/api/google/folders`, {
             params: {
               connection_id: googleAuth.connection_id,
               parent_id: parentId,
@@ -1452,1154 +1370,1114 @@ const BackupFlowPage = () => {
 
   // Render functions for each step
   const renderHoverHint = (content) => (
-    <Tooltip title={<div style={{ maxWidth: 320, whiteSpace: 'normal' }}>{content}</div>}>
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          width: 18,
-          height: 18,
-          borderRadius: '50%',
-          border: '1px solid #cbd5e1',
-          color: '#475569',
-          fontSize: 11,
-          fontWeight: 700,
-          cursor: 'help',
-          background: '#fff'
-        }}
-      >
-        !
-      </span>
-    </Tooltip>
+    <span
+      title={content}
+      className="inline-flex items-center justify-center w-4 h-4 rounded-full border border-gray-300 text-gray-500 text-[10px] font-bold cursor-help bg-white shrink-0"
+    >
+      !
+    </span>
   )
-
-  const condensedServiceSectionHeight = 'clamp(360px, calc(100vh - 400px), 520px)'
-  const balancedSetupTopSectionFlex = '0 0 42%'
-  const balancedReviewStateFlex = '0 0 40%'
 
   const renderStep1 = () => {
     if (usesCondensedServiceWizard) {
       return (
-        <div>
-          <div style={{ marginBottom: 24 }}>
-            <Title level={4} style={{ marginBottom: 4 }}>App & Objects</Title>
-            <Paragraph type="secondary">
-              Chọn ứng dụng trong modal, nhập thông tin source, lưu lại phần source rồi tiếp tục chọn objects cho flow backup.
-            </Paragraph>
+        <div className="max-w-2xl space-y-8">
+          {/* Flow name */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              Tên luồng backup <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-gray-400 mb-2">Đặt tên để dễ nhận biết sau này, ví dụ: "Backup hàng ngày - Service IT"</p>
+            <input
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+              placeholder="VD: Backup hàng ngày - Service IT"
+              value={flowName}
+              onChange={e => setFlowName(e.target.value)}
+              maxLength={120}
+            />
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))',
-              gap: 16,
-              alignItems: 'stretch'
-            }}
-          >
-            <Card
-              title="Section 1: App & Source"
-              style={{ height: condensedServiceSectionHeight, minHeight: condensedServiceSectionHeight, display: 'flex', flexDirection: 'column' }}
-              styles={{ body: { flex: 1, minHeight: 0, overflowY: 'auto' } }}
+          {/* App picker */}
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              Ứng dụng nguồn <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-gray-400 mb-3">Chọn ứng dụng mà bạn muốn sao lưu dữ liệu từ đó</p>
+            <button
+              onClick={() => setShowAppSelectionModal(true)}
+              className={`w-full flex items-center gap-4 px-4 py-4 rounded-xl border-2 text-left transition-all ${
+                currentApp
+                  ? 'border-solid shadow-sm'
+                  : 'border-dashed border-gray-200 hover:border-blue-300 bg-white'
+              }`}
+              style={currentApp ? { borderColor: currentApp.color, backgroundColor: currentApp.bg } : {}}
             >
-              <Form layout="vertical">
-                <Form.Item label="Backup Flow Name" required>
-                  <Input
-                    placeholder="e.g. Daily Service Backup"
-                    value={flowName}
-                    onChange={e => setFlowName(e.target.value)}
-                    size="large"
-                    maxLength={120}
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                style={{ backgroundColor: currentApp ? `${currentApp.color}20` : '#f3f4f6', color: currentApp?.color || '#9ca3af' }}
+              >
+                {currentApp?.icon || <Cloud className="w-5 h-5" />}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${currentApp ? '' : 'text-gray-400'}`}
+                  style={currentApp ? { color: currentApp.color } : {}}>
+                  {currentApp ? currentApp.name : 'Nhấn để chọn ứng dụng…'}
+                </p>
+                {currentApp
+                  ? <p className="text-xs mt-0.5" style={{ color: `${currentApp.color}99` }}>{currentApp.description}</p>
+                  : <p className="text-xs text-gray-400 mt-0.5">Request, Workflow, WeWork, Service…</p>}
+              </div>
+              {currentApp
+                ? <CheckCircle className="w-5 h-5 shrink-0" style={{ color: currentApp.color }} />
+                : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
+            </button>
+          </div>
+
+          {/* Service credentials */}
+          {selectedApp === 'service' && (
+            <>
+              <div className="border border-blue-100 rounded-2xl p-5 bg-blue-50/50 space-y-5">
+                <div className="flex items-center gap-2">
+                  <Globe className="w-4 h-4 text-blue-600" />
+                  <h4 className="text-sm font-bold text-blue-800">Thông tin kết nối Service</h4>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Địa chỉ website (Domain) <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Đây là địa chỉ truy cập hệ thống Service của bạn, ví dụ: <code className="bg-white px-1 rounded">congty.base.com.vn</code>
+                  </p>
+                  <input
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    placeholder="VD: congty.base.com.vn"
+                    value={domain}
+                    onChange={(e) => { setServiceSourceSetupSaved(false); setDomain(e.target.value); setServicePreview(null) }}
                   />
-                </Form.Item>
+                </div>
 
-                <Form.Item label="Application" required>
-                  <Button
-                    block
-                    size="large"
-                    style={{ borderStyle: 'dashed', justifyContent: 'flex-start', height: 'auto', padding: '12px 16px' }}
-                    onClick={() => setShowAppSelectionModal(true)}
-                  >
-                    <Space>
-                      {currentApp?.icon || <CloudOutlined style={{ color: '#3b82f6' }} />}
-                      <span>{currentApp ? `Selected: ${currentApp.name}` : 'Choose App in Modal'}</span>
-                    </Space>
-                  </Button>
-                </Form.Item>
-
-                {selectedApp === 'service' ? (
-                  <>
-                    <Form.Item
-                      label={<><CloudOutlined style={{ color: '#3b82f6', marginRight: 6 }} />Base Domain</>}
-                      required
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">
+                    Mã truy cập API (Access Token) <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-2">
+                    Lấy từ Service → <strong>Cài đặt</strong> → <strong>API Keys</strong> → chọn token loại <em>access_token_v2</em> của Base Account
+                  </p>
+                  <div className="relative">
+                    <input
+                      type={showToken ? 'text' : 'password'}
+                      className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                      placeholder="Dán mã truy cập vào đây…"
+                      value={accessToken}
+                      onChange={(e) => { setServiceSourceSetupSaved(false); setAccessToken(e.target.value); setServicePreview(null) }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowToken(v => !v)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                      title={showToken ? 'Ẩn mã' : 'Hiện mã'}
                     >
-                      <Input
-                        placeholder="base.com.vn"
-                        value={domain}
-                        onChange={(e) => {
-                          setServiceSourceSetupSaved(false)
-                          setDomain(e.target.value)
-                          setServicePreview(null)
-                        }}
-                        size="large"
-                      />
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        Enter base.com.vn, service.base.com.vn, or a full Service URL. The backend will normalize it.
-                      </Text>
-                    </Form.Item>
+                      {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+              </div>
 
-                    <Form.Item
-                      label={<><LockOutlined style={{ color: '#f59e0b', marginRight: 6 }} />Access Token V2</>}
-                      required
-                    >
-                      <Password
-                        placeholder="Paste your Base Account access_token_v2 here…"
-                        value={accessToken}
-                        onChange={(e) => {
-                          setServiceSourceSetupSaved(false)
-                          setAccessToken(e.target.value)
-                          setServicePreview(null)
-                        }}
-                        iconRender={visible => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-                        size="large"
-                      />
-                      <Text type="secondary" style={{ fontSize: 12 }}>
-                        Get this value from Service → Settings → API Keys. Use the Base Account access_token_v2 token.
-                      </Text>
-                    </Form.Item>
-
-                    <Button type="primary" onClick={handleConfirmServiceSourceSetup} disabled={!canSaveServiceSourceSetup}>
-                      Save Source Information
-                    </Button>
-                  </>
-                ) : selectedApp ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="Legacy wizard applies to this app"
-                    description="The compact 3-step layout is currently optimized for the Service flow. Continue to keep the existing wizard behavior for the selected app."
-                  />
-                ) : (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="Choose an app to continue"
-                    description="Sau khi chọn Service trong modal, form domain và access token sẽ hiện ngay bên dưới."
-                  />
-                )}
-              </Form>
-            </Card>
-
-            <Card
-              title="Section 2: Objects"
-              style={{ height: condensedServiceSectionHeight, minHeight: condensedServiceSectionHeight, display: 'flex', flexDirection: 'column' }}
-              styles={{ body: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' } }}
-            >
-              <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', paddingRight: 4 }}>
-                {selectedApp !== 'service' ? (
-                  <Empty description="Choose Service in Section 1 to continue with object selection" />
-                ) : !serviceSourceSetupSaved ? (
-                  <Alert
-                    type="info"
-                    showIcon
-                    message="Save source information first"
-                    description="Sau khi lưu xong app, domain và access token, section Objects sẽ sẵn sàng để chọn scope backup."
-                  />
-                ) : (
-                  <>
-                    <Card
-                      style={{ marginBottom: 14, cursor: 'pointer' }}
+              {/* Objects selection */}
+              {(domain.trim() && accessToken.trim()) && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-800 mb-1">
+                    Dữ liệu cần sao lưu <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-400 mb-3">Chọn loại dữ liệu bạn muốn đưa vào bản backup này</p>
+                  <div className="space-y-2">
+                    <div
                       onClick={handleSelectAllObjects}
-                      styles={{ body: { padding: '12px 16px' } }}
+                      className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-3 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 flex items-center gap-3 transition-all"
                     >
-                      <Space>
-                        <Checkbox checked={selectedObjects.length === currentApp.objects.length} />
-                        <div>
-                          <Text strong>Select All Objects</Text>
-                          <Text type="secondary" style={{ marginLeft: 8 }}>
-                            ({currentApp.objects.length} objects)
-                          </Text>
-                        </div>
-                      </Space>
-                    </Card>
-
-                    <Space direction="vertical" style={{ width: '100%' }} size={9}>
-                      {currentApp.objects.map(obj => (
-                        <Card
-                          key={obj}
-                          hoverable
-                          onClick={() => handleObjectToggle(obj)}
+                      <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all ${
+                        selectedObjects.length === currentApp.objects.length
+                          ? 'bg-blue-600 border-blue-600'
+                          : 'border-gray-300'
+                      }`}>
+                        {selectedObjects.length === currentApp.objects.length && <Check className="w-3 h-3 text-white" />}
+                      </div>
+                      <span className="font-semibold text-sm text-gray-700">Chọn tất cả</span>
+                      <span className="text-xs text-gray-400 ml-auto">{currentApp.objects.length} loại dữ liệu</span>
+                    </div>
+                    {currentApp.objects.map(obj => (
+                      <div
+                        key={obj}
+                        onClick={() => handleObjectToggle(obj)}
+                        className="border-2 rounded-xl px-4 py-3.5 cursor-pointer transition-all flex items-center gap-3"
+                        style={{
+                          borderColor: selectedObjects.includes(obj) ? currentApp.color : '#e5e7eb',
+                          backgroundColor: selectedObjects.includes(obj) ? currentApp.bg : '#fff',
+                        }}
+                      >
+                        <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all shrink-0`}
                           style={{
-                            border: selectedObjects.includes(obj) ? `2px solid ${currentApp.color}` : '1px solid #d9d9d9',
-                            backgroundColor: selectedObjects.includes(obj) ? currentApp.bg : '#fff',
-                            cursor: 'pointer'
-                          }}
-                          styles={{ body: { padding: '12px 16px' } }}
-                        >
-                          <Space>
-                            <Checkbox checked={selectedObjects.includes(obj)} />
-                            <div>
-                              <div style={{ fontWeight: 600 }}>{currentApp.objectLabels[obj]}</div>
-                              <Text type="secondary" style={{ fontSize: 12 }}>
-                                {currentApp.name} › {currentApp.objectLabels[obj]}
-                              </Text>
-                            </div>
-                          </Space>
-                        </Card>
-                      ))}
-                    </Space>
-                  </>
+                            backgroundColor: selectedObjects.includes(obj) ? currentApp.color : 'transparent',
+                            borderColor: selectedObjects.includes(obj) ? currentApp.color : '#d1d5db',
+                          }}>
+                          {selectedObjects.includes(obj) && <Check className="w-3 h-3 text-white" />}
+                        </div>
+                        <div className="flex-1">
+                          <div className="font-semibold text-sm" style={{ color: selectedObjects.includes(obj) ? currentApp.color : '#374151' }}>
+                            {currentApp.objectLabels[obj]}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Continue button */}
+              <div className="pt-2">
+                <button
+                  onClick={next}
+                  disabled={!flowName.trim() || !domain.trim() || !accessToken.trim() || selectedObjects.length === 0}
+                  className="flex items-center gap-2 px-8 py-3 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors font-semibold shadow-sm shadow-blue-200"
+                >
+                  Tiếp theo <ChevronRight className="w-4 h-4" />
+                </button>
+                {(!flowName.trim() || !domain.trim() || !accessToken.trim() || selectedObjects.length === 0) && (
+                  <p className="text-xs text-amber-600 mt-2">
+                    Vui lòng điền đầy đủ tên luồng, địa chỉ website, mã truy cập và chọn ít nhất 1 loại dữ liệu
+                  </p>
                 )}
               </div>
+            </>
+          )}
 
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16, paddingTop: 16, borderTop: '1px solid #f1f5f9' }}>
-                <Button
-                  type="primary"
-                  onClick={next}
-                  disabled={!flowName.trim() || selectedApp !== 'service' || !serviceSourceSetupSaved || selectedObjects.length === 0}
-                >
-                  Continue
-                </Button>
-              </div>
-            </Card>
-          </div>
+          {selectedApp && selectedApp !== 'service' && (
+            <Alert type="info" message="Luồng này dùng giao diện chuẩn" description="Nhấn Tiếp theo ở thanh dưới để tiếp tục cấu hình." />
+          )}
         </div>
       )
     }
 
+    // Standard wizard (Request, Workflow, WeWork, Service non-condensed)
     return (
-      <div>
-        <div style={{ marginBottom: 24 }}>
-          <Title level={4} style={{ marginBottom: 4 }}>Choose an Application</Title>
-          <Paragraph type="secondary">Select the app whose data you want to back up.</Paragraph>
-        </div>
-
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ marginBottom: 8, fontWeight: 500 }}>
-            Backup Flow Name <span style={{ color: '#ff4d4f' }}>*</span>
-          </div>
-          <Input
-            placeholder="e.g. Daily Request Backup"
+      <div className="max-w-2xl space-y-8">
+        {/* Flow name */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1">
+            Tên luồng backup <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-2">Đặt tên dễ nhận biết, ví dụ: "Backup Request - Hàng tuần"</p>
+          <input
+            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            placeholder="VD: Backup Request - Hàng tuần"
             value={flowName}
             onChange={e => setFlowName(e.target.value)}
-            size="large"
             maxLength={120}
-            style={{ maxWidth: 480 }}
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 24 }}>
-          {Object.values(APPS).map(app => (
-            <Card
-              key={app.id}
-              hoverable
-              onClick={() => handleAppSelection(app.id)}
-              style={{
-                border: selectedApp === app.id ? `2px solid ${app.color}` : '1px solid #d9d9d9',
-                cursor: 'pointer',
-                backgroundColor: selectedApp === app.id ? app.bg : '#fff',
-                transition: 'all 0.3s'
-              }}
-            >
-              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                <div style={{
-                  fontSize: 40,
-                  color: app.color,
-                  backgroundColor: app.bg,
-                  padding: 12,
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  {app.icon}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Title level={5} style={{ margin: '0 0 4px 0', color: app.color }}>{app.name}</Title>
-                  <Paragraph type="secondary" style={{ fontSize: 12, margin: '0 0 12px 0' }}>
-                    {app.description}
-                  </Paragraph>
-                  <Space size={4} wrap>
-                    {app.objects.map(obj => (
-                      <Tag key={obj} color={app.color} style={{ fontSize: 11 }}>
-                        {app.objectLabels[obj]}
-                      </Tag>
-                    ))}
-                  </Space>
+        {/* App selection */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1">
+            Chọn ứng dụng nguồn <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-4">Bạn muốn sao lưu dữ liệu từ ứng dụng nào?</p>
+
+          <div className="grid grid-cols-2 gap-4">
+            {Object.values(APPS).map(app => (
+              <div
+                key={app.id}
+                onClick={() => handleAppSelection(app.id)}
+                className="relative border-2 rounded-2xl p-5 cursor-pointer transition-all hover:shadow-md"
+                style={{
+                  borderColor: selectedApp === app.id ? app.color : '#e5e7eb',
+                  backgroundColor: selectedApp === app.id ? app.bg : '#fff',
+                }}
+              >
+                {selectedApp === app.id && (
+                  <div className="absolute top-3 right-3">
+                    <CheckCircle className="w-5 h-5" style={{ color: app.color }} />
+                  </div>
+                )}
+                <div className="flex items-start gap-4">
+                  <div
+                    className="rounded-xl p-3 flex items-center justify-center shrink-0"
+                    style={{ color: app.color, backgroundColor: `${app.color}18`, width: 52, height: 52 }}
+                  >
+                    {app.icon}
+                  </div>
+                  <div className="flex-1 min-w-0 pr-4">
+                    <div className="font-bold text-sm mb-1" style={{ color: app.color }}>{app.name}</div>
+                    <p className="text-xs text-gray-500 mb-3 leading-relaxed">{app.description}</p>
+                    <div className="flex flex-wrap gap-1">
+                      {app.objects.map(obj => (
+                        <span
+                          key={obj}
+                          className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold"
+                          style={{ backgroundColor: `${app.color}18`, color: app.color }}
+                        >
+                          {app.objectLabels[obj]}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-              {selectedApp === app.id && (
-                <div style={{ marginTop: 12, textAlign: 'center', color: app.color, fontSize: 12 }}>
-                  <CheckOutlined /> Selected
-                </div>
-              )}
-            </Card>
-          ))}
+            ))}
+          </div>
         </div>
+      </div>
+    )
+  }
+
+  // Shared backup setup UI (used by both service condensed step 2 AND request step 3)
+  const renderBackupSetupSection = ({ onBackupTypeChange } = {}) => {
+    const analysis = serviceAccountAnalysis || {}
+    const availableDrives = Array.isArray(analysis.drives) ? analysis.drives : []
+    const serviceAccountEmail = analysis.client_email || googleAuth?.service_account_email || googleAuth?.email
+    const projectId = analysis.project_id || googleAuth?.project_id
+
+    const BACKUP_TYPE_OPTIONS = [
+      {
+        id: 'structured',
+        title: 'Bảng tính (Dữ liệu có cấu trúc)',
+        desc: 'Xuất dữ liệu dạng bảng Excel/Spreadsheet — phù hợp để xem và phân tích',
+        color: '#0284c7',
+        icon: <FileSpreadsheet className="w-5 h-5" />,
+        badge: 'Phổ biến',
+      },
+      {
+        id: 'unstructured',
+        title: 'File & Đính kèm',
+        desc: 'Sao lưu file, hình ảnh, tài liệu đính kèm trong các ticket và yêu cầu',
+        color: '#d97706',
+        icon: <Folder className="w-5 h-5" />,
+        badge: null,
+      },
+      {
+        id: 'all',
+        title: 'Toàn bộ (Khuyến nghị)',
+        desc: 'Bao gồm cả bảng tính lẫn toàn bộ file đính kèm — bản backup đầy đủ nhất',
+        color: '#7c3aed',
+        icon: <Database className="w-5 h-5" />,
+        badge: 'Đầy đủ nhất',
+      },
+    ]
+
+    return (
+      <div className="space-y-8">
+        {/* Backup Type */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1">
+            Bạn muốn sao lưu dạng nào? <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-3">Chọn định dạng phù hợp với nhu cầu sử dụng sau này</p>
+          <div className="space-y-2.5">
+            {BACKUP_TYPE_OPTIONS.map(type => (
+              <div
+                key={type.id}
+                onClick={() => {
+                  setBackupType(type.id)
+                  setServiceBackupSetupSaved(false)
+                  if (onBackupTypeChange) onBackupTypeChange(type.id)
+                }}
+                className="flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-all"
+                style={{
+                  borderColor: backupType === type.id ? type.color : '#e5e7eb',
+                  backgroundColor: backupType === type.id ? `${type.color}0f` : '#fff',
+                }}
+              >
+                <div
+                  className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: `${type.color}18`, color: type.color }}
+                >
+                  {type.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="font-bold text-sm" style={{ color: backupType === type.id ? type.color : '#1f2937' }}>
+                      {type.title}
+                    </span>
+                    {type.badge && (
+                      <span
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold"
+                        style={{ backgroundColor: `${type.color}20`, color: type.color }}
+                      >
+                        {type.badge}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500 leading-relaxed">{type.desc}</p>
+                </div>
+                <div
+                  className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all`}
+                  style={{
+                    borderColor: backupType === type.id ? type.color : '#d1d5db',
+                    backgroundColor: backupType === type.id ? type.color : 'transparent',
+                  }}
+                >
+                  {backupType === type.id && <Check className="w-3 h-3 text-white" />}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Destination */}
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1">
+            Lưu backup về đâu? <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-3">Chọn nơi lưu trữ bản backup trong Google</p>
+          <div className="grid grid-cols-2 gap-3">
+            {[
+              {
+                id: 'gdrive',
+                title: 'Google Drive',
+                desc: 'Lưu vào thư mục Drive — hỗ trợ mọi định dạng file',
+                icon: <Folder className="w-5 h-5" />,
+                color: '#1a73e8',
+                best: backupType !== 'structured',
+              },
+              {
+                id: 'gsheets',
+                title: 'Google Sheets',
+                desc: 'Tạo bảng tính trực tiếp trong Sheets',
+                icon: <FileSpreadsheet className="w-5 h-5" />,
+                color: '#0f9d58',
+                best: backupType === 'structured',
+              },
+            ].filter(d => backupType !== 'unstructured' || d.id === 'gdrive').map(dest => (
+              <div
+                key={dest.id}
+                onClick={() => selectDestination(dest.id)}
+                className="relative border-2 rounded-2xl p-4 cursor-pointer transition-all"
+                style={{
+                  borderColor: storageDestination === dest.id ? dest.color : '#e5e7eb',
+                  backgroundColor: storageDestination === dest.id ? `${dest.color}0d` : '#fff',
+                }}
+              >
+                {dest.best && backupType && (
+                  <span
+                    className="absolute -top-2 left-3 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-white border"
+                    style={{ borderColor: dest.color, color: dest.color }}
+                  >
+                    Phù hợp nhất
+                  </span>
+                )}
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-9 h-9 rounded-lg flex items-center justify-center shrink-0"
+                    style={{ backgroundColor: `${dest.color}18`, color: dest.color }}
+                  >
+                    {dest.icon}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-sm mb-0.5" style={{ color: storageDestination === dest.id ? dest.color : '#1f2937' }}>
+                      {dest.title}
+                    </p>
+                    <p className="text-xs text-gray-400 leading-relaxed">{dest.desc}</p>
+                  </div>
+                </div>
+                {storageDestination === dest.id && (
+                  <div className="absolute top-3 right-3">
+                    <CheckCircle className="w-4 h-4" style={{ color: dest.color }} />
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Google Account */}
+        {storageDestination && (
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              Kết nối tài khoản Google <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-gray-400 mb-3">
+              Cần kết nối Google để hệ thống có quyền ghi dữ liệu vào {storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'} của bạn
+            </p>
+
+            <div className="space-y-2.5">
+              {[
+                {
+                  id: 'oauth',
+                  title: 'Tài khoản Google cá nhân',
+                  desc: 'Đăng nhập bằng tài khoản Google của bạn qua cửa sổ bật lên — cách đơn giản nhất',
+                  color: '#2563eb',
+                  recommended: true,
+                },
+                {
+                  id: 'service_account',
+                  title: 'Tài khoản dịch vụ (Service Account)',
+                  desc: 'Dùng file JSON từ Google Cloud Console — phù hợp cho doanh nghiệp và tự động hóa',
+                  color: '#7c3aed',
+                  recommended: false,
+                },
+              ].map(method => (
+                <div
+                  key={method.id}
+                  onClick={() => { setGoogleAuthMethod(method.id); setGoogleAuth(null); setServiceAccountAnalysis(null); setServiceAccountFileName(''); setServiceAccountError(''); setServiceBackupSetupSaved(false) }}
+                  className="flex items-center gap-4 p-4 rounded-2xl border-2 cursor-pointer transition-all"
+                  style={{
+                    borderColor: googleAuthMethod === method.id ? method.color : '#e5e7eb',
+                    backgroundColor: googleAuthMethod === method.id ? `${method.color}0d` : '#fff',
+                  }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="font-bold text-sm" style={{ color: googleAuthMethod === method.id ? method.color : '#1f2937' }}>
+                        {method.title}
+                      </span>
+                      {method.recommended && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700">
+                          Dễ nhất
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-gray-500 leading-relaxed">{method.desc}</p>
+                  </div>
+                  <div
+                    className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0"
+                    style={{
+                      borderColor: googleAuthMethod === method.id ? method.color : '#d1d5db',
+                      backgroundColor: googleAuthMethod === method.id ? method.color : 'transparent',
+                    }}
+                  >
+                    {googleAuthMethod === method.id && <Check className="w-3 h-3 text-white" />}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* OAuth connect */}
+            {googleAuthMethod === 'oauth' && (
+              <div className="mt-4">
+                {googleAuth ? (
+                  <div className="bg-green-50 border border-green-200 rounded-2xl px-4 py-4 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      {googleAuth.picture_url
+                        ? <img src={googleAuth.picture_url} alt="" className="w-10 h-10 rounded-full border-2 border-green-300" />
+                        : <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center"><CheckCircle className="w-5 h-5 text-green-600" /></div>}
+                      <div>
+                        <div className="text-[10px] font-bold text-green-700 uppercase tracking-wide mb-0.5">Đã kết nối</div>
+                        <div className="text-sm font-bold text-green-800">{googleAuth.display_name || googleAuth.email}</div>
+                        <div className="text-xs text-green-600">{googleAuth.email}</div>
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleGoogleDisconnect}
+                      className="text-xs px-3 py-1.5 border border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors font-medium"
+                    >
+                      Ngắt kết nối
+                    </button>
+                  </div>
+                ) : (
+                  <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-3">
+                    <p className="text-xs text-blue-600">
+                      Nhấn nút bên dưới để đăng nhập Google. Một cửa sổ nhỏ sẽ hiện lên — hãy chọn tài khoản Google bạn muốn dùng để lưu backup.
+                    </p>
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        onClick={handleGoogleConnect}
+                        className="flex items-center gap-2 px-4 py-2.5 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-semibold"
+                      >
+                        <Globe className="w-4 h-4" /> Đăng nhập Google
+                      </button>
+                      <button
+                        onClick={openGoogleConfigModal}
+                        className="px-4 py-2.5 text-sm border border-gray-300 text-gray-600 rounded-xl hover:bg-gray-50 transition-colors"
+                      >
+                        Cấu hình OAuth Client
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Service Account upload */}
+            {googleAuthMethod === 'service_account' && (
+              <div className="mt-4 space-y-3">
+                <div className="border-2 border-dashed border-gray-200 rounded-2xl p-5 hover:border-purple-300 transition-colors">
+                  <p className="text-sm font-semibold text-gray-700 mb-1">Tải lên file JSON Service Account</p>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Tải file <code className="bg-gray-100 px-1 rounded">.json</code> từ Google Cloud Console → IAM & Admin → Service Accounts → Keys
+                  </p>
+                  <input
+                    type="file"
+                    accept=".json,application/json"
+                    onChange={handleServiceAccountFileUpload}
+                    className="text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border file:border-gray-300 file:text-xs file:font-medium file:bg-white file:text-gray-700 hover:file:bg-gray-50"
+                  />
+                  {serviceAccountFileName && (
+                    <div className="flex items-center gap-1.5 mt-2 text-xs text-gray-500">
+                      <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+                      <span>Đã tải: {serviceAccountFileName}</span>
+                    </div>
+                  )}
+                </div>
+
+                {serviceAccountError && <Alert type="error" message={serviceAccountError} />}
+
+                {serviceAccountAnalysisLoading && (
+                  <div className="flex items-center gap-2 py-4 text-sm text-gray-500">
+                    <Spinner /> <span>Đang phân tích file…</span>
+                  </div>
+                )}
+
+                {serviceAccountEmail && !serviceAccountAnalysisLoading && (
+                  <div className="bg-purple-50 border border-purple-200 rounded-2xl p-4 space-y-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <CheckCircle className="w-4 h-4 text-purple-600" />
+                      <span className="text-sm font-bold text-purple-800">Xác nhận Service Account</span>
+                    </div>
+                    <div className="space-y-1.5 text-sm">
+                      <div className="flex gap-2">
+                        <span className="text-xs text-gray-400 w-20 shrink-0 pt-0.5">Email</span>
+                        <span className="font-semibold text-gray-800 break-all">{serviceAccountEmail}</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <span className="text-xs text-gray-400 w-20 shrink-0 pt-0.5">Project</span>
+                        <span className="font-semibold text-gray-800">{projectId || '—'}</span>
+                      </div>
+                      {availableDrives.length > 0 && (
+                        <div className="flex gap-2">
+                          <span className="text-xs text-gray-400 w-20 shrink-0 pt-0.5">Shared Drives</span>
+                          <div className="flex flex-wrap gap-1">
+                            {availableDrives.map(drive => <Tag key={drive.id} color="default">{drive.name}</Tag>)}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Folder picker */}
+        {storageDestination === 'gdrive' && googleAuth && (
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              Thư mục lưu trữ <span className="text-xs text-gray-400 font-normal">(tùy chọn)</span>
+            </label>
+            <p className="text-xs text-gray-400 mb-2">Chọn thư mục cụ thể trong Google Drive để lưu bản backup. Nếu không chọn, sẽ lưu vào My Drive.</p>
+            <button
+              onClick={handleOpenFolderPicker}
+              className="w-full border-2 border-dashed border-gray-200 rounded-xl px-4 py-3.5 text-sm flex items-center gap-3 hover:border-blue-400 hover:bg-blue-50/30 transition-all text-left"
+            >
+              <Folder className={`w-5 h-5 shrink-0 ${googleAuth.folder_name ? 'text-amber-500' : 'text-gray-400'}`} />
+              <span className={googleAuth.folder_name ? 'font-medium text-gray-800' : 'text-gray-400'}>
+                {googleAuth.folder_name ? `📁 ${googleAuth.folder_name}` : 'Nhấn để chọn thư mục…'}
+              </span>
+              {!googleAuth.folder_name && <span className="ml-auto text-xs text-gray-400">Tùy chọn</span>}
+            </button>
+            {renderGoogleDriveFolderSummary()}
+            {getGoogleDriveRunBlockedReason() && (
+              <Alert type="warning" message="Thư mục này chưa thể sử dụng để chạy backup" description={getGoogleDriveRunBlockedReason()} className="mt-2" />
+            )}
+          </div>
+        )}
       </div>
     )
   }
 
   const renderGenericStep3 = () => {
     if (isServiceApp && totalSteps === 3) {
-      const analysis = serviceAccountAnalysis || {}
-      const availableDrives = Array.isArray(analysis.drives) ? analysis.drives : []
-      const serviceAccountEmail = analysis.client_email || googleAuth?.service_account_email || googleAuth?.email
-      const projectId = analysis.project_id || googleAuth?.project_id
-      const destinationLabel = storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'
-      const serviceSetupColumnHeight = condensedServiceSectionHeight
-
-      return (
-        <div>
-          <div style={{ marginBottom: 24 }}>
-            <Title level={4} style={{ marginBottom: 4 }}>Backup Setup</Title>
-            <Paragraph type="secondary">
-              Chia phần cấu hình thành 3 section rõ ràng: backup type, destination, rồi authentication kết hợp với destination folder.
-            </Paragraph>
-          </div>
-
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
-              gap: 16,
-              alignItems: 'stretch'
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-                height: serviceSetupColumnHeight,
-                minHeight: serviceSetupColumnHeight,
-                minWidth: 0
-              }}
-            >
-              <Card
-                title="Section 1: Backup Type"
-                style={{ flex: `0 0 ${balancedSetupTopSectionFlex}`, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-                styles={{ body: { flex: 1, minHeight: 0, overflowY: 'auto' } }}
-              >
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  {[
-                    { id: 'structured', title: 'Structured', desc: 'Service and ticket spreadsheets only', color: '#0284c7', icon: <FileExcelOutlined /> },
-                    { id: 'unstructured', title: 'Unstructured', desc: 'Ticket folders, files, and artifacts', color: '#d97706', icon: <FolderOutlined /> },
-                    { id: 'all', title: 'Complete', desc: 'Structured + unstructured artifacts', color: '#7c3aed', icon: <DatabaseOutlined /> },
-                  ].map(type => (
-                    <Card
-                      key={type.id}
-                      hoverable
-                      onClick={() => {
-                        setBackupType(type.id)
-                        setServiceBackupSetupSaved(false)
-                      }}
-                      style={{
-                        border: backupType === type.id ? `2px solid ${type.color}` : '1px solid #d9d9d9',
-                        backgroundColor: backupType === type.id ? `${type.color}12` : '#fff',
-                        cursor: 'pointer'
-                      }}
-                      styles={{ body: { padding: 14 } }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                        <div style={{ color: type.color, fontSize: 18, marginTop: 2 }}>{type.icon}</div>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 700, fontSize: 14 }}>{type.title}</div>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{type.desc}</Text>
-                        </div>
-                        {backupType === type.id && <CheckOutlined style={{ color: type.color, marginTop: 4 }} />}
-                      </div>
-                    </Card>
-                  ))}
-                </Space>
-              </Card>
-
-              <Card
-                title="Section 2: Destination"
-                style={{ flex: '1 1 0', minHeight: 0, display: 'flex', flexDirection: 'column' }}
-                styles={{ body: { flex: 1, minHeight: 0, overflowY: 'auto' } }}
-              >
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  <Button
-                    onClick={() => setShowDestinationModal(true)}
-                    disabled={!backupType}
-                    block
-                    size="large"
-                    style={{
-                      borderStyle: 'dashed',
-                      borderWidth: 2,
-                      borderColor: !backupType ? '#e2e8f0' : '#cbd5e1',
-                      height: 'auto',
-                      padding: 16,
-                      opacity: !backupType ? 0.5 : 1,
-                      justifyContent: 'flex-start'
-                    }}
-                  >
-                    <Space>
-                      <CloudOutlined style={{ fontSize: 18, color: '#3b82f6' }} />
-                      <Text strong style={{ fontSize: 13 }}>
-                        {storageDestination ? `Selected: ${destinationLabel}` : 'Select Destination in Modal'}
-                      </Text>
-                    </Space>
-                  </Button>
-
-                  {storageDestination ? (
-                    <Card size="small" style={{ background: '#ecfeff', border: '2px solid #a5f3fc' }}>
-                      <Space direction="vertical" size={6} style={{ width: '100%' }}>
-                        <Text type="secondary">Destination Summary</Text>
-                        <div style={{ fontWeight: 700 }}>{destinationLabel}</div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {storageDestination === 'gdrive' ? 'Folder, xlsx, json, attachments' : 'Spreadsheet destination'}
-                        </Text>
-                      </Space>
-                    </Card>
-                  ) : (
-                    <Alert
-                      type="info"
-                      showIcon
-                      message="Choose destination"
-                      description="Chọn backup type trước, sau đó chọn nơi sẽ nhận dữ liệu backup ở section này."
-                    />
-                  )}
-                </Space>
-              </Card>
-            </div>
-
-            <Card
-              title={
-                <Space size={8}>
-                  <span>Section 3: Authentication & Destination Folder</span>
-                  {renderHoverHint('If you do not specify specific service IDs later, this flow will back up all services visible to the provided Service token.')}
-                </Space>
-              }
-              style={{ height: serviceSetupColumnHeight, minHeight: serviceSetupColumnHeight, display: 'flex', flexDirection: 'column' }}
-              styles={{ body: { flex: 1, minHeight: 0, overflowY: 'auto' } }}
-            >
-              {!storageDestination ? (
-                <Alert
-                  type="info"
-                  showIcon
-                  message="Select destination first"
-                  description="Choose a destination in Section 2 before configuring authentication and destination folder."
-                />
-              ) : (
-                <Space direction="vertical" size={16} style={{ width: '100%' }}>
-                  <div>
-                    <Text strong style={{ display: 'block', marginBottom: 8 }}>Authentication</Text>
-                    <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                      {[
-                        {
-                          id: 'oauth',
-                          title: 'OAuth User',
-                          desc: 'Connect a Google account via popup',
-                          color: '#2563eb',
-                          icon: <GoogleOutlined />,
-                          hint: 'Connect a Google user account, then choose the destination folder below.'
-                        },
-                        {
-                          id: 'service_account',
-                          title: 'Service Account',
-                          desc: 'Upload a service account JSON key below',
-                          color: '#7c3aed',
-                          icon: <ApiOutlined />,
-                          hint: 'Upload and analyze the Google service account JSON key below. Then choose a destination folder in the same section.'
-                        },
-                      ].map(method => (
-                        <Card
-                          key={method.id}
-                          hoverable
-                          onClick={() => {
-                            setGoogleAuthMethod(method.id)
-                            setGoogleAuth(null)
-                            setServiceAccountAnalysis(null)
-                            setServiceAccountFileName('')
-                            setServiceAccountError('')
-                            setServiceBackupSetupSaved(false)
-                          }}
-                          style={{
-                            border: googleAuthMethod === method.id ? `2px solid ${method.color}` : '1px solid #d9d9d9',
-                            backgroundColor: googleAuthMethod === method.id ? `${method.color}12` : '#fff',
-                            cursor: 'pointer'
-                          }}
-                          styles={{ body: { padding: 14 } }}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-                            <div style={{ color: method.color, fontSize: 18, marginTop: 2 }}>{method.icon}</div>
-                            <div style={{ flex: 1 }}>
-                              <Space size={8} align="center" style={{ marginBottom: 2 }}>
-                                <span style={{ fontWeight: 700, fontSize: 14 }}>{method.title}</span>
-                                {renderHoverHint(method.hint)}
-                              </Space>
-                              <div>
-                                <Text type="secondary" style={{ fontSize: 12 }}>{method.desc}</Text>
-                              </div>
-                            </div>
-                            {googleAuthMethod === method.id && <CheckOutlined style={{ color: method.color, marginTop: 4 }} />}
-                          </div>
-                        </Card>
-                      ))}
-                    </Space>
-                  </div>
-
-                  {storageDestination === 'gdrive' && googleAuthMethod === 'oauth' && (
-                    <div>
-                      {googleAuth ? (
-                        <Card style={{ background: '#f0fdf4', border: '1px solid #bbf7d0' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-                            <Space>
-                              {googleAuth.picture_url
-                                ? <img src={googleAuth.picture_url} alt="" style={{ width: 32, height: 32, borderRadius: '50%' }} />
-                                : <CheckOutlined style={{ color: '#059669', fontSize: 20 }} />}
-                              <div>
-                                <div style={{ fontSize: 10, color: '#065f46', fontWeight: 700 }}>CONNECTED</div>
-                                <div style={{ fontSize: 13, fontWeight: 600, color: '#047857' }}>
-                                  {googleAuth.display_name || googleAuth.email}
-                                </div>
-                                <div style={{ fontSize: 11, color: '#059669' }}>{googleAuth.email}</div>
-                              </div>
-                            </Space>
-                            <Button size="small" danger onClick={handleGoogleDisconnect}>Disconnect</Button>
-                          </div>
-                        </Card>
-                      ) : (
-                        <Space wrap>
-                          <Button onClick={openGoogleConfigModal}>Configure OAuth Client</Button>
-                          <Button type="primary" icon={<GoogleOutlined />} onClick={handleGoogleConnect}>
-                            Connect with Google
-                          </Button>
-                        </Space>
-                      )}
-                    </div>
-                  )}
-
-                  {storageDestination === 'gdrive' && googleAuthMethod === 'service_account' && (
-                    <div>
-                      <Card style={{ marginBottom: 12 }}>
-                        <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                          <Text strong>Upload Service Account JSON</Text>
-                          <input type="file" accept=".json,application/json" onChange={handleServiceAccountFileUpload} />
-                          {serviceAccountFileName && (
-                            <Text type="secondary">Uploaded file: {serviceAccountFileName}</Text>
-                          )}
-                        </Space>
-                      </Card>
-
-                      {serviceAccountError && (
-                        <Alert type="error" showIcon style={{ marginBottom: 12 }} message={serviceAccountError} />
-                      )}
-
-                      {serviceAccountAnalysisLoading ? (
-                        <div style={{ textAlign: 'center', padding: 24 }}>
-                          <Spin />
-                        </div>
-                      ) : serviceAccountEmail ? (
-                        <Card title="Service Account Summary">
-                          <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                            <div>
-                              <Text type="secondary">Service Account Email</Text>
-                              <div style={{ fontWeight: 700, marginTop: 4 }}>{serviceAccountEmail}</div>
-                            </div>
-                            <div>
-                              <Text type="secondary">Project ID</Text>
-                              <div style={{ fontWeight: 700, marginTop: 4 }}>{projectId || '—'}</div>
-                            </div>
-                            <div>
-                              <Text type="secondary">Available Drives</Text>
-                              <div style={{ marginTop: 8 }}>
-                                <Space size={6} wrap>
-                                  {availableDrives.length > 0
-                                    ? availableDrives.map(drive => <Tag key={drive.id}>{drive.name}</Tag>)
-                                    : <Text type="secondary">No drives listed yet. This is normal if the service account has not been shared onto any Drive resources.</Text>}
-                                </Space>
-                              </div>
-                            </div>
-                          </Space>
-                        </Card>
-                      ) : null}
-                    </div>
-                  )}
-
-                  <div>
-                    <Text strong style={{ display: 'block', marginBottom: 8 }}>Destination Folder</Text>
-                    {storageDestination !== 'gdrive' ? (
-                      <Alert
-                        type="info"
-                        showIcon
-                        message="Folder picker is not required"
-                        description="This destination does not need a Google Drive folder selection."
-                      />
-                    ) : !googleAuth ? (
-                      <Alert
-                        type="info"
-                        showIcon
-                        message="Complete authentication first"
-                        description="Connect OAuth or upload a service account file before selecting the destination folder."
-                      />
-                    ) : (
-                      <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                        <Button block icon={<FolderOutlined />} onClick={handleOpenFolderPicker} style={{ borderStyle: 'dashed' }}>
-                          {googleAuth.folder_name ? `📁 ${googleAuth.folder_name}` : 'Select folder in Google Drive'}
-                        </Button>
-                        {renderGoogleDriveFolderSummary()}
-                        {getGoogleDriveRunBlockedReason() && (
-                          <Alert
-                            type="warning"
-                            showIcon
-                            message="This destination cannot run yet"
-                            description={getGoogleDriveRunBlockedReason()}
-                          />
-                        )}
-                      </Space>
-                    )}
-                  </div>
-
-                  <Button type="primary" onClick={handleConfirmServiceBackupSetup} disabled={!canSaveServiceBackupSetup}>
-                    Save Destination Settings
-                  </Button>
-                </Space>
-              )}
-            </Card>
-          </div>
-
-        </div>
-      )
+      return renderBackupSetupSection()
     }
 
+    // Generic (non-service condensed) — access token step
     return (
-      <div>
-        <div style={{ marginBottom: 24 }}>
-          <Title level={4} style={{ marginBottom: 4 }}>{connectionConfig?.stepTitle || 'Enter Access Token'}</Title>
-          <Paragraph type="secondary">
-            {connectionConfig?.stepDescription || <>Provide your <strong>{currentApp.name}</strong> API access token to authenticate</>}
-          </Paragraph>
-        </div>
+      <div className="max-w-xl space-y-6">
+        <div className="border border-blue-100 rounded-2xl p-6 bg-blue-50/40 space-y-5">
+          <div className="flex items-center gap-2">
+            <Lock className="w-5 h-5 text-blue-600" />
+            <h4 className="text-sm font-bold text-blue-800">
+              {connectionConfig?.stepTitle || `Kết nối ${currentApp?.name}`}
+            </h4>
+          </div>
 
-        <Form layout="vertical">
           {connectionConfig?.requiresDomain && (
-            <Form.Item
-              label={<><CloudOutlined style={{ color: '#3b82f6', marginRight: 6 }} />{connectionConfig.domainLabel}</>}
-              required
-            >
-              <Input
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-1">
+                {connectionConfig.domainLabel || 'Địa chỉ website'} <span className="text-red-500">*</span>
+              </label>
+              <p className="text-xs text-gray-400 mb-2">{connectionConfig.domainHelp}</p>
+              <input
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 placeholder={connectionConfig.domainPlaceholder}
                 value={domain}
-                onChange={(e) => {
-                  setDomain(e.target.value)
-                  if (isServiceApp) setServicePreview(null)
-                }}
-                size="large"
+                onChange={(e) => { setDomain(e.target.value); if (isServiceApp) setServicePreview(null) }}
               />
-              <Text type="secondary" style={{ fontSize: 12 }}>
-                {connectionConfig.domainHelp}
-              </Text>
-            </Form.Item>
+            </div>
           )}
 
-          <Form.Item
-            label={<><LockOutlined style={{ color: '#f59e0b', marginRight: 6 }} />{connectionConfig?.tokenLabel || 'API Access Token'}</>}
-            required
-          >
-            <Password
-              placeholder={connectionConfig?.tokenPlaceholder || 'Paste your access token here…'}
-              value={accessToken}
-              onChange={(e) => {
-                setAccessToken(e.target.value)
-                if (isServiceApp) setServicePreview(null)
-              }}
-              iconRender={visible => (visible ? <EyeOutlined /> : <EyeInvisibleOutlined />)}
-              size="large"
-            />
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {connectionConfig?.tokenHelp || <>You can find your access token in <strong>{currentApp.name}</strong> → Settings → API Keys</>}
-            </Text>
-          </Form.Item>
-        </Form>
-
+          <div>
+            <label className="block text-sm font-semibold text-gray-700 mb-1">
+              {connectionConfig?.tokenLabel || 'Mã truy cập API'} <span className="text-red-500">*</span>
+            </label>
+            <p className="text-xs text-gray-400 mb-2">
+              {connectionConfig?.tokenHelp || `Lấy từ ${currentApp?.name} → Cài đặt → API Keys`}
+            </p>
+            <div className="relative">
+              <input
+                type={showToken ? 'text' : 'password'}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                placeholder="Dán mã truy cập vào đây…"
+                value={accessToken}
+                onChange={(e) => { setAccessToken(e.target.value); if (isServiceApp) setServicePreview(null) }}
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken(v => !v)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+              >
+                {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     )
   }
 
+  const buildServiceTreeLines = () => {
+    const root = googleAuth?.folder_name || 'My Drive'
+    const hasTickets = backupType === 'unstructured' || backupType === 'all'
+    const hasStructured = backupType === 'structured' || backupType === 'all'
+
+    const lines = [
+      { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
+      { indent: 1, icon: '📁', text: 'Base Service', color: '#10b981' },
+      { indent: 2, icon: '📁', text: '01. Danh mục', color: '#60a5fa' },
+    ]
+
+    if (hasStructured) {
+      lines.push({ indent: 3, icon: '📊', text: 'danh_sach_loai_ticket.xlsx', color: '#4ade80' })
+      lines.push({ indent: 3, icon: '📊', text: 'danh_sach_nguon_ticket.xlsx', color: '#4ade80' })
+      lines.push({ indent: 3, icon: '📊', text: 'danh_sach_trang_thai.xlsx', color: '#4ade80' })
+    }
+
+    lines.push({ indent: 2, icon: '📁', text: 'Tên Service A', color: '#60a5fa' })
+
+    if (hasStructured) {
+      lines.push({ indent: 3, icon: '📊', text: 'Danh sách ticket.xlsx', color: '#4ade80' })
+      lines.push({ indent: 3, icon: '📊', text: 'Danh sách stage.xlsx', color: '#4ade80' })
+    }
+
+    if (hasTickets) {
+      lines.push({ indent: 3, icon: '📁', text: 'Tickets', color: '#a78bfa' })
+      lines.push({ indent: 4, icon: '📁', text: '[TICKET-001] Tên ticket 1', color: '#93c5fd' })
+      lines.push({ indent: 5, icon: '📋', text: 'ticket.json', color: '#94a3b8' })
+      lines.push({ indent: 5, icon: '📊', text: 'Thông tin ticket.xlsx', color: '#94a3b8' })
+      lines.push({ indent: 5, icon: '📁', text: 'Tệp đính kèm/', color: '#94a3b8' })
+      lines.push({ indent: 6, icon: '📄', text: 'file.pdf', color: '#64748b' })
+      lines.push({ indent: 6, icon: '🖼️', text: 'image.png', color: '#64748b' })
+      lines.push({ indent: 4, icon: '📁', text: '[TICKET-002] Tên ticket 2', color: '#93c5fd' })
+      lines.push({ indent: 5, icon: '…', text: '(tương tự)', color: '#64748b' })
+    }
+
+    lines.push({ indent: 2, icon: '📁', text: 'Tên Service B', color: '#60a5fa' })
+    lines.push({ indent: 3, icon: '…', text: '(tương tự)', color: '#64748b' })
+
+    return lines
+  }
+
   const renderGenericStep4 = () => {
+    const isEdit = viewMode === 'edit'
+
     if (isServiceApp) {
-      const isEdit = viewMode === 'edit'
-      const structurePreviewServices = (selectedServicesForFlow.length > 0 ? selectedServicesForFlow : servicePreviewRows).slice(0, 2)
-      const reviewColumnHeight = condensedServiceSectionHeight
+      const backupTypeLabels = { structured: 'Bảng tính (Dữ liệu có cấu trúc)', unstructured: 'File & Đính kèm', all: 'Toàn bộ' }
+      const backupTypeColors = { structured: '#0284c7', unstructured: '#d97706', all: '#7c3aed' }
+
+      // Vertical label-value layout: label on top, value below — no width conflict
+      const SummaryField = ({ label, children }) => (
+        <div className="py-2.5 border-b border-gray-50 last:border-0">
+          <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-0.5">{label}</div>
+          <div className="text-sm text-gray-800 break-words">{children ?? <span className="text-gray-300 text-xs">—</span>}</div>
+        </div>
+      )
+
+      const treeLines = buildServiceTreeLines()
+
+      const _serviceBlockedReason = getGoogleDriveRunBlockedReason()
+      const _serviceArchiveNotice = renderServiceRootArchiveNotice(currentApp?.id || selectedApp, storageDestination)
 
       return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {getGoogleDriveRunBlockedReason() && (
-            <Alert
-              type="warning"
-              showIcon
-              message="This destination cannot run yet"
-              description={getGoogleDriveRunBlockedReason()}
-            />
-          )}
-
-          {renderServiceRootArchiveNotice(currentApp?.id || selectedApp, storageDestination)}
-
-          <div>
-            <Space>
-              <RocketOutlined style={{ fontSize: 24, color: '#059669' }} />
-              <div>
-                <Title level={4} style={{ margin: 0 }}>Review</Title>
-                <Paragraph type="secondary">Tách review thành 2 cột cân bằng: cột trái là flow summary & action, cột phải là current service state và destination structure preview.</Paragraph>
-              </div>
-            </Space>
+        <div className="h-full flex flex-col gap-4">
+          {/* Ready banner — includes inline warning if any */}
+          <div className={`shrink-0 rounded-2xl px-5 py-4 flex items-center gap-4 ${_serviceBlockedReason ? 'bg-amber-50 border border-amber-200' : 'bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200'}`}>
+            <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${_serviceBlockedReason ? 'bg-amber-100' : 'bg-green-100'}`}>
+              {_serviceBlockedReason
+                ? <Info className="w-5 h-5 text-amber-600" />
+                : <CheckCircle className="w-5 h-5 text-green-600" />}
+            </div>
+            <div className="flex-1 min-w-0">
+              {_serviceBlockedReason ? (
+                <>
+                  <h3 className="text-sm font-bold text-amber-800">Lưu ý trước khi tạo</h3>
+                  <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">{_serviceBlockedReason}</p>
+                  {_serviceArchiveNotice && <p className="text-xs text-amber-600 mt-1 leading-relaxed">{_serviceArchiveNotice}</p>}
+                </>
+              ) : (
+                <>
+                  <h3 className="text-sm font-bold text-green-800">Sẵn sàng tạo luồng backup!</h3>
+                  <p className="text-xs text-green-600 mt-0.5">Kiểm tra lại cấu hình bên dưới rồi nhấn xác nhận</p>
+                </>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2 shrink-0">
+              <button
+                onClick={() => handleFinish(true)}
+                className="flex items-center gap-1.5 px-4 py-2 text-sm border border-green-400 text-green-700 bg-white rounded-xl hover:bg-green-50 transition-colors font-medium"
+              >
+                <Play className="w-3.5 h-3.5" />
+                {isEdit ? 'Lưu & Chạy' : 'Tạo & Chạy'}
+              </button>
+              <button
+                onClick={() => handleFinish(false)}
+                className="flex items-center gap-1.5 px-5 py-2 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-semibold shadow-sm"
+              >
+                <Rocket className="w-3.5 h-3.5" />
+                {isEdit ? 'Lưu thay đổi' : 'Tạo luồng'}
+              </button>
+            </div>
           </div>
 
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(420px, 1fr))',
-              gap: 16,
-              alignItems: 'stretch'
-            }}
-          >
-            <Card
-              title="Section 1: Flow Summary & Action"
-              style={{ height: reviewColumnHeight, minHeight: reviewColumnHeight, display: 'flex', flexDirection: 'column' }}
-              styles={{ body: { flex: 1, minHeight: 0, overflowY: 'auto' } }}
-            >
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                  gap: 16,
-                  alignItems: 'start'
-                }}
-              >
-                <Card size="small" title="App">
-                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                    <div>
-                      <Text type="secondary">Application</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>
-                        <CustomerServiceOutlined style={{ color: '#059669', marginRight: 6 }} />
-                        Service
-                      </div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Domain</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>{domain}</div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Flow Name</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>{flowName || 'Untitled flow'}</div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Objects</Text>
-                      <div style={{ marginTop: 8 }}>
-                        <Space size={4} wrap>
-                          {selectedObjects.map(obj => (
-                            <Tag key={obj} color={currentApp.color}>{currentApp.objectLabels[obj]}</Tag>
-                          ))}
-                        </Space>
-                      </div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Selected Services</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>{selectedServiceIds.length} service</div>
-                    </div>
-                  </Space>
-                </Card>
+          {/* 2-column layout — 50/50 */}
+          <div className="flex gap-5 flex-1 min-h-0">
 
-                <Card size="small" title="Destination">
-                  <Space direction="vertical" size={14} style={{ width: '100%' }}>
-                    <div>
-                      <Text type="secondary">Backup Type</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>
-                        {backupType === 'structured' && <><FileExcelOutlined style={{ color: '#0284c7', marginRight: 6 }} />Structured</>}
-                        {backupType === 'unstructured' && <><FolderOutlined style={{ color: '#d97706', marginRight: 6 }} />Unstructured</>}
-                        {backupType === 'all' && <><DatabaseOutlined style={{ color: '#7c3aed', marginRight: 6 }} />Complete</>}
-                      </div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Destination</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>
-                        {storageDestination === 'gsheets'
-                          ? <><FileExcelOutlined style={{ color: '#10b981', marginRight: 6 }} />Google Sheets</>
-                          : <><GoogleOutlined style={{ color: '#4285f4', marginRight: 6 }} />Google Drive</>}
-                      </div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Google Account</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>{googleAuth?.email || 'Not connected'}</div>
-                    </div>
-                    <div>
-                      <Text type="secondary">Drive Folder</Text>
-                      <div style={{ fontWeight: 600, marginTop: 4 }}>{googleAuth?.folder_name || 'My Drive root'}</div>
-                      <div style={{ marginTop: 8 }}>
-                        {renderGoogleDriveFolderSummary()}
-                      </div>
-                    </div>
-                  </Space>
-                </Card>
+            {/* LEFT — Summary */}
+            <div className="flex-1 min-w-0 flex flex-col gap-3 overflow-y-auto pr-1">
 
-                <Card size="small" title="Action">
-                  <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                    <Text type="secondary">Đã chọn {selectedServiceIds.length} service cho flow này.</Text>
-                    <Button onClick={prev}>Previous</Button>
-                    <Button block type="primary" size="large" icon={isEdit ? <EditOutlined /> : <RocketOutlined />} onClick={() => handleFinish(false)}>
-                      {isEdit ? 'Save Changes' : 'Create Backup Flow'}
-                    </Button>
-                    <Button block size="large" icon={<PlayCircleOutlined />} onClick={() => handleFinish(true)}>
-                      {isEdit ? 'Save & Run' : 'Create & Run'}
-                    </Button>
-                  </Space>
-                </Card>
+              {/* Source card */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-green-50 border-b border-green-100 flex items-center gap-2">
+                  <Headphones className="w-3.5 h-3.5 text-green-600" />
+                  <span className="text-[11px] font-bold text-green-700 uppercase tracking-wide">Nguồn dữ liệu</span>
+                </div>
+                <div className="px-4 py-0.5">
+                  <SummaryField label="Ứng dụng">
+                    <span className="font-semibold text-green-700">Service</span>
+                  </SummaryField>
+                  <SummaryField label="Địa chỉ">
+                    <span className="font-mono text-xs text-gray-700">{domain || <span className="text-red-400">Chưa nhập</span>}</span>
+                  </SummaryField>
+                  <SummaryField label="Dữ liệu">
+                    <div className="flex flex-wrap gap-1 mt-0.5">
+                      {selectedObjects.map(obj => (
+                        <span key={obj} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-700">{currentApp?.objectLabels[obj]}</span>
+                      ))}
+                    </div>
+                  </SummaryField>
+                </div>
               </div>
-            </Card>
 
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 16,
-                height: reviewColumnHeight,
-                minHeight: reviewColumnHeight,
-                minWidth: 0
-              }}
-            >
-              <Card
-                title="Section 2: Current Service State"
-                style={{ flex: `0 0 ${balancedReviewStateFlex}`, minHeight: 0, display: 'flex', flexDirection: 'column' }}
-                styles={{ body: { flex: 1, minHeight: 0, overflowY: 'auto' } }}
-              >
-                <div
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-                    gap: 16,
-                    alignItems: 'stretch',
-                    marginBottom: 16
-                  }}
-                >
-                  <Card size="small">
-                    <Text type="secondary">Detected Services</Text>
-                    <div style={{ fontSize: 24, fontWeight: 700 }}>{servicePreview?.service_count || 0}</div>
-                  </Card>
-                  <Card size="small">
-                    <Text type="secondary">Selected for Backup</Text>
-                    <div style={{ fontSize: 24, fontWeight: 700 }}>{selectedServiceIds.length || 0}</div>
-                  </Card>
-                  <Card size="small">
-                    <Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>Service Selection</Text>
-                    <Button
-                      block
-                      type="primary"
-                      icon={<EyeOutlined />}
-                      onClick={openServiceSelectorModal}
-                      disabled={!servicePreview && !loadingServicePreview}
-                    >
-                      Open Full Service List
-                    </Button>
-                  </Card>
+              {/* Destination card */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+                  <Cloud className="w-3.5 h-3.5 text-blue-500" />
+                  <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">Lưu trữ</span>
                 </div>
+                <div className="px-4 py-0.5">
+                  <SummaryField label="Loại backup">
+                    {backupType
+                      ? <span className="font-semibold text-sm" style={{ color: backupTypeColors[backupType] }}>{backupTypeLabels[backupType]}</span>
+                      : <span className="text-red-400 text-xs">Chưa chọn</span>}
+                  </SummaryField>
+                  <SummaryField label="Lưu vào">
+                    <span className="font-semibold">{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span>
+                  </SummaryField>
+                  <SummaryField label="Tài khoản Google">
+                    <span className="text-xs text-gray-700 break-all">{googleAuth?.email || <span className="text-red-400">Chưa kết nối</span>}</span>
+                  </SummaryField>
+                  <SummaryField label="Thư mục lưu trữ">
+                    <span className="text-xs text-gray-700">{googleAuth?.folder_name || <span className="text-gray-400">My Drive (mặc định)</span>}</span>
+                  </SummaryField>
+                </div>
+              </div>
 
-                {loadingServicePreview ? (
-                  <div style={{ padding: '24px 0', textAlign: 'center' }}>
-                    <Spin />
+              {/* Service count card */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Headphones className="w-3.5 h-3.5 text-gray-500" />
+                    <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Dịch vụ được chọn</span>
                   </div>
-                ) : !servicePreview ? (
-                  <Empty description="No Service source preview loaded yet" />
-                ) : (
-                  <>
-                    {!servicePreview.ticket_count_complete && (
-                      <Alert
-                        type="warning"
-                        showIcon
-                        style={{ marginBottom: 16 }}
-                        message={`Detailed preview loaded for ${servicePreview.detail_loaded_count || 0} services only`}
-                        description="Mở modal Service list rồi bấm Refresh Source ngay trong modal nếu bạn cần nạp lại sample ticket theo đúng nhóm service mới chọn."
-                      />
-                    )}
-
-                    {servicePreview.partial_error_count > 0 && (
-                      <Alert
-                        type="warning"
-                        showIcon
-                        style={{ marginBottom: 0 }}
-                        message={`Some services could not be previewed completely (${servicePreview.partial_error_count})`}
-                        description="Các service này vẫn được liệt kê để chọn backup, nhưng preview chi tiết có thể chưa đầy đủ."
-                      />
-                    )}
-                  </>
+                  <button
+                    onClick={openServiceSelectorModal}
+                    className="text-[11px] text-blue-600 hover:text-blue-800 font-semibold"
+                  >
+                    Xem &amp; chọn
+                  </button>
+                </div>
+                <div className="px-4 py-3 flex gap-3">
+                  <div className="flex-1 bg-gray-50 rounded-xl p-3 text-center">
+                    <div className="text-2xl font-bold text-gray-800">{servicePreview?.service_count || 0}</div>
+                    <div className="text-[11px] text-gray-400 mt-0.5">Tổng số</div>
+                  </div>
+                  <div className="flex-1 bg-blue-50 rounded-xl p-3 text-center">
+                    <div className="text-2xl font-bold text-blue-700">{selectedServiceIds.length || 0}</div>
+                    <div className="text-[11px] text-blue-500 mt-0.5">Đã chọn backup</div>
+                  </div>
+                </div>
+                {loadingServicePreview && (
+                  <div className="px-4 pb-3 flex items-center gap-2 text-xs text-gray-400"><Spinner /><span>Đang tải…</span></div>
                 )}
-              </Card>
-
-              <Card
-                title={<span style={{ color: '#ffffff', fontWeight: 700 }}>Section 3: Destination Structure Preview</span>}
-                style={{ flex: '1 1 0', minHeight: 0, background: '#0f172a', borderColor: '#1e293b', display: 'flex', flexDirection: 'column' }}
-                styles={{
-                  header: { background: '#0f172a', borderBottom: '1px solid #1e293b' },
-                  body: { flex: 1, minHeight: 0, overflowY: 'auto', color: '#e2e8f0', background: '#0f172a' }
-                }}
-              >
-                <div style={{ fontSize: 12 }}>
-                  <div style={{ marginBottom: 12, color: '#10b981', fontWeight: 700 }}>
-                    <FolderOutlined /> {googleAuth?.folder_name || 'Selected Drive Folder'} / Base Service
+                {!loadingServicePreview && servicePreview && !servicePreview.ticket_count_complete && (
+                  <div className="px-4 pb-3">
+                    <Alert type="warning" message={`Đã tải ${servicePreview.detail_loaded_count || 0} Service. Mở danh sách và làm mới để cập nhật.`} />
                   </div>
-                  {structurePreviewServices.length > 0 ? structurePreviewServices.map(service => {
-                    const exampleTickets = (service.sample_tickets || []).slice(0, 2)
-                    const ticketRows = exampleTickets.length > 0
-                      ? exampleTickets
-                      : [
-                          { ticket_id: `${service.service_id}-sample-1`, ticket_code: 'TICKET-001', ticket_name: 'Sample ticket 1' },
-                          { ticket_id: `${service.service_id}-sample-2`, ticket_code: 'TICKET-002', ticket_name: 'Sample ticket 2' }
-                        ]
+                )}
+              </div>
 
-                    return (
-                      <div key={service.service_id} style={{ marginBottom: 14 }}>
-                        <div style={{ fontWeight: 700 }}>📁 {service.service_name}</div>
-                        {selectedObjects.includes('service') && backupType !== 'unstructured' && (
-                          <div style={{ paddingLeft: 18 }}>📄 service_overview.xlsx</div>
-                        )}
-                        {selectedObjects.includes('ticket') && backupType !== 'structured' && (
-                          <div style={{ paddingLeft: 18 }}>📁 Tickets</div>
-                        )}
-                        {selectedObjects.includes('ticket') && ticketRows.map(ticket => (
-                          <div key={ticket.ticket_id} style={{ paddingLeft: 36 }}>
-                            {backupType === 'structured' ? '📄' : '📁'} {ticket.ticket_code} - {ticket.ticket_name}
-                          </div>
-                        ))}
-                      </div>
-                    )
-                  }) : (
-                    <Text style={{ color: '#cbd5e1' }}>Choose services in the modal to preview the example folder structure here.</Text>
-                  )}
-                </div>
-              </Card>
             </div>
+
+            {/* RIGHT — Output tree */}
+            <div className="flex-1 min-w-0 flex flex-col min-h-0">
+              {renderFileTree(treeLines)}
+              <div className="mt-3 shrink-0">
+                <p className="text-[11px] text-gray-400 leading-relaxed">
+                  <span className="text-green-500 font-bold">📊 .xlsx</span> — Dữ liệu dạng bảng tính &nbsp;·&nbsp;
+                  {(backupType === 'unstructured' || backupType === 'all') && (
+                    <><span className="text-purple-400 font-bold">📁 Tickets/</span> — Thư mục ticket chứa file & đính kèm &nbsp;·&nbsp;</>
+                  )}
+                  <span className="text-blue-400 font-bold">📋 ticket.json</span> — Toàn bộ dữ liệu ticket thô
+                </p>
+                {backupType === 'structured' && (
+                  <p className="text-[11px] text-amber-600 mt-1.5">
+                    Với loại backup <strong>Bảng tính</strong>, chỉ có file .xlsx được tạo — không có thư mục Tickets hay file đính kèm.
+                  </p>
+                )}
+                {backupType === 'unstructured' && (
+                  <p className="text-[11px] text-amber-600 mt-1.5">
+                    Với loại backup <strong>File & Đính kèm</strong>, chỉ có thư mục Tickets với file JSON và đính kèm — không có file .xlsx tổng hợp.
+                  </p>
+                )}
+              </div>
+            </div>
+
           </div>
         </div>
       )
     }
 
+    // Generic non-service (Workflow / WeWork): custom fields + 2-column summary
     const availableFields = getAvailableFields()
     const fieldsByObject = availableFields.reduce((acc, field) => {
       if (!acc[field.object]) acc[field.object] = []
       acc[field.object].push(field)
       return acc
     }, {})
-
     const specialFields = availableFields.filter(f =>
       selectedFieldIds.includes(f.id) && (f.type === 'input-table' || f.type === 'select-master')
     )
 
+    const SummaryField = ({ label, children }) => (
+      <div className="py-2.5 border-b border-gray-50 last:border-0">
+        <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-0.5">{label}</div>
+        <div className="text-sm text-gray-800 break-words">{children}</div>
+      </div>
+    )
+
+    const genericTreeLines = [
+      { indent: 0, icon: '📁', text: googleAuth?.folder_name || 'My Drive', color: '#e2e8f0' },
+      { indent: 1, icon: '📁', text: currentApp?.name || 'Ứng dụng', color: '#10b981' },
+      { indent: 2, icon: '📊', text: 'data_export.xlsx', color: '#4ade80' },
+      { indent: 2, icon: '📁', text: 'attachments/', color: '#60a5fa' },
+      { indent: 3, icon: '📄', text: 'file.pdf', color: '#64748b' },
+      { indent: 2, icon: '…', text: '(cấu trúc chi tiết phụ thuộc vào dữ liệu thực tế)', color: '#64748b' },
+    ]
+
     return (
-      <div>
-        <div style={{ marginBottom: 24 }}>
-          <Title level={4} style={{ marginBottom: 4 }}>Custom Fields & Configuration</Title>
-          <Paragraph type="secondary">
-            Select which custom fields to include in the backup for <strong>{currentApp.name}</strong>
-          </Paragraph>
+      <div className="h-full flex flex-col gap-5">
+        {/* Ready banner */}
+        <div className="shrink-0 bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-2xl px-5 py-4 flex items-center gap-4">
+          <div className="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center shrink-0">
+            <CheckCircle className="w-5 h-5 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-bold text-blue-800">Cấu hình hoàn tất!</h3>
+            <p className="text-xs text-blue-600 mt-0.5">Kiểm tra lại rồi nhấn xác nhận để tạo luồng</p>
+          </div>
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => handleFinish(true)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm border border-blue-400 text-blue-700 bg-white rounded-xl hover:bg-blue-50 transition-colors font-medium"
+            >
+              <Play className="w-3.5 h-3.5" />
+              {isEdit ? 'Lưu & Chạy' : 'Tạo & Chạy'}
+            </button>
+            <button
+              onClick={() => handleFinish(false)}
+              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-semibold shadow-sm"
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              {isEdit ? 'Lưu thay đổi' : 'Tạo luồng'}
+            </button>
+          </div>
         </div>
 
-        {isServiceApp && (
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="Service custom-field discovery is not connected yet."
-            description="This flow will save the selected Service objects and connection settings. Dynamic ticket or service field discovery will be added when Service metadata endpoints are wired into the backup wizard."
-          />
-        )}
+        {/* 2-column layout */}
+        <div className="flex gap-5 flex-1 min-h-0">
 
-        {availableFields.length > 0 && (
-          <>
-            <Card
-              style={{ marginBottom: 16, cursor: 'pointer' }}
-              onClick={handleSelectAllFields}
-              styles={{ body: { padding: '12px 16px' } }}
-            >
-              <Space>
-                <Checkbox checked={selectedFieldIds.length === availableFields.length} />
-                <div>
-                  <Text strong>Select All Custom Fields</Text>
-                  <Text type="secondary" style={{ marginLeft: 8 }}>
-                    ({availableFields.length} fields)
-                  </Text>
-                </div>
-              </Space>
-            </Card>
+          {/* LEFT — Summary + custom fields */}
+          <div className="flex-1 min-w-0 flex flex-col gap-3 overflow-y-auto pr-1">
 
-            {Object.entries(fieldsByObject).map(([objKey, fields]) => (
-              <div key={objKey} style={{ marginBottom: 16 }}>
-                <div style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  textTransform: 'uppercase',
-                  color: '#64748b',
-                  marginBottom: 8,
-                  paddingLeft: 4
-                }}>
-                  {currentApp.objectLabels[objKey]}
-                </div>
-
-                <Space direction="vertical" style={{ width: '100%' }} size={8}>
-                  {fields.map(field => (
-                    <Card
-                      key={field.id}
-                      hoverable
-                      onClick={() => handleFieldToggle(field.id)}
-                      style={{
-                        border: selectedFieldIds.includes(field.id) ? `2px solid ${currentApp.color}` : '1px solid #d9d9d9',
-                        backgroundColor: selectedFieldIds.includes(field.id) ? currentApp.bg : '#fff',
-                        cursor: 'pointer'
-                      }}
-                      styles={{ body: { padding: '10px 14px' } }}
-                    >
-                      <Space align="start">
-                        <Checkbox checked={selectedFieldIds.includes(field.id)} />
-                        <div style={{ flex: 1 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2 }}>
-                            <Text strong style={{ fontSize: 13 }}>{field.name}</Text>
-                            <Tag style={{ margin: 0, fontSize: 10 }}>{field.type}</Tag>
-                          </div>
-                          <Text type="secondary" style={{ fontSize: 12 }}>{field.desc}</Text>
-                        </div>
-                      </Space>
-                    </Card>
-                  ))}
-                </Space>
+            {/* Source summary */}
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center gap-2">
+                <Inbox className="w-3.5 h-3.5 text-orange-500" />
+                <span className="text-[11px] font-bold text-orange-700 uppercase tracking-wide">Nguồn dữ liệu</span>
               </div>
-            ))}
-          </>
-        )}
-
-        <Divider />
-
-        <Card title="Backup Summary" style={{ marginBottom: 16 }}>
-          <Row gutter={[16, 16]}>
-            <Col span={12}>
-              <Text type="secondary">Application</Text>
-              <div style={{ fontWeight: 600, marginTop: 4 }}>
-                {currentApp.icon} {currentApp.name}
-              </div>
-            </Col>
-            <Col span={12}>
-              <Text type="secondary">Objects</Text>
-              <div style={{ marginTop: 4 }}>
-                <Space size={4} wrap>
-                  {selectedObjects.map(obj => (
-                    <Tag key={obj} color={currentApp.color}>
-                      {currentApp.objectLabels[obj]}
-                    </Tag>
-                  ))}
-                </Space>
-              </div>
-            </Col>
-            {connectionConfig?.requiresDomain && (
-              <Col span={12}>
-                <Text type="secondary">{connectionConfig.domainLabel}</Text>
-                <div style={{ fontWeight: 600, marginTop: 4 }}>
-                  {domain || <Text type="danger">Not provided</Text>}
-                </div>
-              </Col>
-            )}
-            <Col span={12}>
-              <Text type="secondary">{connectionConfig?.tokenLabel || 'Access Token'}</Text>
-              <div style={{ fontWeight: 600, marginTop: 4, fontFamily: 'monospace' }}>
-                {accessToken ? '••••••••' + accessToken.slice(-4) : <Text type="danger">Not provided</Text>}
-              </div>
-            </Col>
-            <Col span={12}>
-              <Text type="secondary">Custom Fields</Text>
-              <div style={{ fontWeight: 700, marginTop: 4 }}>
-                {isServiceApp ? 'Discovery pending' : `${selectedFieldIds.length} selected`}
-              </div>
-            </Col>
-          </Row>
-        </Card>
-
-        {specialFields.length > 0 && (
-          <Card title="Export Format for Structured Fields" style={{ marginBottom: 16 }}>
-            <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-              Choose export format for fields with structured data types
-            </Paragraph>
-
-            <Space direction="vertical" style={{ width: '100%' }} size={12}>
-              {specialFields.map(field => (
-                <div key={field.id} style={{ border: '1px solid #d9d9d9', borderRadius: 8, padding: 16 }}>
-                  <div style={{ marginBottom: 12 }}>
-                    <Space>
-                      <Text strong>{field.name}</Text>
-                      <Tag>{field.type}</Tag>
-                      <Text type="secondary" style={{ fontSize: 11 }}>
-                        {currentApp.objectLabels[field.object]}
-                      </Text>
-                    </Space>
+              <div className="px-4 py-0.5">
+                <SummaryField label="Ứng dụng">
+                  <span className="font-semibold" style={{ color: currentApp?.color }}>{currentApp?.name}</span>
+                </SummaryField>
+                <SummaryField label="Dữ liệu backup">
+                  <div className="flex flex-wrap gap-1 mt-0.5">
+                    {selectedObjects.map(obj => (
+                      <span key={obj} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ backgroundColor: currentApp?.bg, color: currentApp?.color }}>{currentApp?.objectLabels[obj]}</span>
+                    ))}
                   </div>
-
-                  <Row gutter={10}>
-                    <Col span={12}>
-                      <Card
-                        hoverable
-                        onClick={() => setExportFormats({ ...exportFormats, [field.id]: 'json' })}
-                        style={{
-                          border: exportFormats[field.id] === 'json' ? '2px solid #3b82f6' : '1px solid #d9d9d9',
-                          cursor: 'pointer'
-                        }}
-                        styles={{ body: { padding: 12 } }}
-                      >
-                        <Space>
-                          <span style={{ fontSize: 20 }}>📄</span>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13 }}>JSON</div>
-                            <Text type="secondary" style={{ fontSize: 11 }}>Structured data format</Text>
-                          </div>
-                          {exportFormats[field.id] === 'json' && <CheckOutlined style={{ color: '#3b82f6' }} />}
-                        </Space>
-                      </Card>
-                    </Col>
-                    <Col span={12}>
-                      <Card
-                        hoverable
-                        onClick={() => setExportFormats({ ...exportFormats, [field.id]: 'excel' })}
-                        style={{
-                          border: exportFormats[field.id] === 'excel' ? '2px solid #3b82f6' : '1px solid #d9d9d9',
-                          cursor: 'pointer'
-                        }}
-                        styles={{ body: { padding: 12 } }}
-                      >
-                        <Space>
-                          <span style={{ fontSize: 20 }}>📊</span>
-                          <div>
-                            <div style={{ fontWeight: 700, fontSize: 13 }}>Excel (.xlsx)</div>
-                            <Text type="secondary" style={{ fontSize: 11 }}>Spreadsheet format</Text>
-                          </div>
-                          {exportFormats[field.id] === 'excel' && <CheckOutlined style={{ color: '#3b82f6' }} />}
-                        </Space>
-                      </Card>
-                    </Col>
-                  </Row>
-                </div>
-              ))}
-            </Space>
-          </Card>
-        )}
-
-        <Alert
-          message={
-            <div>
-              <div style={{ fontWeight: 700, marginBottom: 4 }}>Ready to Start Backup!</div>
-              <div>All configuration is complete. Click "Start Backup" to begin.</div>
+                </SummaryField>
+                {connectionConfig?.requiresDomain && (
+                  <SummaryField label="Địa chỉ">
+                    <span className="font-mono text-xs text-gray-700">{domain || <span className="text-red-400">Chưa nhập</span>}</span>
+                  </SummaryField>
+                )}
+                <SummaryField label="Mã truy cập">
+                  <span className="font-mono text-gray-500 text-xs">
+                    {accessToken ? `••••${accessToken.slice(-4)}` : <span className="text-red-400">Chưa nhập</span>}
+                  </span>
+                </SummaryField>
+              </div>
             </div>
-          }
-          type="info"
-          showIcon
-          icon={<RocketOutlined />}
-        />
+
+            {/* Destination summary */}
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+                <Cloud className="w-3.5 h-3.5 text-blue-500" />
+                <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">Lưu trữ</span>
+              </div>
+              <div className="px-4 py-0.5">
+                <SummaryField label="Lưu vào">
+                  <span className="font-semibold">{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span>
+                </SummaryField>
+                <SummaryField label="Tài khoản Google">
+                  <span className="text-xs text-gray-700 break-all">{googleAuth?.email || <span className="text-red-400">Chưa kết nối</span>}</span>
+                </SummaryField>
+                <SummaryField label="Thư mục lưu trữ">
+                  <span className="text-xs text-gray-700">{googleAuth?.folder_name || <span className="text-gray-400">My Drive (mặc định)</span>}</span>
+                </SummaryField>
+                {selectedFieldIds.length > 0 && (
+                  <SummaryField label="Trường tùy chỉnh">
+                    <span className="font-semibold">{selectedFieldIds.length} trường đã chọn</span>
+                  </SummaryField>
+                )}
+              </div>
+            </div>
+
+            {/* Custom fields (if any) */}
+            {availableFields.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Trường tùy chỉnh</span>
+                  <button onClick={handleSelectAllFields} className="text-[11px] text-blue-600 hover:text-blue-800 font-medium">
+                    {selectedFieldIds.length === availableFields.length ? 'Bỏ chọn tất cả' : 'Chọn tất cả'}
+                  </button>
+                </div>
+                <div className="px-3 py-2 space-y-1 max-h-48 overflow-y-auto">
+                  {availableFields.map(field => (
+                    <div
+                      key={field.id}
+                      onClick={() => handleFieldToggle(field.id)}
+                      className="flex items-center gap-2.5 px-2 py-2 rounded-lg cursor-pointer transition-colors hover:bg-gray-50"
+                    >
+                      <div
+                        className="w-4 h-4 rounded flex items-center justify-center border-2 transition-all shrink-0"
+                        style={{
+                          backgroundColor: selectedFieldIds.includes(field.id) ? currentApp?.color : 'transparent',
+                          borderColor: selectedFieldIds.includes(field.id) ? currentApp?.color : '#d1d5db',
+                        }}
+                      >
+                        {selectedFieldIds.includes(field.id) && <Check className="w-2.5 h-2.5 text-white" />}
+                      </div>
+                      <span className="text-xs font-medium text-gray-700 flex-1">{field.name}</span>
+                      <span className="text-[10px] text-gray-400 bg-gray-100 px-1 rounded">{field.type}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Export format for special fields */}
+            {specialFields.length > 0 && (
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100">
+                  <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Định dạng xuất</span>
+                </div>
+                <div className="px-3 py-2 space-y-2">
+                  {specialFields.map(field => (
+                    <div key={field.id}>
+                      <p className="text-[11px] text-gray-500 mb-1 px-1">{field.name}</p>
+                      <div className="flex gap-1.5">
+                        {[
+                          { id: 'json', label: 'JSON', emoji: '📄' },
+                          { id: 'excel', label: 'Excel', emoji: '📊' },
+                        ].map(fmt => (
+                          <div
+                            key={fmt.id}
+                            onClick={() => setExportFormats({ ...exportFormats, [field.id]: fmt.id })}
+                            className="flex-1 border-2 rounded-xl p-2 cursor-pointer transition-all flex items-center gap-1.5"
+                            style={{
+                              borderColor: exportFormats[field.id] === fmt.id ? '#3b82f6' : '#e5e7eb',
+                              backgroundColor: exportFormats[field.id] === fmt.id ? '#eff6ff' : '#fff',
+                            }}
+                          >
+                            <span className="text-sm">{fmt.emoji}</span>
+                            <span className="text-xs font-semibold">{fmt.label}</span>
+                            {exportFormats[field.id] === fmt.id && <Check className="w-3 h-3 text-blue-600 ml-auto" />}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+          </div>
+
+          {/* RIGHT — Output tree */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            {renderFileTree(genericTreeLines)}
+            <div className="mt-3 shrink-0">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 flex gap-2">
+                <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-700 leading-relaxed">
+                  Cấu trúc thư mục output cho <strong>{currentApp?.name}</strong> sẽ được xác định khi chạy backup lần đầu, tùy thuộc vào dữ liệu thực tế của bạn.
+                </p>
+              </div>
+            </div>
+          </div>
+
+        </div>
       </div>
     )
   }
 
   // Render list of backup flows
   const APP_META = {
-    request:  { color: '#ea580c', icon: <InboxOutlined /> },
-    workflow: { color: '#7c3aed', icon: <ProjectOutlined /> },
-    wework:   { color: '#2563eb', icon: <BankOutlined /> },
-    service:  { color: '#059669', icon: <CustomerServiceOutlined /> },
+    request:  { color: '#ea580c', icon: <Inbox className="w-4 h-4" /> },
+    workflow: { color: '#7c3aed', icon: <FolderKanban className="w-4 h-4" /> },
+    wework:   { color: '#2563eb', icon: <Building2 className="w-4 h-4" /> },
+    service:  { color: '#059669', icon: <Headphones className="w-4 h-4" /> },
   }
 
   const BACKUP_TYPE_TAG = {
@@ -2641,7 +2519,7 @@ const BackupFlowPage = () => {
 
   const renderFallbackValue = (value, fallback = '—') => {
     if (value === null || value === undefined || value === '') {
-      return <Text type="secondary">{fallback}</Text>
+      return <span className="text-gray-400">{fallback}</span>
     }
     return value
   }
@@ -2699,19 +2577,19 @@ const BackupFlowPage = () => {
 
   const renderTagCollection = (items, { color = 'default', max = 8 } = {}) => {
     if (!Array.isArray(items) || items.length === 0) {
-      return <Text type="secondary">—</Text>
+      return <span className="text-gray-400">—</span>
     }
 
     const visibleItems = items.slice(0, max)
     const hiddenCount = items.length - visibleItems.length
 
     return (
-      <Space size={[6, 6]} wrap>
+      <div className="flex flex-wrap gap-1.5">
         {visibleItems.map(item => (
           <Tag key={String(item)} color={color}>{item}</Tag>
         ))}
         {hiddenCount > 0 && <Tag>+{hiddenCount} more</Tag>}
-      </Space>
+      </div>
     )
   }
 
@@ -2719,8 +2597,8 @@ const BackupFlowPage = () => {
     setLoadingFlowDetails(true)
     try {
       const [flowResult, runsResult] = await Promise.allSettled([
-        axios.get(`${API_BASE}/api/backup-flows/${flowId}`),
-        axios.get(`${API_BASE}/api/backup-flows/${flowId}/runs`, { params: { limit: 20 } }),
+        api.get(`/api/backup-flows/${flowId}`),
+        api.get(`/api/backup-flows/${flowId}/runs`, { params: { limit: 20 } }),
       ])
 
       if (flowResult.status !== 'fulfilled') {
@@ -2757,7 +2635,7 @@ const BackupFlowPage = () => {
     setDetailsFlow(null)
     setDetailsRuns([])
     setDetailsActiveTab('overview')
-    setDetailsDrawerOpen(true)
+    setViewMode('detail')
     await fetchFlowDetails(record.id, record)
   }
 
@@ -2766,365 +2644,364 @@ const BackupFlowPage = () => {
     await fetchFlowDetails(detailsFlowId, detailsFlowRecord)
   }
 
-  const renderFlowDetailsDrawer = () => {
+  const renderDetailView = () => {
     const source = detailsFlow?.source || {}
     const destination = detailsFlow?.destination || {}
     const auth = destination.auth || {}
     const structure = detailsFlow?.structure || {}
     const schedule = detailsFlow?.schedule || {}
-    const appMeta = APP_META[source.app] || { color: '#64748b', icon: <CloudOutlined /> }
+    const appMeta = APP_META[source.app] || { color: '#64748b', icon: <Cloud className="w-4 h-4" /> }
     const appConfig = APPS[source.app] || {}
     const objectLabels = appConfig.objectLabels || {}
-    const selectedObjects = Array.isArray(structure.objects)
-      ? structure.objects.map(objectId => objectLabels[objectId] || objectId)
-      : []
-    const selectedServices = Array.isArray(structure.service_ids)
-      ? structure.service_ids.map(serviceId => `Service ${serviceId}`)
-      : []
+    const detailObjects = Array.isArray(structure.objects) ? structure.objects.map(id => objectLabels[id] || id) : []
     const supportsRun = ['request', 'service'].includes(detailsFlowRecord?.app || source.app)
     const isPublished = detailsFlowRecord?.is_published === 1 || detailsFlow?.is_published === 1
     const runBlockedReason = detailsFlowRecord?.run_blocked_reason
     const runDisabled = !supportsRun || !isPublished || Boolean(runBlockedReason)
+    const lastRunMeta = detailsFlow?.last_run_status ? RUN_STATUS_TAG[detailsFlow.last_run_status] : null
+    const isDraft = detailsFlow?.is_draft === 1
 
-    const runFromDetailsButton = (
-      <Button
-        type="primary"
-        icon={<PlayCircleOutlined />}
-        disabled={runDisabled}
-        onClick={() => handleRunFlow(detailsFlowRecord || {
-          id: detailsFlowId,
-          app: source.app,
-          run_blocked_reason: runBlockedReason,
-        }, {
-          onStarted: async () => {
-            setDetailsActiveTab('runs')
-            await fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id, detailsFlowRecord)
-          }
-        })}
-      >
-        Run Now
-      </Button>
+    const InfoField = ({ label, children }) => (
+      <div className="py-2.5 border-b border-gray-50 last:border-0">
+        <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-0.5">{label}</div>
+        <div className="text-sm text-gray-800 break-words flex flex-wrap gap-1 items-center">
+          {children ?? <span className="text-gray-300 text-xs">—</span>}
+        </div>
+      </div>
     )
 
-    const runHistoryColumns = [
-      {
-        title: 'Started',
-        dataIndex: 'started_at',
-        key: 'started_at',
-        width: 180,
-        render: (_, record) => (
-          <div>
-            <div style={{ fontWeight: 600 }}>{formatDateTime(record.started_at)}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              Completed: {formatDateTime(record.completed_at)}
-            </Text>
-          </div>
-        )
-      },
-      {
-        title: 'Status',
-        dataIndex: 'status',
-        key: 'status',
-        width: 120,
-        render: status => getFlowRunStatusTag(status)
-      },
-      {
-        title: 'Progress',
-        key: 'progress',
-        width: 180,
-        render: (_, record) => (
-          <Progress
-            percent={getHistoryRunProgressPercent(record)}
-            status={RUN_PROGRESS_STATUS[record.status] || 'normal'}
-            size="small"
-          />
-        )
-      },
-      {
-        title: 'Details',
-        key: 'details',
-        render: (_, record) => (
-          <div>
-            <div style={{ fontWeight: 600 }}>{getHistoryRunStepLabel(record)}</div>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-              {getHistoryRunSummary(record)}
-            </Text>
-            <Text type="secondary" style={{ display: 'block', fontSize: 12 }}>
-              Triggered by: {record.triggered_by || 'manual'}
-            </Text>
-            {record.error_message && (
-              <Text type="danger" style={{ display: 'block', fontSize: 12, marginTop: 4 }}>
-                {record.error_message}
-              </Text>
-            )}
-          </div>
-        )
-      }
-    ]
+    const SideCard = ({ title, icon: CardIcon, color = '#64748b', children }) => (
+      <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex items-center gap-2" style={{ background: `${color}08` }}>
+          {CardIcon && <CardIcon className="w-3.5 h-3.5" style={{ color }} />}
+          <h4 className="text-[11px] font-bold uppercase tracking-wide" style={{ color }}>{title}</h4>
+        </div>
+        <div className="px-4 py-0.5">{children}</div>
+      </div>
+    )
 
-    const tabs = [
-      {
-        key: 'overview',
-        label: 'Overview',
-        children: detailsFlow ? (
-          <Row gutter={[16, 16]}>
-            <Col xs={24} lg={12}>
-              <Card title="Flow Summary" size="small">
-                <Descriptions column={1} size="small" colon={false}>
-                  <Descriptions.Item label="Name">{renderFallbackValue(detailsFlow.name)}</Descriptions.Item>
-                  <Descriptions.Item label="App">
-                    <Space>
-                      <span style={{ color: appMeta.color, display: 'inline-flex' }}>{appMeta.icon}</span>
-                      <span>{renderFallbackValue(source.app_name || source.app)}</span>
-                    </Space>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Backup Type">
-                    {detailsFlow.backup_type
-                      ? <Tag color={(BACKUP_TYPE_TAG[detailsFlow.backup_type] || {}).color || 'default'}>{(BACKUP_TYPE_TAG[detailsFlow.backup_type] || {}).label || detailsFlow.backup_type}</Tag>
-                      : <Text type="secondary">—</Text>
-                    }
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Lifecycle">
-                    <Space size={4} wrap>
-                      {detailsFlow.is_draft === 1 ? <Tag color="gold">Draft</Tag> : <Tag color="cyan">Ready</Tag>}
-                      {detailsFlow.is_published === 1 ? <Tag color="green">Published</Tag> : <Tag>Unpublished</Tag>}
-                      <Tag color={detailsFlow.status === 'active' ? 'green' : 'default'}>{detailsFlow.status || 'unknown'}</Tag>
-                    </Space>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Created">{formatDateTime(detailsFlow.created_at)}</Descriptions.Item>
-                  <Descriptions.Item label="Updated">{formatDateTime(detailsFlow.updated_at)}</Descriptions.Item>
-                </Descriptions>
-              </Card>
-            </Col>
-            <Col xs={24} lg={12}>
-              <Card title="Last Run" size="small">
-                <Descriptions column={1} size="small" colon={false}>
-                  <Descriptions.Item label="Status">
-                    {detailsFlow.last_run_status ? getFlowRunStatusTag(detailsFlow.last_run_status) : <Text type="secondary">Never run</Text>}
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Started">{formatDateTime(detailsFlow.last_run_at)}</Descriptions.Item>
-                  <Descriptions.Item label="Message">{renderFallbackValue(detailsFlow.last_run_message)}</Descriptions.Item>
-                  <Descriptions.Item label="Run Availability">
-                    {detailsFlowRecord?.run_blocked_reason
-                      ? <Text type="danger">{detailsFlowRecord.run_blocked_reason}</Text>
-                      : <Tag color="success">Runnable</Tag>
-                    }
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            </Col>
-            <Col xs={24} lg={12}>
-              <Card title="Source" size="small">
-                <Descriptions column={1} size="small" colon={false}>
-                  <Descriptions.Item label="App ID">{renderFallbackValue(source.app)}</Descriptions.Item>
-                  <Descriptions.Item label="Domain">{renderFallbackValue(source.domain)}</Descriptions.Item>
-                  <Descriptions.Item label="Selected Objects">{renderTagCollection(selectedObjects, { color: appMeta.color === '#64748b' ? 'default' : 'processing' })}</Descriptions.Item>
-                </Descriptions>
-              </Card>
-            </Col>
-            <Col xs={24} lg={12}>
-              <Card title="Destination" size="small">
-                <Descriptions column={1} size="small" colon={false}>
-                  <Descriptions.Item label="Type">{renderFallbackValue(destination.name || destination.type)}</Descriptions.Item>
-                  <Descriptions.Item label="Auth Method">{renderFallbackValue(getDestinationAuthMethodLabel(auth))}</Descriptions.Item>
-                  <Descriptions.Item label="Identity">{renderFallbackValue(getDestinationIdentityLabel(auth))}</Descriptions.Item>
-                  <Descriptions.Item label="Drive">{renderFallbackValue(auth.drive_name || (auth.drive_id ? 'Shared Drive' : 'My Drive'))}</Descriptions.Item>
-                  <Descriptions.Item label="Folder">{renderFallbackValue(auth.folder_name || auth.folder_id)}</Descriptions.Item>
-                </Descriptions>
-              </Card>
-            </Col>
-            <Col xs={24}>
-              <Card title="Structure & Options" size="small">
-                <Descriptions column={1} size="small" colon={false}>
-                  <Descriptions.Item label="Objects">{renderTagCollection(selectedObjects, { color: 'blue' })}</Descriptions.Item>
-                  <Descriptions.Item label="Selected Services">{renderTagCollection(selectedServices, { color: 'green', max: 6 })}</Descriptions.Item>
-                  <Descriptions.Item label="Custom Fields">{renderFallbackValue(Array.isArray(structure.custom_fields) ? `${structure.custom_fields.length} field(s)` : null)}</Descriptions.Item>
-                  <Descriptions.Item label="Export Formats">{renderFallbackValue(structure.export_formats ? `${Object.keys(structure.export_formats).length} configured format(s)` : null)}</Descriptions.Item>
-                  <Descriptions.Item label="Service Options">
-                    <Space size={[6, 6]} wrap>
-                      {'include_catalog' in structure && <Tag color={structure.include_catalog ? 'success' : 'default'}>Catalog: {structure.include_catalog ? 'On' : 'Off'}</Tag>}
-                      {'include_stages' in structure && <Tag color={structure.include_stages ? 'success' : 'default'}>Stages: {structure.include_stages ? 'On' : 'Off'}</Tag>}
-                      {'include_ticket_details' in structure && <Tag color={structure.include_ticket_details ? 'success' : 'default'}>Ticket Details: {structure.include_ticket_details ? 'On' : 'Off'}</Tag>}
-                      {'include_activity_logs' in structure && <Tag color={structure.include_activity_logs ? 'success' : 'default'}>Activity Logs: {structure.include_activity_logs ? 'On' : 'Off'}</Tag>}
-                      {'ticket_limit_per_service' in structure && <Tag>Ticket limit: {structure.ticket_limit_per_service}</Tag>}
-                      {!('include_catalog' in structure) && !('include_stages' in structure) && !('include_ticket_details' in structure) && !('include_activity_logs' in structure) && !('ticket_limit_per_service' in structure) && <Text type="secondary">—</Text>}
-                    </Space>
-                  </Descriptions.Item>
-                  <Descriptions.Item label="Schedule">
-                    {schedule.type
-                      ? (
-                        <Space size={[6, 6]} wrap>
-                          <Tag color={schedule.enabled === false ? 'default' : 'blue'}>{schedule.type}</Tag>
-                          {schedule.time && <Tag>{schedule.time}</Tag>}
-                          {typeof schedule.day_of_week === 'number' && <Tag>Weekday: {schedule.day_of_week}</Tag>}
-                          {typeof schedule.day_of_month === 'number' && <Tag>Day: {schedule.day_of_month}</Tag>}
-                        </Space>
-                      )
-                      : <Text type="secondary">Manual / not configured</Text>
-                    }
-                  </Descriptions.Item>
-                </Descriptions>
-              </Card>
-            </Col>
-          </Row>
-        ) : (
-          <Empty description="No flow details loaded" />
-        )
-      },
-      {
-        key: 'runs',
-        label: `Run History${detailsRuns.length ? ` (${detailsRuns.length})` : ''}`,
-        children: (
-          <Card size="small" bodyStyle={{ padding: 0 }}>
-            <Table
-              dataSource={detailsRuns}
-              columns={runHistoryColumns}
-              rowKey="id"
-              size="small"
-              pagination={{ pageSize: 5, hideOnSinglePage: detailsRuns.length <= 5 }}
-              scroll={{ x: 860 }}
-              locale={{
-                emptyText: <Empty description="No runs recorded for this flow yet" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-              }}
-            />
-          </Card>
-        )
-      },
-      {
-        key: 'actions',
-        label: 'Actions',
-        children: (
-          <Row gutter={[16, 16]}>
-            <Col xs={24} lg={14}>
-              <Card title="Quick Actions" size="small">
-                <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                  {renderServiceRootArchiveNotice(detailsFlowRecord?.app || source.app, destination.type, { marginBottom: 4 })}
-                  <Text type="secondary">
-                    Manage this flow directly from the details panel.
-                  </Text>
-                  <Space wrap>
-                    <Button
-                      icon={<EditOutlined />}
-                      onClick={async () => {
-                        const targetFlowId = detailsFlowId || detailsFlowRecord?.id
-                        if (!targetFlowId) return
-                        setDetailsDrawerOpen(false)
-                        await loadFlowForEdit(targetFlowId)
-                      }}
-                    >
-                      Edit Flow
-                    </Button>
-                    {runBlockedReason ? (
-                      <Tooltip title={runBlockedReason}>
-                        <span>{runFromDetailsButton}</span>
-                      </Tooltip>
-                    ) : runFromDetailsButton}
-                    <Button
-                      danger
-                      icon={<DeleteOutlined />}
-                      disabled={!(detailsFlowRecord?.id || detailsFlowId)}
-                      onClick={() => handleDeleteFlow(detailsFlowRecord || {
-                        id: detailsFlowId,
-                        name: detailsFlow?.name,
-                      }, {
-                        onDeleted: () => {
-                          setDetailsDrawerOpen(false)
-                          setDetailsFlowId(null)
-                          setDetailsFlowRecord(null)
-                          setDetailsFlow(null)
-                          setDetailsRuns([])
-                        }
-                      })}
-                    >
-                      Delete Flow
-                    </Button>
-                  </Space>
-                </Space>
-              </Card>
-            </Col>
-            <Col xs={24} lg={10}>
-              <Card title="Run Availability" size="small">
-                <Space direction="vertical" size={10} style={{ width: '100%' }}>
-                  <Text>
-                    Publish status:
-                    <Tag color={isPublished ? 'green' : 'default'} style={{ marginInlineStart: 8 }}>
-                      {isPublished ? 'Published' : 'Unpublished'}
-                    </Tag>
-                  </Text>
-                  <Text>
-                    App support:
-                    <Tag color={supportsRun ? 'blue' : 'default'} style={{ marginInlineStart: 8 }}>
-                      {supportsRun ? 'Runnable' : 'Not supported'}
-                    </Tag>
-                  </Text>
-                  {runBlockedReason ? (
-                    <Alert type="warning" showIcon message="Run is blocked" description={runBlockedReason} />
-                  ) : (
-                    <Alert type="success" showIcon message="Run is available" description="You can trigger this flow directly from the details drawer." />
-                  )}
-                </Space>
-              </Card>
-            </Col>
-          </Row>
-        )
-      }
-    ]
+    const runStatusColors = { completed: '#16a34a', failed: '#dc2626', running: '#2563eb', pending: '#d97706' }
+    const runStatusLabels = { completed: 'Hoàn thành', failed: 'Lỗi', running: 'Đang chạy', pending: 'Đang chờ' }
+    const runStatusBg = { completed: '#f0fdf4', failed: '#fef2f2', running: '#eff6ff', pending: '#fffbeb' }
+
+    const runOnClick = () => handleRunFlow(
+      detailsFlowRecord || { id: detailsFlowId, app: source.app, run_blocked_reason: runBlockedReason },
+      { onStarted: async () => { await fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id, detailsFlowRecord) } }
+    )
 
     return (
-      <Drawer
-        title={detailsFlow?.name || detailsFlowRecord?.name || 'Backup Flow Details'}
-        open={detailsDrawerOpen}
-        onClose={() => setDetailsDrawerOpen(false)}
-        width={880}
-        extra={
-          <Space>
-            {runBlockedReason ? (
-              <Tooltip title={runBlockedReason}>
-                <span>{runFromDetailsButton}</span>
-              </Tooltip>
-            ) : runFromDetailsButton}
-            <Button icon={<ReloadOutlined />} onClick={handleRefreshFlowDetails} loading={loadingFlowDetails}>
-              Refresh
-            </Button>
-          </Space>
-        }
-      >
-        <Spin spinning={loadingFlowDetails}>
-          {detailsFlow ? (
-            <Tabs activeKey={detailsActiveTab} onChange={setDetailsActiveTab} items={tabs} />
+      <div className="min-h-[calc(100vh-4rem)] bg-gray-50 overflow-y-auto">
+        <div className="max-w-6xl mx-auto px-6 py-6 flex flex-col gap-5">
+
+          {/* ── Breadcrumb nav ── */}
+          <button
+            onClick={() => { setViewMode('list'); setDetailsFlow(null); setDetailsRuns([]) }}
+            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors self-start"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" />
+            <span>Quay lại danh sách</span>
+          </button>
+
+          {loadingFlowDetails ? (
+            <div className="flex items-center justify-center py-20"><SpinCenter text="Đang tải…" /></div>
           ) : (
-            <Empty description="Select a flow to inspect its details" image={Empty.PRESENTED_IMAGE_SIMPLE} />
+            <>
+              {/* ── PHẦN TRÊN: Tổng quan ── */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+
+                {/* Hero header */}
+                <div className="px-6 pt-5 pb-4 border-b border-gray-100"
+                  style={{ background: `linear-gradient(135deg, ${appMeta.color}08 0%, white 70%)` }}>
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+
+                    {/* Left: icon + title */}
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
+                        style={{ backgroundColor: `${appMeta.color}1a`, color: appMeta.color }}>
+                        <span className="scale-150">{appMeta.icon}</span>
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap mb-1">
+                          <h2 className="text-lg font-bold text-gray-900 leading-tight">
+                            {detailsFlow?.name || <span className="italic text-gray-400">Untitled draft</span>}
+                          </h2>
+                          {isDraft
+                            ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">Draft</span>
+                            : <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-700">Ready</span>}
+                          {isPublished
+                            ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700">Đã kích hoạt</span>
+                            : <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-gray-100 text-gray-500">Chưa kích hoạt</span>}
+                          {detailsFlow?.backup_type && (
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700">
+                              {{ structured: 'Bảng tính', unstructured: 'File & Đính kèm', all: 'Toàn bộ' }[detailsFlow.backup_type] || detailsFlow.backup_type}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          <span style={{ color: appMeta.color }} className="font-medium">{source.app_name || source.app || '—'}</span>
+                          {source.domain && <span className="ml-2 text-gray-400 font-mono text-xs">· {source.domain}</span>}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Right: action buttons */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={async () => { const id = detailsFlowId || detailsFlowRecord?.id; if (id) await loadFlowForEdit(id) }}
+                        className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors"
+                      >
+                        <Pencil className="w-3.5 h-3.5" /> Chỉnh sửa
+                      </button>
+                      <button
+                        onClick={handleRefreshFlowDetails}
+                        disabled={loadingFlowDetails}
+                        className="px-3 py-2 border border-gray-300 text-gray-500 rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-colors"
+                        title="Làm mới"
+                      >
+                        {loadingFlowDetails ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                      </button>
+                      <button
+                        disabled={runDisabled}
+                        onClick={runOnClick}
+                        title={runBlockedReason || (!supportsRun ? 'Loại app này chưa hỗ trợ chạy' : !isPublished ? 'Cần kích hoạt luồng trước' : undefined)}
+                        className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm"
+                      >
+                        <Play className="w-4 h-4" /> Chạy Backup Ngay
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Run blocked warning — inline, compact */}
+                  {runBlockedReason && (
+                    <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+                      <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                      <p className="text-xs text-amber-700 leading-relaxed">{runBlockedReason}</p>
+                    </div>
+                  )}
+                </div>
+
+                {/* Config grid: 4 cards in a row */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 divide-x divide-y divide-gray-100">
+
+                  {/* Source */}
+                  <div className="px-5 py-4">
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <Globe className="w-3.5 h-3.5 text-orange-500" />
+                      <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Nguồn dữ liệu</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Ứng dụng</div>
+                        <div className="text-sm font-semibold" style={{ color: appMeta.color }}>{source.app_name || source.app || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Địa chỉ</div>
+                        <div className="text-xs font-mono text-gray-700 break-all">{source.domain || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-1">Dữ liệu backup</div>
+                        <div className="flex flex-wrap gap-1">
+                          {detailObjects.length > 0
+                            ? detailObjects.map(o => <span key={o} className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-blue-100 text-blue-700">{o}</span>)
+                            : <span className="text-xs text-gray-400">—</span>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Destination */}
+                  <div className="px-5 py-4">
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <Cloud className="w-3.5 h-3.5 text-blue-500" />
+                      <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Lưu trữ</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Loại backup</div>
+                        <div className="text-sm font-semibold text-gray-800">
+                          {{ structured: 'Bảng tính', unstructured: 'File & Đính kèm', all: 'Toàn bộ' }[detailsFlow?.backup_type] || detailsFlow?.backup_type || '—'}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Lưu vào</div>
+                        <div className="text-sm text-gray-700">{destination.name || destination.type || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Tài khoản</div>
+                        <div className="text-xs text-gray-700 break-all">{getDestinationIdentityLabel(auth) || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Thư mục</div>
+                        <div className="text-xs text-gray-700">{auth.folder_name || auth.folder_id || <span className="text-gray-400">My Drive (mặc định)</span>}</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Schedule */}
+                  <div className="px-5 py-4">
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <Clock className="w-3.5 h-3.5 text-purple-500" />
+                      <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Lịch chạy</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Loại lịch</div>
+                        <div className="text-sm font-semibold text-gray-800">{schedule.type || <span className="text-gray-400 font-normal text-xs">Thủ công</span>}</div>
+                      </div>
+                      {schedule.type && (
+                        <div>
+                          <div className="text-[10px] text-gray-400 mb-0.5">Thời gian</div>
+                          <div className="text-sm text-gray-700">{schedule.time || '—'}</div>
+                        </div>
+                      )}
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-1">Trạng thái</div>
+                        {schedule.enabled === false
+                          ? <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500">Đã tắt</span>
+                          : <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-700">Đang bật</span>}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Meta */}
+                  <div className="px-5 py-4">
+                    <div className="flex items-center gap-1.5 mb-3">
+                      <FolderKanban className="w-3.5 h-3.5 text-gray-400" />
+                      <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Thông tin</span>
+                    </div>
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Tạo lúc</div>
+                        <div className="text-xs text-gray-700">{formatDateTime(detailsFlow.created_at) || '—'}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] text-gray-400 mb-0.5">Cập nhật</div>
+                        <div className="text-xs text-gray-700">{formatDateTime(detailsFlow.updated_at) || '—'}</div>
+                      </div>
+                      {detailsFlow.last_run_at && (
+                        <div>
+                          <div className="text-[10px] text-gray-400 mb-0.5">Chạy lần cuối</div>
+                          <div className="text-xs text-gray-700">{formatDateTime(detailsFlow.last_run_at)}</div>
+                        </div>
+                      )}
+                      <button
+                        disabled={!(detailsFlowRecord?.id || detailsFlowId)}
+                        onClick={() => handleDeleteFlowConfirm(
+                          detailsFlowRecord || { id: detailsFlowId, name: detailsFlow?.name },
+                          { onDeleted: () => { setViewMode('list'); setDetailsFlowId(null); setDetailsFlowRecord(null); setDetailsFlow(null); setDetailsRuns([]) } }
+                        )}
+                        className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors mt-1"
+                      >
+                        <Trash2 className="w-3 h-3" /> Xóa luồng
+                      </button>
+                    </div>
+                  </div>
+
+                </div>
+              </div>
+
+              {/* ── PHẦN DƯỚI: Lịch sử chạy ── */}
+              <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+                <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+                  <div>
+                    <h3 className="text-sm font-bold text-gray-900">Lịch sử chạy backup</h3>
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      {detailsRuns.length > 0 ? `${detailsRuns.length} lần chạy gần nhất` : 'Chưa có lần chạy nào'}
+                      {detailsFlow?.last_run_at && <span className="ml-2">· Lần cuối: {formatDateTime(detailsFlow.last_run_at)}</span>}
+                    </p>
+                  </div>
+                  {renderServiceRootArchiveNotice(detailsFlowRecord?.app || source.app, destination.type)}
+                </div>
+
+                {detailsRuns.length === 0 ? (
+                  <div className="py-16"><Empty description="Chưa có lần chạy nào được ghi lại" /></div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {detailsRuns.map((run, idx) => {
+                      const pct = getHistoryRunProgressPercent(run)
+                      const isLatest = idx === 0
+                      const statusColor = runStatusColors[run.status] || '#64748b'
+                      const statusBg = runStatusBg[run.status] || '#f9fafb'
+                      return (
+                        <div key={run.id}
+                          className="px-6 py-4 hover:bg-gray-50/70 transition-colors flex items-start gap-4"
+                          style={isLatest ? { borderLeft: `3px solid ${statusColor}` } : { borderLeft: '3px solid transparent' }}>
+
+                          {/* Status icon */}
+                          <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5" style={{ background: statusBg }}>
+                            {run.status === 'completed' && <CheckCircle style={{ width: 18, height: 18, color: '#16a34a' }} />}
+                            {run.status === 'failed' && <Info style={{ width: 18, height: 18, color: '#dc2626' }} />}
+                            {run.status === 'running' && <Loader2 style={{ width: 18, height: 18, color: '#2563eb' }} className="animate-spin" />}
+                            {run.status === 'pending' && <Clock style={{ width: 18, height: 18, color: '#d97706' }} />}
+                          </div>
+
+                          {/* Center: timestamps + progress + details */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                              <span className="text-sm font-semibold" style={{ color: statusColor }}>
+                                {runStatusLabels[run.status] || run.status}
+                              </span>
+                              {isLatest && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-600 uppercase">Mới nhất</span>}
+                              <span className="text-xs text-gray-400">{formatDateTime(run.started_at)}</span>
+                              {run.completed_at && <span className="text-xs text-gray-400">→ {formatDateTime(run.completed_at)}</span>}
+                            </div>
+
+                            {/* Progress bar */}
+                            <div className="flex items-center gap-3 mb-1.5">
+                              <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                <div className="h-full rounded-full transition-all duration-500"
+                                  style={{ width: `${pct}%`, background: run.status === 'failed' ? '#ef4444' : run.status === 'running' ? '#3b82f6' : '#22c55e' }} />
+                              </div>
+                              <span className="text-xs font-semibold shrink-0 w-8 text-right" style={{ color: statusColor }}>{pct}%</span>
+                            </div>
+
+                            {/* Step + summary */}
+                            <div className="flex flex-wrap gap-x-4 text-xs">
+                              <span className="font-medium text-gray-600">{getHistoryRunStepLabel(run)}</span>
+                              {getHistoryRunSummary(run) && <span className="text-gray-400">{getHistoryRunSummary(run)}</span>}
+                            </div>
+
+                            {/* Error */}
+                            {run.error_message && (
+                              <div className="mt-2 flex items-start gap-1.5 bg-red-50 rounded-lg px-3 py-2">
+                                <Info style={{ width: 13, height: 13, color: '#f87171', flexShrink: 0, marginTop: 1 }} />
+                                <span className="text-xs text-red-600 leading-relaxed">{run.error_message}</span>
+                              </div>
+                            )}
+                          </div>
+
+                          {/* Right: trigger + run id */}
+                          <div className="shrink-0 text-right space-y-1">
+                            <div className="text-[11px] text-gray-400">{run.triggered_by || 'manual'}</div>
+                            <div className="text-[10px] text-gray-300">#{run.id}</div>
+                          </div>
+
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+            </>
           )}
-        </Spin>
-      </Drawer>
+        </div>
+      </div>
     )
   }
 
+  const renderFlowDetailsDrawer = () => {
+    // Drawer kept for backward compat but no longer used (detail is now full-page)
+    return null
+  }
+
   const handleDeleteFlow = (record, options = {}) => {
-    Modal.confirm({
-      title: 'Delete Backup Flow',
-      content: `Are you sure you want to delete "${record.name || 'Draft'}"?`,
-      okText: 'Delete',
-      okType: 'danger',
-      cancelText: 'Cancel',
-      onOk: async () => {
-        try {
-          await axios.delete(`${API_BASE}/api/backup-flows/${record.id}`)
-          message.success('Backup flow deleted')
-          fetchFlows()
-          if (typeof options.onDeleted === 'function') {
-            options.onDeleted()
-          }
-        } catch (err) {
-          message.error('Failed to delete')
-        }
-      }
-    })
+    handleDeleteFlowConfirm(record, options)
   }
 
   const handlePublishFlow = async (record) => {
     try {
-      await axios.post(`${API_BASE}/api/backup-flows/${record.id}/publish`)
+      await api.post(`/api/backup-flows/${record.id}/publish`)
       message.success('Flow published!')
       fetchFlows()
     } catch (err) {
@@ -3142,7 +3019,7 @@ const BackupFlowPage = () => {
       return false
     }
     try {
-      await axios.post(`${API_BASE}/api/backup-flows/${record.id}/run`)
+      await api.post(`/api/backup-flows/${record.id}/run`)
       message.success('Backup flow started')
       fetchFlows()
       if (typeof options.onStarted === 'function') {
@@ -3156,170 +3033,18 @@ const BackupFlowPage = () => {
   }
 
   const renderListView = () => {
-    const columns = [
-      {
-        title: 'App',
-        key: 'app',
-        width: 180,
-        render: (_, record) => {
-          const meta = APP_META[record.app] || { color: '#64748b', icon: <CloudOutlined /> }
-          return (
-            <Space>
-              <div style={{
-                width: 32, height: 32, borderRadius: 8,
-                background: `${meta.color}18`,
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 16, color: meta.color, flexShrink: 0
-              }}>
-                {meta.icon}
-              </div>
-              <div>
-                <div style={{ fontWeight: 600, fontSize: 13 }}>
-                  {record.app_name || <Text type="secondary">—</Text>}
-                </div>
-                <Text type="secondary" style={{ fontSize: 11 }}>
-                  {record.name || 'Draft chưa đặt tên'}
-                </Text>
-              </div>
-            </Space>
-          )
-        }
-      },
-      {
-        title: 'Backup Type',
-        key: 'backup_type',
-        width: 140,
-        render: (_, record) => {
-          if (!record.backup_type) return <Text type="secondary">—</Text>
-          const t = BACKUP_TYPE_TAG[record.backup_type] || { color: 'default', label: record.backup_type }
-          return <Tag color={t.color}>{t.label}</Tag>
-        }
-      },
-      {
-        title: 'Destination',
-        key: 'destination',
-        width: 170,
-        render: (_, record) => {
-          if (!record.destination_name) return <Text type="secondary">—</Text>
-          return (
-            <Space>
-              {record.destination_type === 'gsheets'
-                ? <FileExcelOutlined style={{ color: '#10b981' }} />
-                : <GoogleOutlined style={{ color: '#4285f4' }} />
-              }
-              <Text>{record.destination_name}</Text>
-            </Space>
-          )
-        }
-      },
-      {
-        title: 'Status',
-        key: 'publish_status',
-        width: 160,
-        render: (_, record) => (
-          <Space size={4}>
-            {record.is_draft === 1
-              ? <Tag color="gold">Draft</Tag>
-              : <Tag color="cyan">Ready</Tag>
-            }
-            {record.is_published === 1
-              ? <Tag color="green">Published</Tag>
-              : <Tag color="default">Unpublished</Tag>
-            }
-          </Space>
-        )
-      },
-      {
-        title: 'Last Run',
-        key: 'last_run',
-        width: 160,
-        render: (_, record) => record.last_run_at
-          ? <Text type="secondary" style={{ fontSize: 12 }}>{record.last_run_at}</Text>
-          : <Text type="secondary" style={{ fontSize: 12 }}>Never run</Text>
-      },
-      {
-        title: 'Actions',
-        key: 'actions',
-        fixed: 'right',
-        width: 320,
-        render: (_, record) => {
-          const runButton = (
-            <Button
-              size="small"
-              type="primary"
-              icon={<PlayCircleOutlined />}
-              disabled={Boolean(record.run_blocked_reason)}
-              onClick={() => handleRunFlow(record)}
-            >
-              Run
-            </Button>
-          )
-
-          return (
-          <Space size={4} wrap>
-            <Button
-              size="small"
-              icon={<EyeOutlined />}
-              onClick={() => handleOpenFlowDetails(record)}
-            >
-              Details
-            </Button>
-            {record.is_published === 0 && (
-              <Button
-                size="small"
-                type="primary"
-                ghost
-                icon={<RocketOutlined />}
-                onClick={() => handlePublishFlow(record)}
-              >
-                Publish
-              </Button>
-            )}
-            <Button
-              size="small"
-              icon={<EditOutlined />}
-              onClick={() => loadFlowForEdit(record.id)}
-            >
-              Edit
-            </Button>
-            {record.is_published === 1 && ['request', 'service'].includes(record.app) && (
-              record.run_blocked_reason ? (
-                <Tooltip title={record.run_blocked_reason}>
-                  <span>{runButton}</span>
-                </Tooltip>
-              ) : record.app === 'service' && record.destination_type === 'gdrive' ? (
-                <Tooltip title="Khi run lại, Base Service cũ sẽ được chuyển vào Google Drive Trash trước khi hệ thống tạo cây backup mới.">
-                  <span>{runButton}</span>
-                </Tooltip>
-              ) : runButton
-            )}
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-              onClick={() => handleDeleteFlow(record)}
-            />
-          </Space>
-        )}
-      }
-    ]
-
     return (
       <>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        {/* Header */}
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <Title level={2} style={{ margin: 0 }}>Backup Flows</Title>
-            <Paragraph type="secondary" style={{ margin: '4px 0 0 0' }}>
-              Manage and monitor your backup configurations
-            </Paragraph>
+            <h2 className="text-2xl font-bold text-gray-900">Backup Flows</h2>
+            <p className="text-sm text-gray-500 mt-0.5">Manage and monitor your backup configurations</p>
           </div>
-          <Button
-            type="primary"
-            size="large"
-            icon={<PlusOutlined />}
+          <button
             onClick={async () => {
               try {
-                const res = await axios.post(`${API_BASE}/api/backup-flows/draft`, {})
+                const res = await api.post(`/api/backup-flows/draft`, {})
                 setDraftFlowId(res.data.id)
                 message.success('Draft created')
               } catch (err) {
@@ -3329,91 +3054,728 @@ const BackupFlowPage = () => {
               }
               setViewMode('create')
             }}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md transition-colors"
           >
-            New Backup Flow
-          </Button>
+            <Plus className="w-4 h-4" /> New Backup Flow
+          </button>
         </div>
 
-        <Card>
-          <Table
-            dataSource={flows}
-            columns={columns}
-            rowKey="id"
-            loading={loadingFlows}
-            scroll={{ x: 900 }}
-            pagination={{
-              pageSize: 10,
-              showTotal: (total) => `Total ${total} flows`
-            }}
-            locale={{ emptyText: 'No backup flows yet. Click "New Backup Flow" to create one.' }}
-          />
-        </Card>
+        {/* Table card */}
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          {loadingFlows ? (
+            <SpinCenter text="Loading backup flows…" />
+          ) : flows.length === 0 ? (
+            <Empty description='No backup flows yet. Click "New Backup Flow" to create one.' />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 border-b border-gray-200">
+                  <tr>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">App / Flow</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Backup Type</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Destination</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                    <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Last Run</th>
+                    <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {flows.map(record => {
+                    const meta = APP_META[record.app] || { color: '#64748b', icon: <Cloud className="w-4 h-4" /> }
+                    const bt = BACKUP_TYPE_TAG[record.backup_type]
+                    return (
+                      <tr key={record.id} className="hover:bg-gray-50 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-3">
+                            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ backgroundColor: `${meta.color}18`, color: meta.color }}>
+                              {meta.icon}
+                            </div>
+                            <div>
+                              <div className="font-semibold text-gray-900">{record.app_name || <span className="text-gray-400">—</span>}</div>
+                              <div className="text-xs text-gray-400">{record.name || 'Untitled draft'}</div>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          {bt ? <Tag color={bt.color}>{bt.label}</Tag> : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          {record.destination_name ? (
+                            <div className="flex items-center gap-1.5">
+                              {record.destination_type === 'gsheets'
+                                ? <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                                : <Globe className="w-4 h-4 text-blue-500" />}
+                              <span className="text-gray-700">{record.destination_name}</span>
+                            </div>
+                          ) : <span className="text-gray-400">—</span>}
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex flex-wrap gap-1">
+                            {record.is_draft === 1 ? <Tag color="gold">Draft</Tag> : <Tag color="cyan">Ready</Tag>}
+                            {record.is_published === 1 ? <Tag color="green">Published</Tag> : <Tag color="default">Unpublished</Tag>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-xs text-gray-400">{record.last_run_at || 'Never run'}</span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                            <button onClick={() => handleOpenFlowDetails(record)} className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                              <Eye className="w-3.5 h-3.5" /> Details
+                            </button>
+                            {record.is_published === 0 && (
+                              <button onClick={() => handlePublishFlow(record)} className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-blue-300 text-blue-600 rounded-md hover:bg-blue-50 transition-colors">
+                                <Rocket className="w-3.5 h-3.5" /> Publish
+                              </button>
+                            )}
+                            <button onClick={() => loadFlowForEdit(record.id)} className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
+                              <Pencil className="w-3.5 h-3.5" /> Edit
+                            </button>
+                            {record.is_published === 1 && ['request', 'service'].includes(record.app) && (
+                              <button
+                                onClick={() => handleRunFlow(record)}
+                                disabled={Boolean(record.run_blocked_reason)}
+                                title={record.run_blocked_reason || undefined}
+                                className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                              >
+                                <Play className="w-3.5 h-3.5" /> Run
+                              </button>
+                            )}
+                            <button onClick={() => handleDeleteFlowConfirm(record)} className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </>
     )
   }
 
-  // Render create/edit backup wizard
   const renderCreateView = () => {
     const isEdit = viewMode === 'edit'
-    const isServiceReviewStep = isServiceApp && currentStep === totalSteps - 1
-    const isCondensedServiceAppObjectsStep = usesCondensedServiceWizard && currentStep === 0
+    const progressPercent = totalSteps > 1 ? Math.round((currentStep / (totalSteps - 1)) * 100) : 0
+
+    // Friendly step descriptions for sidebar
+    const stepDescriptions = usesCondensedServiceWizard
+      ? ['Đặt tên & chọn nguồn dữ liệu', 'Cấu hình lưu trữ backup', 'Xác nhận & tạo luồng']
+      : isRequestApp
+        ? ['Đặt tên & chọn ứng dụng', 'Thông tin kết nối', 'Loại backup & lưu trữ', ...(hasServiceAccountStep ? ['Xác thực Google'] : []), 'Xem lại & tạo']
+        : ['Đặt tên & chọn ứng dụng', 'Chọn dữ liệu cần backup', 'Kết nối & lưu trữ', ...(hasServiceAccountStep ? ['Xác thực Google'] : []), 'Xem lại & tạo']
+
     return (
-    <>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-        <Title level={2} style={{ margin: 0 }}>
-          {isEdit ? 'Edit Backup Flow' : 'Create Backup Flow'}
-        </Title>
-        <Button
-          icon={<ArrowLeftOutlined />}
-          onClick={() => {
-            setViewMode('list')
-            setCurrentStep(0)
-            setSelectedApp(null)
-            setFlowName('')
-            setDraftFlowId(null)
-            setEditFlowId(null)
-          }}
-        >
-          Back to List
-        </Button>
-      </div>
+      <div className="flex h-full min-h-[calc(100vh-4rem)] bg-gray-50">
+        {/* ── Left sidebar ── */}
+        <div className="w-64 shrink-0 bg-white border-r border-gray-200 flex flex-col shadow-sm">
+          {/* Header */}
+          <div className="px-5 py-5 border-b border-gray-100">
+            <button
+              onClick={() => { setViewMode('list'); setCurrentStep(0); setSelectedApp(null); setFlowName(''); setDraftFlowId(null); setEditFlowId(null) }}
+              className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-4"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Quay lại danh sách</span>
+            </button>
 
-      <Card>
-        <Steps current={currentStep} items={steps} style={{ marginBottom: 32, flexShrink: 0 }} />
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
+                <Cloud className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <p className="text-[11px] font-medium text-blue-600 uppercase tracking-wide">
+                  {isEdit ? 'Chỉnh sửa' : 'Tạo mới'}
+                </p>
+                <h2 className="text-sm font-bold text-gray-900 leading-tight">
+                  Luồng Backup
+                </h2>
+              </div>
+            </div>
 
-        <div style={isServiceReviewStep ? { marginBottom: 24 } : { minHeight: 300, marginBottom: 24 }}>
-          {renderStepContent()}
+            {flowName && (
+              <div className="mt-3 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
+                <p className="text-[11px] text-gray-400 mb-0.5">Tên luồng</p>
+                <p className="text-sm font-medium text-gray-700 truncate">{flowName}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          <div className="px-5 py-3 border-b border-gray-100">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] text-gray-400">Tiến độ</span>
+              <span className="text-[11px] font-semibold text-blue-600">{progressPercent}%</span>
+            </div>
+            <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-blue-500 rounded-full transition-all duration-500"
+                style={{ width: `${progressPercent}%` }}
+              />
+            </div>
+          </div>
+
+          {/* Steps nav */}
+          <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
+            {steps.map((step, idx) => {
+              const isDone = idx < currentStep
+              const isActive = idx === currentStep
+              const isPending = idx > currentStep
+              return (
+                <div
+                  key={idx}
+                  className={`flex items-start gap-3 px-3 py-3 rounded-xl transition-all ${
+                    isActive ? 'bg-blue-50 border border-blue-100' : isPending ? 'opacity-50' : 'hover:bg-gray-50'
+                  }`}
+                >
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 transition-all ${
+                    isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white shadow-sm shadow-blue-200' : 'bg-gray-100 text-gray-400'
+                  }`}>
+                    {isDone ? <Check className="w-3.5 h-3.5" /> : idx + 1}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-semibold leading-tight ${isActive ? 'text-blue-700' : isDone ? 'text-green-700' : 'text-gray-400'}`}>
+                      {step.title}
+                    </p>
+                    {stepDescriptions[idx] && (
+                      <p className={`text-[11px] mt-0.5 leading-snug ${isActive ? 'text-blue-500' : isDone ? 'text-green-500' : 'text-gray-300'}`}>
+                        {stepDescriptions[idx]}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </nav>
+
+          {/* Sidebar summary card */}
+          {currentStep > 0 && (selectedApp || googleAuth) && (
+            <div className="mx-3 mb-4 p-3 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Đã cấu hình</p>
+              {currentApp && (
+                <div className="flex items-center gap-2">
+                  <span style={{ color: currentApp.color }}>
+                    {currentApp.icon && React.cloneElement(currentApp.icon, { className: 'w-3.5 h-3.5' })}
+                  </span>
+                  <span className="text-xs font-semibold" style={{ color: currentApp.color }}>{currentApp.name}</span>
+                </div>
+              )}
+              {domain && (
+                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 truncate">
+                  <Globe className="w-3 h-3 shrink-0 text-gray-400" />
+                  <span className="truncate">{domain}</span>
+                </div>
+              )}
+              {backupType && (
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                    backupType === 'structured' ? 'bg-blue-100 text-blue-700' :
+                    backupType === 'unstructured' ? 'bg-amber-100 text-amber-700' :
+                    'bg-purple-100 text-purple-700'
+                  }`}>
+                    {backupType === 'structured' ? 'Dữ liệu có cấu trúc' : backupType === 'unstructured' ? 'File & đính kèm' : 'Toàn bộ'}
+                  </span>
+                </div>
+              )}
+              {storageDestination && (
+                <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
+                  {storageDestination === 'gsheets'
+                    ? <FileSpreadsheet className="w-3 h-3 text-green-500 shrink-0" />
+                    : <Folder className="w-3 h-3 text-blue-500 shrink-0" />}
+                  <span>{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span>
+                </div>
+              )}
+              {googleAuth?.email && (
+                <div className="flex items-center gap-1.5 text-[11px] text-gray-500 truncate">
+                  <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
+                  <span className="truncate">{googleAuth.email}</span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
-        {!isServiceReviewStep && !isCondensedServiceAppObjectsStep && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', flexShrink: 0 }}>
-            <Button disabled={currentStep === 0} onClick={prev}>
-              Previous
-            </Button>
-            <div style={{ display: 'flex', gap: 8 }}>
-              {currentStep < totalSteps - 1 && (
-                <Button type="primary" onClick={next}>
-                  Continue
-                </Button>
-              )}
-              {currentStep === totalSteps - 1 && (
-                <>
-                  <Button type="primary" size="large" icon={isEdit ? <EditOutlined /> : <RocketOutlined />} onClick={() => handleFinish(false)}>
-                    {isEdit ? 'Save Changes' : 'Create Backup Flow'}
-                  </Button>
-                  {['request', 'service'].includes(currentApp?.id || '') && (
-                    <Button size="large" icon={<PlayCircleOutlined />} onClick={() => handleFinish(true)}>
-                      {isEdit ? 'Save & Run' : 'Create & Run'}
-                    </Button>
-                  )}
-                </>
+        {/* ── Right: step content ── */}
+        <div className="flex-1 flex flex-col min-w-0">
+          {/* Step header */}
+          <div className="shrink-0 bg-white border-b border-gray-200 px-10 py-5">
+            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
+              <span>Bước {currentStep + 1} / {totalSteps}</span>
+            </div>
+            <h1 className="text-xl font-bold text-gray-900">
+              {steps[currentStep]?.title || ''}
+            </h1>
+            {stepDescriptions[currentStep] && (
+              <p className="text-sm text-gray-500 mt-0.5">{stepDescriptions[currentStep]}</p>
+            )}
+          </div>
+
+          {/* Content area */}
+          <div className="flex-1 overflow-y-auto px-10 py-8">
+            {renderStepContent()}
+          </div>
+
+          {/* Bottom nav bar */}
+          {!(usesCondensedServiceWizard && currentStep === 0) && (
+            <div className="shrink-0 border-t border-gray-200 bg-white px-10 py-4 flex items-center justify-between">
+              <button
+                disabled={currentStep === 0}
+                onClick={prev}
+                className="flex items-center gap-2 px-5 py-2.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium"
+              >
+                <ArrowLeft className="w-4 h-4" /> Quay lại
+              </button>
+              <div className="flex items-center gap-3">
+                {currentStep < totalSteps - 1 && (
+                  <button
+                    onClick={next}
+                    className="flex items-center gap-2 px-6 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-sm shadow-blue-200"
+                  >
+                    Tiếp theo <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+                {currentStep === totalSteps - 1 && (
+                  <>
+                    <button
+                      onClick={() => handleFinish(false)}
+                      className="flex items-center gap-2 px-6 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-sm shadow-blue-200"
+                    >
+                      {isEdit
+                        ? <><Pencil className="w-4 h-4" /> Lưu thay đổi</>
+                        : <><Rocket className="w-4 h-4" /> Tạo luồng backup</>}
+                    </button>
+                    {['request', 'service'].includes(currentApp?.id || '') && (
+                      <button
+                        onClick={() => handleFinish(true)}
+                        className="flex items-center gap-2 px-5 py-2.5 text-sm border border-green-300 text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors font-medium"
+                      >
+                        <Play className="w-4 h-4" />
+                        {isEdit ? 'Lưu & Chạy ngay' : 'Tạo & Chạy ngay'}
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  // ── Generic step 2: object selection (workflow / wework apps) ────────────────
+  const renderGenericStep2 = () => {
+    if (!currentApp) return null
+    return (
+      <div className="max-w-xl space-y-6">
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1">
+            Chọn loại dữ liệu cần sao lưu <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-4">
+            Chọn những loại dữ liệu từ <strong>{currentApp.name}</strong> mà bạn muốn đưa vào bản backup
+          </p>
+
+          <div className="space-y-2.5">
+            <div
+              onClick={handleSelectAllObjects}
+              className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-3.5 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 flex items-center gap-3 transition-all"
+            >
+              <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all ${
+                selectedObjects.length === currentApp.objects.length
+                  ? 'bg-blue-600 border-blue-600'
+                  : 'border-gray-300'
+              }`}>
+                {selectedObjects.length === currentApp.objects.length && <Check className="w-3 h-3 text-white" />}
+              </div>
+              <span className="font-semibold text-sm text-gray-700">Chọn tất cả loại dữ liệu</span>
+              <span className="text-xs text-gray-400 ml-auto">{currentApp.objects.length} loại</span>
+            </div>
+
+            {currentApp.objects.map(obj => (
+              <div
+                key={obj}
+                onClick={() => handleObjectToggle(obj)}
+                className="border-2 rounded-xl px-4 py-4 cursor-pointer transition-all flex items-center gap-3"
+                style={{
+                  borderColor: selectedObjects.includes(obj) ? currentApp.color : '#e5e7eb',
+                  backgroundColor: selectedObjects.includes(obj) ? currentApp.bg : '#fff',
+                }}
+              >
+                <div
+                  className="w-5 h-5 rounded flex items-center justify-center border-2 transition-all shrink-0"
+                  style={{
+                    backgroundColor: selectedObjects.includes(obj) ? currentApp.color : 'transparent',
+                    borderColor: selectedObjects.includes(obj) ? currentApp.color : '#d1d5db',
+                  }}
+                >
+                  {selectedObjects.includes(obj) && <Check className="w-3 h-3 text-white" />}
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold text-sm" style={{ color: selectedObjects.includes(obj) ? currentApp.color : '#374151' }}>
+                    {currentApp.objectLabels[obj]}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-0.5">{currentApp.name} › {currentApp.objectLabels[obj]}</div>
+                </div>
+                {selectedObjects.includes(obj) && (
+                  <CheckCircle className="w-4 h-4 shrink-0" style={{ color: currentApp.color }} />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Request app: step 2 — connection info ─────────────────────────────────
+  const renderRequestStep2 = () => (
+    <div className="max-w-xl space-y-6">
+      <div className="border border-blue-100 rounded-2xl p-6 bg-blue-50/40 space-y-5">
+        <div className="flex items-center gap-2">
+          <Globe className="w-5 h-5 text-blue-600" />
+          <h4 className="text-sm font-bold text-blue-800">Thông tin kết nối hệ thống Request</h4>
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">
+            Địa chỉ website (Domain) <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-2">
+            Địa chỉ truy cập hệ thống của bạn, ví dụ: <code className="bg-white px-1 rounded border border-gray-200">congty.base.com.vn</code>
+          </p>
+          <input
+            className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+            placeholder="VD: congty.base.com.vn"
+            value={domain}
+            onChange={e => setDomain(e.target.value)}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-1">
+            Mã truy cập API (Access Token) <span className="text-red-500">*</span>
+          </label>
+          <p className="text-xs text-gray-400 mb-2">
+            Lấy từ hệ thống: vào <strong>Cài đặt</strong> → <strong>API Keys</strong> → sao chép giá trị <em>access_token_v2</em> của Base Account
+          </p>
+          <div className="relative">
+            <input
+              type={showTokenV2 ? 'text' : 'password'}
+              className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              placeholder="Dán mã truy cập vào đây…"
+              value={accessTokenV2}
+              onChange={e => setAccessTokenV2(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowTokenV2(v => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+              title={showTokenV2 ? 'Ẩn mã' : 'Hiện mã'}
+            >
+              {showTokenV2 ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
+        <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+        <div className="text-xs text-amber-700 leading-relaxed">
+          <strong>Lưu ý bảo mật:</strong> Mã truy cập này được mã hóa và lưu trữ an toàn. Không chia sẻ mã này với người khác.
+        </div>
+      </div>
+    </div>
+  )
+
+  // ── Request app: step 3 — backup type + destination + auth ────────────────
+  const renderRequestStep3 = () => {
+    return (
+      <div className="max-w-2xl">
+        {renderBackupSetupSection()}
+      </div>
+    )
+  }
+
+  // ── Shared: renders the dark-panel file-tree ─────────────────────────────
+  const renderFileTree = (lines) => (
+    <div className="rounded-2xl overflow-hidden flex-1 flex flex-col min-h-0" style={{ background: '#0f172a', border: '1px solid #1e293b' }}>
+      <div className="px-4 py-3 border-b flex items-center gap-2 shrink-0" style={{ borderColor: '#1e293b' }}>
+        <Folder className="w-3.5 h-3.5 text-emerald-400" />
+        <span className="text-xs font-bold text-white tracking-wide">Ví dụ cấu trúc thư mục output</span>
+      </div>
+      <div className="px-4 py-4 overflow-y-auto text-xs font-mono leading-relaxed space-y-0.5" style={{ color: '#94a3b8' }}>
+        {lines.map((line, i) => (
+          <div key={i} style={{ color: line.color || '#94a3b8', paddingLeft: line.indent * 16 }}>
+            {line.icon} {line.text}
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+
+  // ── Shared: builds tree lines for Request app ─────────────────────────────
+  const buildRequestTreeLines = () => {
+    const root = googleAuth?.folder_name || 'My Drive'
+    const lines = [
+      { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
+      { indent: 1, icon: '📁', text: 'Requests', color: '#10b981' },
+      { indent: 2, icon: '📁', text: '[001] Nhóm yêu cầu A', color: '#60a5fa' },
+      { indent: 3, icon: '📊', text: 'thong_tin_requests.xlsx', color: '#4ade80' },
+      { indent: 3, icon: '📁', text: '[1234] Tên yêu cầu 1', color: '#60a5fa' },
+      { indent: 4, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#94a3b8' },
+      { indent: 4, icon: '📝', text: 'post_and_comment.txt', color: '#94a3b8' },
+      { indent: 4, icon: '📊', text: '[tên bảng].xlsx', color: '#94a3b8' },
+      { indent: 4, icon: '📁', text: 'Tệp đính kèm/', color: '#94a3b8' },
+      { indent: 5, icon: '📄', text: 'file1.pdf', color: '#64748b' },
+      { indent: 5, icon: '🖼️', text: 'image.png', color: '#64748b' },
+      { indent: 3, icon: '📁', text: '[1235] Tên yêu cầu 2', color: '#60a5fa' },
+      { indent: 4, icon: '…', text: '(tương tự)', color: '#64748b' },
+      { indent: 2, icon: '📁', text: '[002] Nhóm yêu cầu B', color: '#60a5fa' },
+      { indent: 3, icon: '…', text: '(tương tự)', color: '#64748b' },
+      { indent: 2, icon: '📁', text: '[direct] Đề xuất trực tiếp', color: '#60a5fa' },
+      { indent: 3, icon: '…', text: '(yêu cầu không thuộc nhóm)', color: '#64748b' },
+    ]
+    return lines
+  }
+
+  // ── Request app: step 4 — review ─────────────────────────────────────────
+  const renderRequestStep4 = () => {
+    const isEdit = viewMode === 'edit'
+    const destinationLabel = storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'
+    const backupTypeLabels = {
+      structured: 'Bảng tính (Dữ liệu có cấu trúc)',
+      unstructured: 'File & Đính kèm',
+      all: 'Toàn bộ',
+    }
+    const backupTypeColors = { structured: '#0284c7', unstructured: '#d97706', all: '#7c3aed' }
+
+    // Vertical layout: label on top, value below — tránh bị cắt chữ
+    const SummaryField = ({ label, children }) => (
+      <div className="py-2.5 border-b border-gray-50 last:border-0">
+        <div className="text-[10px] text-gray-400 font-semibold uppercase tracking-wider mb-0.5">{label}</div>
+        <div className="text-sm text-gray-800 break-words">{children}</div>
+      </div>
+    )
+
+    const treeLines = buildRequestTreeLines()
+
+    const _reqBlockedReason = getGoogleDriveRunBlockedReason()
+    const _reqArchiveNotice = renderServiceRootArchiveNotice(selectedApp, storageDestination)
+
+    return (
+      <div className="h-full flex flex-col gap-4">
+        {/* Ready banner — includes inline warning if any */}
+        <div className={`shrink-0 rounded-2xl px-5 py-4 flex items-center gap-4 ${_reqBlockedReason ? 'bg-amber-50 border border-amber-200' : 'bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200'}`}>
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${_reqBlockedReason ? 'bg-amber-100' : 'bg-green-100'}`}>
+            {_reqBlockedReason
+              ? <Info className="w-5 h-5 text-amber-600" />
+              : <CheckCircle className="w-5 h-5 text-green-600" />}
+          </div>
+          <div className="flex-1 min-w-0">
+            {_reqBlockedReason ? (
+              <>
+                <h3 className="text-sm font-bold text-amber-800">Lưu ý trước khi tạo</h3>
+                <p className="text-xs text-amber-700 mt-0.5 leading-relaxed">{_reqBlockedReason}</p>
+                {_reqArchiveNotice && <p className="text-xs text-amber-600 mt-1 leading-relaxed">{_reqArchiveNotice}</p>}
+              </>
+            ) : (
+              <>
+                <h3 className="text-sm font-bold text-green-800">Sẵn sàng tạo luồng backup!</h3>
+                <p className="text-xs text-green-600 mt-0.5">Kiểm tra lại cấu hình bên dưới rồi nhấn xác nhận</p>
+              </>
+            )}
+          </div>
+          {/* CTA inline */}
+          <div className="ml-auto flex items-center gap-2 shrink-0">
+            <button
+              onClick={() => handleFinish(true)}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm border border-green-400 text-green-700 bg-white rounded-xl hover:bg-green-50 transition-colors font-medium"
+            >
+              <Play className="w-3.5 h-3.5" />
+              {isEdit ? 'Lưu & Chạy' : 'Tạo & Chạy'}
+            </button>
+            <button
+              onClick={() => handleFinish(false)}
+              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-colors font-semibold shadow-sm"
+            >
+              <Rocket className="w-3.5 h-3.5" />
+              {isEdit ? 'Lưu thay đổi' : 'Tạo luồng'}
+            </button>
+          </div>
+        </div>
+
+        {/* 2-column layout */}
+        <div className="flex gap-5 flex-1 min-h-0">
+
+          {/* LEFT — Summary */}
+          <div className="flex-1 min-w-0 flex flex-col gap-3 overflow-y-auto pr-1">
+
+            {/* Source card */}
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-orange-50 border-b border-orange-100 flex items-center gap-2">
+                <Inbox className="w-3.5 h-3.5 text-orange-500" />
+                <span className="text-[11px] font-bold text-orange-700 uppercase tracking-wide">Nguồn dữ liệu</span>
+              </div>
+              <div className="px-4 py-0.5">
+                <SummaryField label="Ứng dụng">
+                  <span className="font-semibold" style={{ color: currentApp?.color }}>{currentApp?.name}</span>
+                </SummaryField>
+                <SummaryField label="Địa chỉ">
+                  <span className="font-mono text-xs text-gray-700">{domain || <span className="text-red-400">Chưa nhập</span>}</span>
+                </SummaryField>
+                <SummaryField label="Token xác thực">
+                  <span className="font-mono text-gray-500 text-xs">
+                    {accessTokenV2 ? `••••${accessTokenV2.slice(-4)}` : <span className="text-red-400">Chưa nhập</span>}
+                  </span>
+                </SummaryField>
+              </div>
+            </div>
+
+            {/* Destination card */}
+            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+              <div className="px-4 py-2.5 bg-blue-50 border-b border-blue-100 flex items-center gap-2">
+                <Cloud className="w-3.5 h-3.5 text-blue-500" />
+                <span className="text-[11px] font-bold text-blue-700 uppercase tracking-wide">Lưu trữ</span>
+              </div>
+              <div className="px-4 py-0.5">
+                <SummaryField label="Loại backup">
+                  {backupType
+                    ? <span className="font-semibold" style={{ color: backupTypeColors[backupType] }}>{backupTypeLabels[backupType]}</span>
+                    : <span className="text-red-400 text-xs">Chưa chọn</span>}
+                </SummaryField>
+                <SummaryField label="Lưu vào">
+                  <span className="font-semibold">{destinationLabel || <span className="text-red-400 text-xs">Chưa chọn</span>}</span>
+                </SummaryField>
+                <SummaryField label="Tài khoản Google">
+                  <span className="text-xs text-gray-700 break-all">{googleAuth?.email || <span className="text-red-400">Chưa kết nối</span>}</span>
+                </SummaryField>
+                <SummaryField label="Thư mục lưu trữ">
+                  <span className="text-xs text-gray-700">{googleAuth?.folder_name || <span className="text-gray-400">My Drive (mặc định)</span>}</span>
+                </SummaryField>
+              </div>
+            </div>
+
+            {/* Note: Request ignores backup_type */}
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
+              <div className="flex gap-2">
+                <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-amber-700 leading-relaxed">
+                  <strong>Lưu ý:</strong> Với ứng dụng Request, hệ thống luôn backup toàn bộ dữ liệu (bảng tính + file đính kèm) bất kể loại backup được chọn.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT — Output tree */}
+          <div className="flex-1 flex flex-col min-w-0 min-h-0">
+            {renderFileTree(treeLines)}
+            <div className="mt-3 space-y-1 shrink-0">
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                <span className="text-green-500 font-bold">📊 .xlsx</span> — Danh sách request và trường tùy chỉnh &nbsp;·&nbsp;
+                <span className="text-blue-400 font-bold">📝 .txt</span> — Bài đăng & bình luận &nbsp;·&nbsp;
+                <span className="text-gray-400 font-bold">📁 Tệp đính kèm/</span> — File gốc hoặc metadata nếu không tải được
+              </p>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    )
+  }
+
+  // ── Service account step (used when googleAuthMethod === 'service_account') ─
+  const renderServiceAccountStep = () => {
+    const analysis = serviceAccountAnalysis || {}
+    const availableDrives = Array.isArray(analysis.drives) ? analysis.drives : []
+    const serviceAccountEmail = analysis.client_email || googleAuth?.service_account_email || googleAuth?.email
+    const projectId = analysis.project_id || googleAuth?.project_id
+
+    return (
+      <div className="max-w-xl space-y-6">
+        <div className="border-2 border-dashed border-gray-200 rounded-2xl p-6 hover:border-purple-300 transition-colors">
+          <div className="flex items-center gap-2 mb-1">
+            <Lock className="w-4 h-4 text-purple-600" />
+            <p className="text-sm font-bold text-gray-800">Tải lên file JSON Tài khoản Dịch vụ Google</p>
+          </div>
+          <p className="text-xs text-gray-400 mb-4 leading-relaxed">
+            Vào <strong>Google Cloud Console</strong> → <strong>IAM & Admin</strong> → <strong>Service Accounts</strong> → chọn tài khoản → tab <strong>Keys</strong> → <strong>Add Key</strong> → tải file <code className="bg-gray-100 px-1 rounded">.json</code>
+          </p>
+          <input
+            type="file"
+            accept=".json,application/json"
+            onChange={handleServiceAccountFileUpload}
+            className="text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border file:border-gray-300 file:text-xs file:font-semibold file:bg-white file:text-gray-700 hover:file:bg-gray-50"
+          />
+          {serviceAccountFileName && (
+            <div className="flex items-center gap-1.5 mt-3 text-xs text-gray-500">
+              <CheckCircle className="w-3.5 h-3.5 text-green-500" />
+              <span>Đã tải: {serviceAccountFileName}</span>
+            </div>
+          )}
+        </div>
+
+        {serviceAccountError && <Alert type="error" message={serviceAccountError} />}
+
+        {serviceAccountAnalysisLoading && (
+          <div className="flex items-center gap-2 py-4 text-sm text-gray-500"><Spinner /> Đang phân tích file…</div>
+        )}
+
+        {serviceAccountEmail && !serviceAccountAnalysisLoading && (
+          <div className="bg-purple-50 border border-purple-200 rounded-2xl p-5 space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-4 h-4 text-purple-600" />
+              <span className="text-sm font-bold text-purple-800">Xác nhận tài khoản dịch vụ</span>
+            </div>
+            <div className="space-y-2 text-sm">
+              <div className="flex gap-3">
+                <span className="text-xs text-gray-400 w-20 shrink-0 pt-0.5">Email</span>
+                <span className="font-semibold text-gray-800 break-all">{serviceAccountEmail}</span>
+              </div>
+              <div className="flex gap-3">
+                <span className="text-xs text-gray-400 w-20 shrink-0 pt-0.5">Project</span>
+                <span className="font-semibold text-gray-800">{projectId || '—'}</span>
+              </div>
+              {availableDrives.length > 0 && (
+                <div className="flex gap-3">
+                  <span className="text-xs text-gray-400 w-20 shrink-0 pt-0.5">Shared Drives</span>
+                  <div className="flex flex-wrap gap-1">
+                    {availableDrives.map(d => <Tag key={d.id} color="default">{d.name}</Tag>)}
+                  </div>
+                </div>
               )}
             </div>
           </div>
         )}
-      </Card>
-    </>
-  )}
+
+        {storageDestination === 'gdrive' && googleAuth && (
+          <div>
+            <label className="block text-sm font-semibold text-gray-800 mb-1">
+              Thư mục lưu trữ <span className="text-xs text-gray-400 font-normal">(tùy chọn)</span>
+            </label>
+            <p className="text-xs text-gray-400 mb-2">Chọn thư mục trong Google Drive để lưu bản backup. Chỉ thư mục trong Shared Drive mới được hỗ trợ với Service Account.</p>
+            <button
+              onClick={handleOpenFolderPicker}
+              className="w-full border-2 border-dashed border-gray-200 rounded-xl px-4 py-3.5 text-sm flex items-center gap-3 hover:border-purple-400 hover:bg-purple-50/30 transition-all text-left"
+            >
+              <Folder className={`w-5 h-5 shrink-0 ${googleAuth.folder_name ? 'text-amber-500' : 'text-gray-400'}`} />
+              <span className={googleAuth.folder_name ? 'font-medium text-gray-800' : 'text-gray-400'}>
+                {googleAuth.folder_name ? `📁 ${googleAuth.folder_name}` : 'Nhấn để chọn thư mục…'}
+              </span>
+            </button>
+            {renderGoogleDriveFolderSummary()}
+            {getGoogleDriveRunBlockedReason() && (
+              <Alert type="warning" message="Thư mục này chưa thể sử dụng" description={getGoogleDriveRunBlockedReason()} className="mt-2" />
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   const renderStepContent = () => {
     if (usesCondensedServiceWizard) {
@@ -3446,212 +3808,160 @@ const BackupFlowPage = () => {
     }
   }
 
+  // Sync form fields when modal opens
+  useEffect(() => {
+    if (googleConfigModalOpen) {
+      setGcClientId('')
+      setGcClientSecret('')
+      setGcRedirectUri(googleRedirectUri || DEFAULT_GOOGLE_REDIRECT)
+    }
+  }, [googleConfigModalOpen, googleRedirectUri])
+
+  const handleSaveGoogleConfigAndConnectNew = async () => {
+    if (!gcClientId.trim()) { message.error('Client ID is required'); return }
+    if (!gcClientSecret.trim() && !googleSecretSet) { setGoogleConfigError('Client Secret is required'); return }
+    setGoogleConfigSaving(true)
+    setGoogleConfigError('')
+    try {
+      await api.put(`/api/settings/google`, {
+        client_id: gcClientId.trim(),
+        client_secret: gcClientSecret.trim() || '__KEEP__',
+        redirect_uri: gcRedirectUri.trim() || DEFAULT_GOOGLE_REDIRECT,
+      })
+      const authRes = await api.get(`/api/google/auth-url`)
+      const data = await startGoogleOAuthPopup(authRes.data.url)
+      setGoogleAuthMethod('oauth')
+      setGoogleAuth({ auth_method: 'oauth', connection_id: data.connection_id, email: data.email, display_name: data.display_name || data.email, picture_url: data.picture_url || '', folder_id: null, folder_name: null, drive_id: null })
+      setGoogleConfigModalOpen(false)
+      setGoogleSecretSet(true)
+      message.success(`Connected as ${data.email}`)
+    } catch (err) {
+      setGoogleConfigError(err.response?.data?.detail || err.message || 'Failed to configure Google OAuth')
+    } finally {
+      setGoogleConfigSaving(false)
+    }
+  }
+
+  const handleDeleteFlowConfirm = (record, options = {}) => {
+    if (window.confirm(`Delete "${record.name || 'Draft'}"?\n\nThis action cannot be undone.`)) {
+      api.delete(`/api/backup-flows/${record.id}`)
+        .then(() => { message.success('Backup flow deleted'); fetchFlows(); options.onDeleted?.() })
+        .catch(() => message.error('Failed to delete'))
+    }
+  }
+
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sidebar collapsed={collapsed} />
-      <Layout style={{ marginLeft: collapsed ? 80 : 240, transition: 'all 0.2s' }}>
-        <Topbar collapsed={collapsed} toggleCollapsed={() => setCollapsed(!collapsed)} />
-        <Content style={{ margin: 24 }}>
-          {viewMode === 'list' ? renderListView() : renderCreateView()}
-        </Content>
-      </Layout>
+    <AppLayout>
+      {viewMode === 'list' ? (
+        <div className="p-8">{renderListView()}</div>
+      ) : viewMode === 'detail' ? (
+        renderDetailView()
+      ) : (
+        renderCreateView()
+      )}
 
       {renderFlowDetailsDrawer()}
 
-      <Modal
-        title="Choose App"
-        open={showAppSelectionModal}
-        onCancel={() => setShowAppSelectionModal(false)}
-        footer={null}
-        width={900}
-      >
-        <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          Chọn app trong modal này. Nếu bạn chọn Service, form domain và access token sẽ hiện ngay ở step hiện tại để tiếp tục cấu hình source.
-        </Paragraph>
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
+      {/* ── Choose App Modal ── */}
+      <Modal title="Choose Application" open={showAppSelectionModal} onCancel={() => setShowAppSelectionModal(false)} width={820}>
+        <p className="text-sm text-gray-500 mb-4">Select the app whose data you want to back up.</p>
+        <div className="grid grid-cols-2 gap-4">
           {Object.values(APPS).map(app => (
-            <Card
+            <button
               key={app.id}
-              hoverable
               onClick={() => handleAppSelection(app.id)}
-              style={{
-                border: selectedApp === app.id ? `2px solid ${app.color}` : '1px solid #d9d9d9',
-                cursor: 'pointer',
-                backgroundColor: selectedApp === app.id ? app.bg : '#fff'
-              }}
+              className={`flex gap-4 items-start p-4 rounded-lg border-2 text-left transition-all hover:shadow-md ${
+                selectedApp === app.id ? 'border-current shadow-sm' : 'border-gray-200 hover:border-gray-300'
+              }`}
+              style={selectedApp === app.id ? { borderColor: app.color, backgroundColor: app.bg } : {}}
             >
-              <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
-                <div style={{
-                  fontSize: 32,
-                  color: app.color,
-                  backgroundColor: app.bg,
-                  padding: 10,
-                  borderRadius: 10,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center'
-                }}>
-                  {app.icon}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <Title level={5} style={{ margin: '0 0 4px 0', color: app.color }}>{app.name}</Title>
-                  <Paragraph type="secondary" style={{ fontSize: 12, margin: '0 0 12px 0' }}>
-                    {app.description}
-                  </Paragraph>
-                  <Space size={4} wrap>
-                    {app.objects.map(obj => (
-                      <Tag key={obj} color={app.color} style={{ fontSize: 11 }}>
-                        {app.objectLabels[obj]}
-                      </Tag>
-                    ))}
-                  </Space>
+              <div className="p-2.5 rounded-lg shrink-0" style={{ backgroundColor: app.bg, color: app.color }}>
+                {app.icon}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="font-semibold text-sm mb-1" style={{ color: app.color }}>{app.name}</div>
+                <p className="text-xs text-gray-500 mb-2">{app.description}</p>
+                <div className="flex flex-wrap gap-1">
+                  {app.objects.map(obj => (
+                    <span key={obj} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: app.bg, color: app.color }}>
+                      {app.objectLabels[obj]}
+                    </span>
+                  ))}
                 </div>
               </div>
-            </Card>
+              {selectedApp === app.id && <Check className="w-4 h-4 shrink-0 mt-0.5" style={{ color: app.color }} />}
+            </button>
           ))}
         </div>
       </Modal>
 
+      {/* ── Google OAuth Config Modal ── */}
       <Modal
         title="Configure Google OAuth"
         open={googleConfigModalOpen}
-        onCancel={() => {
-          if (googleConfigSaving) return
-          setGoogleConfigModalOpen(false)
-          setGoogleConfigError('')
-        }}
-        footer={[
-          <Button
-            key="cancel"
-            onClick={() => {
-              setGoogleConfigModalOpen(false)
-              setGoogleConfigError('')
-            }}
-            disabled={googleConfigSaving}
-          >
-            Cancel
-          </Button>,
-          <Button
-            key="save-connect"
-            type="primary"
-            loading={googleConfigSaving}
-            onClick={handleSaveGoogleConfigAndConnect}
-          >
-            Save & Connect Google
-          </Button>
-        ]}
-        width={640}
+        onCancel={() => { if (googleConfigSaving) return; setGoogleConfigModalOpen(false); setGoogleConfigError('') }}
+        width={600}
+        footer={
+          <>
+            <button onClick={() => { setGoogleConfigModalOpen(false); setGoogleConfigError('') }} disabled={googleConfigSaving} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+            <button onClick={handleSaveGoogleConfigAndConnectNew} disabled={googleConfigSaving} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+              {googleConfigSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+              Save & Connect Google
+            </button>
+          </>
+        }
       >
-        <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          Google OAuth chưa được cấu hình cho hệ thống này. Bạn có thể nhập trực tiếp <strong>Client ID</strong>, <strong>Client Secret</strong> và <strong>Redirect URI</strong> ngay tại đây rồi kết nối tiếp.
-        </Paragraph>
-
-        {googleConfigError && (
-          <Alert
-            type="error"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message={googleConfigError}
-          />
-        )}
-
-        {googleConfigLoading ? (
-          <div style={{ textAlign: 'center', padding: 24 }}>
-            <Spin />
+        <p className="text-sm text-gray-500 mb-4">Enter <strong>Client ID</strong>, <strong>Client Secret</strong> and <strong>Redirect URI</strong> then connect.</p>
+        {googleConfigError && <Alert type="error" message={googleConfigError} className="mb-4" />}
+        {googleConfigLoading ? <SpinCenter /> : (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Client ID <span className="text-red-500">*</span></label>
+              <input value={gcClientId} onChange={e => setGcClientId(e.target.value)} placeholder="123456789-abc.apps.googleusercontent.com" className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+              <input type="password" value={gcClientSecret} onChange={e => setGcClientSecret(e.target.value)} placeholder={googleSecretSet ? 'Leave blank to keep current secret' : 'GOCSPX-xxxxxxxxxxxxxxxx'} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <p className="text-xs text-gray-400 mt-1">{googleSecretSet ? 'A secret is already stored. Leave blank to keep it.' : 'Stored encrypted in the database.'}</p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Redirect URI <span className="text-red-500">*</span></label>
+              <input value={gcRedirectUri} onChange={e => setGcRedirectUri(e.target.value)} placeholder={DEFAULT_GOOGLE_REDIRECT} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+            </div>
+            <Alert type="info" message="Google Cloud Console reminder" description={`Authorized redirect URI must include ${googleRedirectUri || DEFAULT_GOOGLE_REDIRECT}`} />
           </div>
-        ) : (
-          <Form form={googleConfigForm} layout="vertical">
-            <Form.Item
-              label="Client ID"
-              name="client_id"
-              rules={[{ required: true, message: 'Client ID is required' }]}
-            >
-              <Input placeholder="123456789-abc.apps.googleusercontent.com" />
-            </Form.Item>
-
-            <Form.Item
-              label="Client Secret"
-              name="client_secret"
-              extra={googleSecretSet
-                ? 'A secret is already stored. Leave this blank to keep the existing one.'
-                : 'Stored encrypted in the database.'}
-            >
-              <Input.Password placeholder={googleSecretSet ? 'Leave blank to keep current secret' : 'GOCSPX-xxxxxxxxxxxxxxxx'} />
-            </Form.Item>
-
-            <Form.Item
-              label="Redirect URI"
-              name="redirect_uri"
-              rules={[{ required: true, message: 'Redirect URI is required' }]}
-            >
-              <Input placeholder={DEFAULT_GOOGLE_REDIRECT} />
-            </Form.Item>
-
-            <Alert
-              type="info"
-              showIcon
-              message="Google Cloud Console reminder"
-              description={`Authorized redirect URI must include ${googleRedirectUri || DEFAULT_GOOGLE_REDIRECT}`}
-            />
-          </Form>
         )}
       </Modal>
 
-      {/* Google Folder Picker Modal */}
+      {/* ── Google Folder Picker Modal ── */}
       <Modal
-        title={
-          <Space>
-            <GoogleOutlined style={{ color: '#4285f4' }} />
-            Select Google Drive Folder
-          </Space>
-        }
+        title={<span className="flex items-center gap-2"><Globe className="w-4 h-4 text-blue-500" /> Select Google Drive Folder</span>}
         open={googleFolderModal}
         onCancel={() => setGoogleFolderModal(false)}
-        footer={[
-          <Button key="cancel" onClick={() => setGoogleFolderModal(false)}>Cancel</Button>,
-          <Button key="select-here" type="primary" icon={<FolderOutlined />} onClick={handleSelectCurrentFolder}>
-            Select Current Location
-          </Button>
-        ]}
-        width={560}
+        width={540}
+        footer={
+          <>
+            <button onClick={() => setGoogleFolderModal(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+            <button onClick={handleSelectCurrentFolder} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2">
+              <Folder className="w-3.5 h-3.5" /> Select Current Location
+            </button>
+          </>
+        }
       >
-        {/* Drive selector */}
-        {loadingDrives ? (
-          <div style={{ textAlign: 'center', padding: 24 }}>Loading drives...</div>
-        ) : (
-          <Space direction="vertical" style={{ width: '100%' }} size={12}>
+        {loadingDrives ? <SpinCenter text="Loading drives…" /> : (
+          <div className="space-y-3">
             {drives.length > 1 && (
-              <Select
-                value={currentDriveId}
-                onChange={(val) => handleDriveChange(val)}
-                style={{ width: '100%' }}
-                options={drives.map(d => ({ value: d.id, label: d.name }))}
-              />
+              <select value={currentDriveId} onChange={e => handleDriveChange(e.target.value)} className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                {drives.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+              </select>
             )}
-
             {/* Breadcrumb */}
-            <div style={{
-              background: '#f8fafc',
-              borderRadius: 6,
-              padding: '6px 10px',
-              fontSize: 12,
-              display: 'flex',
-              flexWrap: 'wrap',
-              gap: 4,
-              alignItems: 'center'
-            }}>
+            <div className="bg-gray-50 rounded-md px-3 py-2 flex flex-wrap gap-1 items-center text-xs">
               {folderPath.map((item, idx) => (
-                <span key={item.id}>
-                  {idx > 0 && <span style={{ color: '#94a3b8', margin: '0 4px' }}>/</span>}
-                  <span
-                    style={{
-                      color: idx === folderPath.length - 1 ? '#0f172a' : '#3b82f6',
-                      cursor: idx === folderPath.length - 1 ? 'default' : 'pointer',
-                      fontWeight: idx === folderPath.length - 1 ? 600 : 400
-                    }}
-                    onClick={() => idx < folderPath.length - 1 && handleBreadcrumbNav(idx)}
-                  >
+                <span key={item.id} className="flex items-center gap-1">
+                  {idx > 0 && <ChevronRight className="w-3 h-3 text-gray-400" />}
+                  <span onClick={() => idx < folderPath.length - 1 && handleBreadcrumbNav(idx)}
+                    className={idx === folderPath.length - 1 ? 'font-semibold text-gray-900' : 'text-blue-600 cursor-pointer hover:underline'}>
                     {item.name}
                   </span>
                 </span>
@@ -3659,332 +3969,157 @@ const BackupFlowPage = () => {
             </div>
 
             {isServiceAccountDestinationAuth && (
-              <>
-                <Divider style={{ margin: '4px 0' }}>Shared to this service account</Divider>
-
-                <Alert
-                  type="info"
-                  showIcon
-                  message="Need a directly shared folder?"
-                  description="Paste the Google Drive folder link or search folders shared directly to this service account. Items tagged 'Direct share in My Drive' are browse-only for service-account backups; only items tagged 'Shared Drive' can be used as the final destination."
-                />
-
-                <Input.Search
-                  value={sharedFolderReference}
-                  onChange={e => setSharedFolderReference(e.target.value)}
-                  onSearch={handleResolveSharedFolder}
-                  enterButton="Use folder"
-                  loading={resolvingSharedFolder}
-                  placeholder="Paste Google Drive folder link or folder ID"
-                />
-
-                <Input.Search
-                  value={sharedFolderQuery}
-                  onChange={e => setSharedFolderQuery(e.target.value)}
-                  onSearch={value => loadSharedFolders(value.trim())}
-                  enterButton="Search shared folders"
-                  loading={loadingSharedFolders}
-                  placeholder="Search by folder name shared to this service account"
-                />
-
-                <div style={{ maxHeight: 220, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-                  {loadingSharedFolders ? (
-                    <div style={{ textAlign: 'center', padding: 24, color: '#94a3b8' }}>Loading shared folders...</div>
-                  ) : sharedFolders.length === 0 ? (
-                    <Empty
-                      image={Empty.PRESENTED_IMAGE_SIMPLE}
-                      description="No directly shared folders found for this service account"
-                      style={{ margin: 0, padding: '24px 12px' }}
-                    />
-                  ) : (
-                    sharedFolders.map(folder => (
-                      <div
-                        key={folder.id}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 10,
-                          padding: '10px 14px',
-                          borderBottom: '1px solid #f1f5f9',
-                        }}
-                      >
-                        <FolderOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 13, fontWeight: 500 }}>{folder.name}</div>
-                          <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-                            Drive: {resolveDriveName(folder.drive_id, folder.drive_name || null)}
-                          </div>
-                          <Space size={6} wrap style={{ marginTop: 4 }}>
-                            <Tag color="blue">Direct share</Tag>
-                            {folder.drive_id ? <Tag color="green">Shared Drive</Tag> : <Tag color="gold">My Drive only</Tag>}
-                          </Space>
-                        </div>
-                        <Space size={8}>
-                          <Button size="small" onClick={() => openFolderLocation(folder)}>Open</Button>
-                          {folder.drive_id ? (
-                            <Button size="small" type="primary" onClick={() => applyGoogleFolderSelection(folder)}>Use</Button>
-                          ) : (
-                            <Tooltip title="This folder is directly shared from My Drive, not stored in a Shared Drive, so the service account cannot upload backup files there.">
-                              <span>
-                                <Button size="small" type="primary" disabled>Use</Button>
-                              </span>
-                            </Tooltip>
-                          )}
-                        </Space>
-                      </div>
-                    ))
-                  )}
+              <div className="space-y-2">
+                <div className="border-t border-gray-200 pt-2">
+                  <p className="text-xs font-medium text-gray-500 mb-2">Shared to this service account</p>
+                  <Alert type="info" message="Need a directly shared folder?" description="Paste a folder link or search below. Only 'Shared Drive' folders can be used as backup destination." className="mb-2" />
+                  <div className="flex gap-2 mb-2">
+                    <input value={sharedFolderReference} onChange={e => setSharedFolderReference(e.target.value)} placeholder="Paste Google Drive folder link or ID" className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <button onClick={handleResolveSharedFolder} disabled={resolvingSharedFolder} className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1">
+                      {resolvingSharedFolder ? <Loader2 className="w-3 h-3 animate-spin" /> : null} Use folder
+                    </button>
+                  </div>
+                  <div className="flex gap-2">
+                    <input value={sharedFolderQuery} onChange={e => setSharedFolderQuery(e.target.value)} placeholder="Search shared folders…" className="flex-1 border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                    <button onClick={() => loadSharedFolders(sharedFolderQuery.trim())} disabled={loadingSharedFolders} className="px-3 py-1.5 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">Search</button>
+                  </div>
                 </div>
-              </>
+                <div className="max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+                  {loadingSharedFolders ? <SpinCenter text="Loading…" /> : sharedFolders.length === 0 ? <Empty description="No directly shared folders found" /> : sharedFolders.map(folder => (
+                    <div key={folder.id} className="flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0">
+                      <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{folder.name}</div>
+                        <div className="text-xs text-gray-500">Drive: {resolveDriveName(folder.drive_id, folder.drive_name || null)}</div>
+                        <div className="flex gap-1 mt-1">
+                          <Tag color="blue">Direct share</Tag>
+                          {folder.drive_id ? <Tag color="green">Shared Drive</Tag> : <Tag color="gold">My Drive only</Tag>}
+                        </div>
+                      </div>
+                      <div className="flex gap-1 shrink-0">
+                        <button onClick={() => openFolderLocation(folder)} className="px-2 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50">Open</button>
+                        {folder.drive_id
+                          ? <button onClick={() => applyGoogleFolderSelection(folder)} className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700">Use</button>
+                          : <button disabled title="Cannot use My Drive folder with service account" className="px-2 py-1 text-xs bg-blue-200 text-white rounded opacity-50 cursor-not-allowed">Use</button>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             )}
 
             {/* Folder list */}
-            <div style={{ maxHeight: isServiceAccountDestinationAuth ? 220 : 320, overflowY: 'auto', border: '1px solid #e2e8f0', borderRadius: 8 }}>
-              {loadingFolders ? (
-                <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>Loading folders...</div>
-              ) : folders.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: 32, color: '#94a3b8' }}>
-                  <FolderOutlined style={{ fontSize: 32, opacity: 0.4, display: 'block', margin: '0 auto 8px' }} />
-                  No sub-folders here
+            <div className={`overflow-y-auto border border-gray-200 rounded-lg ${isServiceAccountDestinationAuth ? 'max-h-48' : 'max-h-72'}`}>
+              {loadingFolders ? <SpinCenter text="Loading folders…" /> : folders.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-gray-400">
+                  <Folder className="w-8 h-8 mb-2 opacity-30" />
+                  <p className="text-sm">No sub-folders here</p>
                 </div>
-              ) : (
-                folders.map(folder => (
-                  <div
-                    key={folder.id}
-                    onClick={() => handleOpenSubFolder(folder)}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 10,
-                      padding: '10px 14px',
-                      cursor: 'pointer',
-                      borderBottom: '1px solid #f1f5f9',
-                      transition: 'background 0.15s'
-                    }}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f8fafc'}
-                    onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                  >
-                    <FolderOutlined style={{ color: '#f59e0b', fontSize: 18 }} />
-                    <span style={{ flex: 1, fontSize: 13 }}>{folder.name}</span>
-                    <span style={{ color: '#94a3b8', fontSize: 12 }}>›</span>
-                  </div>
-                ))
-              )}
+              ) : folders.map(folder => (
+                <button key={folder.id} onClick={() => handleOpenSubFolder(folder)} className="w-full flex items-center gap-3 px-3 py-2.5 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors text-left">
+                  <Folder className="w-4 h-4 text-amber-500 shrink-0" />
+                  <span className="flex-1 text-sm">{folder.name}</span>
+                  <ChevronRight className="w-3.5 h-3.5 text-gray-400" />
+                </button>
+              ))}
             </div>
-          </Space>
+          </div>
         )}
       </Modal>
 
+      {/* ── Select Services Modal ── */}
       <Modal
         title="Select Services for This Flow"
         open={serviceSelectorModalOpen}
         onCancel={closeServiceSelectorModal}
-        width={1200}
-        footer={[
-          <Button key="refresh" onClick={() => loadServicePreview(draftSelectedServiceIds)} loading={loadingServicePreview}>
-            Refresh Source
-          </Button>,
-          <Button key="cancel" onClick={closeServiceSelectorModal}>
-            Cancel
-          </Button>,
-          <Button
-            key="apply"
-            type="primary"
-            onClick={applyServiceSelectorModal}
-            disabled={!servicePreview}
-          >
-            Apply Selection
-          </Button>
-        ]}
-      >
-        <Paragraph type="secondary" style={{ marginBottom: 16 }}>
-          Modal này hiển thị full danh sách service lấy từ API để bạn tick chọn đúng scope backup. Khi bấm Apply Selection, lựa chọn sẽ được giữ trong flow và sẽ được gửi theo `service_ids` lúc save hoặc save & run.
-        </Paragraph>
-
-        {loadingServicePreview ? (
-          <div style={{ textAlign: 'center', padding: 24 }}>
-            <Spin />
-          </div>
-        ) : !servicePreview ? (
-          <Empty description="Load Service source preview first to choose services" />
-        ) : (
+        width={960}
+        footer={
           <>
-            <Space size={8} wrap style={{ marginBottom: 16 }}>
+            <button onClick={() => loadServicePreview(draftSelectedServiceIds)} disabled={loadingServicePreview} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2">
+              {loadingServicePreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
+            </button>
+            <button onClick={closeServiceSelectorModal} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+            <button onClick={applyServiceSelectorModal} disabled={!servicePreview} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
+          </>
+        }
+      >
+        <p className="text-sm text-gray-500 mb-4">Select services to include in this backup flow.</p>
+        {loadingServicePreview ? <SpinCenter /> : !servicePreview ? <Empty description="Load Service source preview first to choose services" /> : (
+          <div className="space-y-3">
+            <div className="flex gap-2 flex-wrap">
               <Tag color="blue">{servicePreviewRows.length} services loaded</Tag>
               <Tag color={draftSelectedServiceIds.length ? 'green' : 'default'}>{draftSelectedServiceIds.length} selected</Tag>
-            </Space>
-
-            {!servicePreview.ticket_count_complete && (
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={`Detailed preview loaded for ${servicePreview.detail_loaded_count || 0} services only`}
-                description="Full danh sách service vẫn hiện đầy đủ. Nếu bạn đổi selection, bấm Refresh Source ngay trong modal để nạp lại sample ticket cho đúng nhóm service đang chọn."
-              />
-            )}
-
-            {servicePreview.partial_error_count > 0 && (
-              <Alert
-                type="warning"
-                showIcon
-                style={{ marginBottom: 16 }}
-                message={`Some services could not be previewed completely (${servicePreview.partial_error_count})`}
-                description="Các service này vẫn có thể được tick chọn, nhưng phần preview stages hoặc tickets có thể chưa đầy đủ."
-              />
-            )}
-
-            <div
-              ref={servicePreviewListRef}
-              style={{
-                border: '1px solid #e2e8f0',
-                borderRadius: 12,
-                overflow: 'hidden',
-                background: '#fff'
-              }}
-            >
-              <Table
-                size="small"
-                dataSource={servicePreviewRows}
-                rowKey="service_id"
-                pagination={false}
-                rowSelection={serviceSelectionRowSelection}
-                scroll={{ x: 980, y: 460 }}
-                columns={[
-                  {
-                    title: 'Service',
-                    dataIndex: 'service_name',
-                    key: 'service_name',
-                    render: (_, record) => (
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{record.service_name}</div>
-                        <Text type="secondary" style={{ fontSize: 12 }}>ID: {record.service_id}</Text>
-                        {record.preview_error && (
-                          <div style={{ marginTop: 4 }}>
-                            <Text type="warning" style={{ fontSize: 12 }}>{record.preview_error}</Text>
-                          </div>
-                        )}
-                      </div>
-                    )
-                  },
-                  {
-                    title: 'Stages',
-                    dataIndex: 'stage_count',
-                    key: 'stage_count',
-                    width: 90,
-                    render: value => value ?? '—'
-                  },
-                  {
-                    title: 'Tickets',
-                    dataIndex: 'ticket_count',
-                    key: 'ticket_count',
-                    width: 90,
-                    render: value => value ?? '—'
-                  },
-                  {
-                    title: 'Sample Tickets',
-                    key: 'sample_tickets',
-                    render: (_, record) => (
-                      <Space direction="vertical" size={2}>
-                        {record.detail_loaded ? (
-                          (record.sample_tickets || []).length > 0 ? (
-                            (record.sample_tickets || []).map(ticket => (
-                              <Text key={ticket.ticket_id} style={{ fontSize: 12 }}>
-                                {ticket.ticket_code} - {ticket.ticket_name}
-                              </Text>
-                            ))
-                          ) : (
-                            <Text type="secondary" style={{ fontSize: 12 }}>No sample tickets</Text>
-                          )
-                        ) : (
-                          <Text type="secondary" style={{ fontSize: 12 }}>Refresh after selecting this service</Text>
-                        )}
-                      </Space>
-                    )
-                  }
-                ]}
-              />
             </div>
-          </>
+            {!servicePreview.ticket_count_complete && <Alert type="warning" message={`Detailed preview loaded for ${servicePreview.detail_loaded_count || 0} services only`} description="Click Refresh Source to reload with your current selection." />}
+            {servicePreview.partial_error_count > 0 && <Alert type="warning" message={`Some services could not be previewed completely (${servicePreview.partial_error_count})`} />}
+            <div ref={servicePreviewListRef} className="border border-gray-200 rounded-lg overflow-hidden">
+              <div className="overflow-x-auto max-h-96 overflow-y-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">
+                        <input type="checkbox" checked={draftSelectedServiceIds.length === servicePreviewRows.length && servicePreviewRows.length > 0} onChange={e => setDraftSelectedServiceIds(e.target.checked ? servicePreviewRows.map(r => r.service_id) : [])} className="rounded" />
+                      </th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Service</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Stages</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-20">Tickets</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sample Tickets</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {servicePreviewRows.map(record => (
+                      <tr key={record.service_id} className={`hover:bg-gray-50 ${draftSelectedServiceIds.includes(record.service_id) ? 'bg-blue-50/50' : ''}`}>
+                        <td className="px-3 py-2.5">
+                          <input type="checkbox" checked={draftSelectedServiceIds.includes(record.service_id)} onChange={e => setDraftSelectedServiceIds(prev => e.target.checked ? [...prev, record.service_id] : prev.filter(id => id !== record.service_id))} className="rounded" />
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="font-semibold">{record.service_name}</div>
+                          <div className="text-xs text-gray-400">ID: {record.service_id}</div>
+                          {record.preview_error && <div className="text-xs text-yellow-600 mt-0.5">{record.preview_error}</div>}
+                        </td>
+                        <td className="px-3 py-2.5 text-gray-600">{record.stage_count ?? '—'}</td>
+                        <td className="px-3 py-2.5 text-gray-600">{record.ticket_count ?? '—'}</td>
+                        <td className="px-3 py-2.5">
+                          {record.detail_loaded
+                            ? (record.sample_tickets || []).length > 0
+                              ? (record.sample_tickets || []).map(t => <div key={t.ticket_id} className="text-xs text-gray-600">{t.ticket_code} - {t.ticket_name}</div>)
+                              : <span className="text-xs text-gray-400">No sample tickets</span>
+                            : <span className="text-xs text-gray-400">Refresh after selecting</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         )}
       </Modal>
 
-      {/* Destination Selection Modal */}      <Modal
-        title="Select Destination"
-        open={showDestinationModal}
-        onCancel={() => {
-          setShowDestinationModal(false)
-          setDestinationSearch('')
-        }}
-        footer={[
-          <Button key="cancel" onClick={() => {
-            setShowDestinationModal(false)
-            setDestinationSearch('')
-          }}>
-            Cancel
-          </Button>
-        ]}
-        width={800}
-      >
-        <div style={{ marginBottom: 16 }}>
-          <Paragraph type="secondary">Choose where to store your backup data</Paragraph>
+      {/* ── Destination Selection Modal ── */}
+      <Modal title="Select Destination" open={showDestinationModal} onCancel={() => { setShowDestinationModal(false); setDestinationSearch('') }} width={640}>
+        <p className="text-sm text-gray-500 mb-4">Choose where to store your backup data.</p>
+        <div className="relative mb-4">
+          <Cloud className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input value={destinationSearch} onChange={e => setDestinationSearch(e.target.value)} placeholder="Search destinations…" className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
         </div>
-
-        <Input
-          placeholder="Search destinations..."
-          value={destinationSearch}
-          onChange={(e) => setDestinationSearch(e.target.value)}
-          size="large"
-          style={{ marginBottom: 16 }}
-          prefix={<CloudOutlined style={{ color: '#94a3b8' }} />}
-        />
-
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 12 }}>
+        <div className="grid grid-cols-2 gap-3">
           {[
-            { id: 'gsheets', name: 'Google Sheets', icon: <FileExcelOutlined />, color: '#10b981', types: ['structured'], disabled: false },
-            { id: 'gdrive', name: 'Google Drive', icon: <GoogleOutlined />, color: '#4285f4', types: ['unstructured', 'all'], disabled: false },
-            // Hidden for now - coming soon
-            // { id: 'onedrive', name: 'OneDrive', icon: <CloudOutlined />, color: '#0078d4', types: ['unstructured', 'all'], disabled: true },
-            // { id: 'dropbox', name: 'Dropbox', icon: <CloudOutlined />, color: '#0061ff', types: ['unstructured', 'all'], disabled: true },
-            // { id: 'box', name: 'Box', icon: <CloudOutlined />, color: '#0061d5', types: ['unstructured', 'all'], disabled: true },
-            // { id: 's3', name: 'Amazon S3', icon: <CloudOutlined />, color: '#ff9900', types: ['unstructured', 'all'], disabled: true }
+            { id: 'gsheets', name: 'Google Sheets', icon: <FileSpreadsheet className="w-8 h-8" />, color: '#10b981', types: ['structured'] },
+            { id: 'gdrive', name: 'Google Drive', icon: <Globe className="w-8 h-8" />, color: '#4285f4', types: ['unstructured', 'all'] },
           ]
             .filter(opt => !backupType || opt.types.includes(backupType))
             .filter(opt => opt.name.toLowerCase().includes(destinationSearch.toLowerCase()))
-            .filter(opt => !opt.disabled) // Only show enabled options
             .map(opt => (
-              <Card
-                key={opt.id}
-                hoverable
-                onClick={() => {
-                  setStorageDestination(opt.id)
-                  setGoogleAuth(null)
-                  setServiceAccountAnalysis(null)
-                  setServiceAccountFileName('')
-                  setServiceAccountError('')
-                  setServiceBackupSetupSaved(false)
-                  setShowDestinationModal(false)
-                  setDestinationSearch('')
-                }}
-                style={{
-                  border: '2px solid #e2e8f0',
-                  background: '#fff',
-                  cursor: 'pointer',
-                  textAlign: 'center'
-                }}
-                styles={{ body: { padding: 16 } }}
-              >
-                <div style={{ fontSize: 32, color: opt.color, marginBottom: 10 }}>
-                  {opt.icon}
-                </div>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#0f172a', marginBottom: 2 }}>
-                  {opt.name}
-                </div>
-              </Card>
+              <button key={opt.id} onClick={() => { setStorageDestination(opt.id); setGoogleAuth(null); setServiceAccountAnalysis(null); setServiceAccountFileName(''); setServiceAccountError(''); setServiceBackupSetupSaved(false); setShowDestinationModal(false); setDestinationSearch('') }}
+                className="flex flex-col items-center gap-2 p-5 border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer bg-white">
+                <span style={{ color: opt.color }}>{opt.icon}</span>
+                <span className="text-sm font-semibold text-gray-900">{opt.name}</span>
+              </button>
             ))}
         </div>
       </Modal>
-    </Layout>
+    </AppLayout>
   )
 }
 

@@ -5,18 +5,18 @@ services:
     container_name: integrationhub-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: integrationhub
-      POSTGRES_USER: integrationhub
-      POSTGRES_PASSWORD: integrationhub_password_2026
+      POSTGRES_DB: ${POSTGRES_DB:-integrationhub}
+      POSTGRES_USER: ${POSTGRES_USER:-integrationhub}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-integrationhub_password_2026}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5434}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./packages/database/src/init.sql:/docker-entrypoint-initdb.d/init.sql
     networks:
       - integrationhub-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U integrationhub"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-integrationhub}"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -29,15 +29,15 @@ services:
     container_name: integrationhub-backend
     restart: unless-stopped
     environment:
-      DATABASE_URL: postgresql+asyncpg://integrationhub:integrationhub_password_2026@postgres:5432/integrationhub
-      SECRET_KEY: change-this-secret-key-in-production-2026
-      CORS_ORIGINS: http://localhost:3000,http://localhost:3001,http://localhost:80
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-integrationhub}:${POSTGRES_PASSWORD:-integrationhub_password_2026}@postgres:5432/${POSTGRES_DB:-integrationhub}
+      SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production-2026}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3002,http://localhost:3000,http://localhost:80}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8000/api/google/callback}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8010/api/google/callback}
       PYTHONPATH: /app
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8010}:8000"
     volumes:
       - ./:/app
     depends_on:
@@ -55,7 +55,7 @@ services:
     container_name: integrationhub-frontend
     restart: unless-stopped
     ports:
-      - "3001:80"
+      - "${FRONTEND_PORT:-3002}:80"
     depends_on:
       - backend
     networks:

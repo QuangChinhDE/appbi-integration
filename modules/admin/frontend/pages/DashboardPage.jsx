@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import axios from 'axios'
+import api from '@shared/api/client'
 import {
   Layout,
   Card,
@@ -26,7 +26,6 @@ import dayjs from 'dayjs'
 const { Content } = Layout
 const { Text, Title } = Typography
 
-const API_BASE = 'http://localhost:8000'
 const REFRESH_INTERVAL_MS = 5000
 
 const STATUS_COLORS = {
@@ -107,7 +106,7 @@ const DashboardPage = () => {
     const loadDashboard = async () => {
       if (active) setLoading(true)
       try {
-        const response = await axios.get(`${API_BASE}/api/backup-flows/dashboard`, {
+        const response = await api.get(`/api/backup-flows/dashboard`, {
           params: {
             recent_limit: 8,
             active_limit: 6,
