@@ -1,42 +1,19 @@
-# Python
+.env
+.env.*
+!.env.example
+
+# Secrets
+key.json
+
+# Node / frontend build outputs
+node_modules/
+apps/web/dist/
+
+# Python caches
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-.venv/
-ENV/
-*.egg-info/
-dist/
-build/
+.pytest_cache/
 
-# Node
-node_modules/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-dist/
-.DS_Store
-
-# IDEs
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Database
-*.db
-*.sqlite
-
-# Logs
-logs/
+# Logs / temp
 *.log
+.DS_Store

@@ -15,8 +15,14 @@ export default defineConfig({
     },
   },
   server: {
-    port: 3000,
+    port: Number(process.env.VITE_PORT || 3002),
     host: true,
+    proxy: {
+      '/api': {
+        target: process.env.VITE_PROXY_TARGET || 'http://localhost:8010',
+        changeOrigin: true,
+      },
+    },
     fs: {
       allow: [workspaceRoot],
     },

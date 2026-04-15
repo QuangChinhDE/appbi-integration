@@ -18,7 +18,7 @@ SUPPORTED_TYPES = {"google"}
 class GoogleOAuthConfig(BaseModel):
     client_id: str
     client_secret: str = "__KEEP__"
-    redirect_uri: str = "http://localhost:8000/api/google/callback"
+    redirect_uri: str = "http://localhost:8010/api/google/callback"
 
 
 class GoogleServiceAccountPayload(BaseModel):
@@ -54,6 +54,16 @@ async def get_google_settings(db: AsyncSession = Depends(get_db)):
         "client_secret": "••••••••" if cfg["client_secret"] else "",
         "redirect_uri": cfg["redirect_uri"],
         "configured": cfg["configured"],
+    }
+
+
+@router.get("/api/google/platform-service-account")
+async def get_platform_service_account_info(db: AsyncSession = Depends(get_db)):
+    """Return whether a shared Google service account is configured for Drive/Sheets."""
+    cfg = await AppConfigService(db).get_platform_service_account_config()
+    return {
+        "platform_credential_available": cfg["configured"],
+        "service_account_email": cfg["service_account_email"],
     }
 
 

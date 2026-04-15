@@ -4,7 +4,7 @@ import { Globe, Plus, Trash2, Copy, Link, Info, Eye, EyeOff, Loader2, CheckCircl
 import { Alert, SpinCenter, message, Modal } from '@packages/ui/src/components/common/ui'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
 
-const DEFAULT_REDIRECT = `${window.location.origin}/api/google/callback`
+const DEFAULT_REDIRECT = `${window.location.protocol}//${window.location.hostname}:8010/api/google/callback`
 
 // ── open Google OAuth popup + listen for postMessage ─────────────────────────
 function openGoogleOAuthPopup(authUrl, onSuccess, onError) {

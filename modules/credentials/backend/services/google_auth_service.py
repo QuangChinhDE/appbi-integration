@@ -110,13 +110,24 @@ def extract_google_drive_folder_id(value: str) -> str:
     raise ValueError("Could not extract a Google Drive folder ID from the provided link")
 
 
+def resolve_destination_google_auth_mode(auth: Mapping[str, Any]) -> str:
+    raw_mode = str(auth.get("auth_mode") or auth.get("auth_method") or "").strip().lower()
+    if raw_mode == "service_account":
+        return "service_account"
+    if raw_mode in {"google_oauth", "oauth"}:
+        return "google_oauth"
+    if (
+        auth.get("credentials_json")
+        or auth.get("service_account_json")
+        or auth.get("service_account_json_encrypted")
+        or auth.get("uses_platform_service_account")
+    ):
+        return "service_account"
+    return "google_oauth"
+
+
 def validate_service_account_drive_destination(auth: Dict[str, Any]) -> None:
-    auth_method = auth.get("auth_method") or (
-        "service_account"
-        if auth.get("service_account_json") or auth.get("service_account_json_encrypted")
-        else "oauth"
-    )
-    if auth_method != "service_account":
+    if resolve_destination_google_auth_mode(auth) != "service_account":
         return
 
     # Service accounts can read or even create folders in regular My Drive shares,
@@ -233,13 +244,36 @@ class AppConfigService:
         client_secret = await self.get("google_client_secret") or os.getenv("GOOGLE_CLIENT_SECRET", "")
         redirect_uri = (
             await self.get("google_redirect_uri")
-            or os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/api/google/callback")
+            or os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8010/api/google/callback")
         )
         return {
             "client_id": client_id,
             "client_secret": client_secret,
             "redirect_uri": redirect_uri,
             "configured": bool(client_id and client_secret),
+        }
+
+    async def get_platform_service_account_config(self) -> Dict[str, Any]:
+        """Return the shared Google service account config (DB first, env fallback)."""
+        raw_json = (
+            await self.get("gcp_service_account_json")
+            or os.getenv("GCP_SERVICE_ACCOUNT_JSON", "")
+        )
+        email = (
+            await self.get("gcp_service_account_email")
+            or os.getenv("GCP_SERVICE_ACCOUNT_EMAIL", "")
+        ).strip()
+
+        normalized_payload: Optional[Dict[str, Any]] = None
+        if str(raw_json or "").strip():
+            normalized_payload = normalize_service_account_info(raw_json)
+            if not email:
+                email = str(normalized_payload.get("client_email") or "").strip()
+
+        return {
+            "configured": normalized_payload is not None,
+            "service_account_json": normalized_payload,
+            "service_account_email": email or None,
         }
 
 
@@ -447,22 +481,26 @@ class GoogleAuthService:
         *,
         force_refresh: bool = False,
     ) -> tuple[str, Optional[datetime]]:
-        auth_method = auth.get("auth_method") or (
-            "service_account"
-            if auth.get("service_account_json") or auth.get("service_account_json_encrypted")
-            else "oauth"
-        )
+        auth_mode = resolve_destination_google_auth_mode(auth)
 
-        if auth_method == "service_account":
-            service_account_payload = auth.get("service_account_json")
+        if auth_mode == "service_account":
+            service_account_payload = auth.get("credentials_json")
+            if service_account_payload is None:
+                service_account_payload = auth.get("service_account_json")
             if service_account_payload is None and auth.get("service_account_json_encrypted"):
                 service_account_payload = decrypt_value(auth["service_account_json_encrypted"])
             if service_account_payload is None:
-                raise ValueError("Service account JSON not found in destination auth")
+                platform_cfg = await AppConfigService(self.db).get_platform_service_account_config()
+                service_account_payload = platform_cfg["service_account_json"]
+            if service_account_payload is None:
+                raise ValueError(
+                    "Service account mode is selected, but no service account JSON is available. "
+                    "Upload a JSON key or configure a platform service account first."
+                )
             normalized = normalize_service_account_info(service_account_payload)
             return await self.get_service_account_access_token_details(normalized)
 
-        connection_id = auth.get("connection_id")
+        connection_id = auth.get("google_oauth_connection_id") or auth.get("connection_id")
         if not connection_id:
             raise ValueError("Google OAuth connection ID not found in destination auth")
         return await self.get_valid_access_token_details(connection_id, force_refresh=force_refresh)
@@ -483,10 +521,12 @@ class GoogleAuthService:
 
         await self.get_service_account_access_token(normalized)
         drives = await self.list_drives_for_auth({
+            "auth_mode": "service_account",
             "auth_method": "service_account",
             "service_account_json": normalized,
         })
         return {
+            "auth_mode": "service_account",
             "auth_method": "service_account",
             "type": normalized.get("type"),
             "project_id": normalized.get("project_id"),

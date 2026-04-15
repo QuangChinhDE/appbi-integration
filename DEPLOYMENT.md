@@ -1,201 +1,87 @@
-# Production Deployment Guide
+# Deployment Guide
 
-## Quick Start
+## Run Modes
 
-### Build and run with Docker Compose:
+## Environment Setup
+
+Before running Docker on a new machine:
 
 ```bash
-docker compose up --build
+cp .env.example .env
 ```
 
-The application will be available at `http://localhost`
+Then fill the machine-specific values in `.env`, especially:
 
-### Stop the containers:
+- `POSTGRES_PASSWORD`
+- `SECRET_KEY`
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI` when Google OAuth is needed
+
+### Production-style stack
+
+```bash
+docker compose up -d --build
+```
+
+### Development stack with hot reload
+
+```bash
+docker compose -f docker-compose.dev.yml up -d --build
+```
+
+### Stop services
 
 ```bash
 docker compose down
+docker compose -f docker-compose.dev.yml down
 ```
 
-## Detailed Steps
+## Default Ports
 
-### 1. Build the Docker image
+- Frontend: 3002
+- Backend API: 8010
+- PostgreSQL: 5434
+
+These ports are reserved for appbi-integration so they do not conflict with appbi-ai.
+
+## Logs
 
 ```bash
-docker compose build
+docker compose logs -f frontend backend postgres
+docker compose -f docker-compose.dev.yml logs -f frontend backend postgres
 ```
 
-This will:
-- Use Node 18 Alpine as builder
-- Install dependencies
-- Build production assets with Vite
-- Create optimized Nginx container
-- Final image size: ~25MB
-
-### 2. Run the container
+## Rebuild One Service
 
 ```bash
-docker compose up
+docker compose up -d --build backend
+docker compose -f docker-compose.dev.yml up -d --build frontend
 ```
 
-Or run in detached mode:
+## Environment Overrides
 
-```bash
-docker compose up -d
-```
-
-### 3. View logs
-
-```bash
-docker compose logs -f frontend
-```
-
-### 4. Rebuild after changes
-
-```bash
-docker compose up --build --force-recreate
-```
-
-## Manual Docker Commands
-
-### Build Frontend Image
-
-```bash
-cd frontend
-docker build -t integrationhub-frontend:latest .
-```
-
-### Run Frontend Container
-
-```bash
-docker run -d \
-  --name integrationhub-frontend \
-  -p 80:80 \
-  integrationhub-frontend:latest
-```
-
-### Stop and Remove Container
-
-```bash
-docker stop integrationhub-frontend
-docker rm integrationhub-frontend
-```
-
-## Environment Variables
-
-Create `.env` file in project root:
+Use the root `.env.example` as the template and create a root `.env` file from it:
 
 ```env
-# Frontend
-VITE_API_URL=http://localhost:8000
-
-# Add more variables as needed
+FRONTEND_PORT=3002
+BACKEND_PORT=8010
+POSTGRES_PORT=5434
+GOOGLE_REDIRECT_URI=http://localhost:8010/api/google/callback
 ```
-
-## Nginx Configuration
-
-The production build uses Nginx with:
-- Gzip compression
-- Static asset caching (1 year)
-- SPA routing support
-- Security headers
-- Cache busting for index.html
-
-## Build Optimization
-
-The Dockerfile uses multi-stage builds:
-
-1. **Builder Stage** (node:18-alpine)
-   - Installs dependencies
-   - Runs `npm run build`
-   - Outputs to `/app/dist`
-
-2. **Production Stage** (nginx:alpine)
-   - Copies built assets from builder
-   - Configures Nginx
-   - Minimal final image
 
 ## Troubleshooting
 
 ### Port already in use
 
-If port 80 is already in use, edit `docker-compose.yml`:
+Change the corresponding variable in .env or edit the port mapping in the compose file.
 
-```yaml
-services:
-  frontend:
-    ports:
-      - "8080:80"  # Change to any available port
-```
+### Dev frontend cannot reach backend
 
-### Build fails
+The Vite dev server proxies /api/* to VITE_PROXY_TARGET, which defaults to http://localhost:8010 outside Docker and is set to http://backend:8000 inside docker-compose.dev.yml.
 
-Clear Docker cache and rebuild:
+### Container fails to start
+
+Inspect logs first:
 
 ```bash
-docker compose build --no-cache
+docker compose logs -f frontend backend postgres
 ```
-
-### Container crashes
-
-Check logs:
-
-```bash
-docker compose logs frontend
-```
-
-### Permission issues on Windows
-
-Run PowerShell as Administrator or use WSL2.
-
-## Production Checklist
-
-- [ ] Update `VITE_API_URL` in `.env`
-- [ ] Build production image
-- [ ] Test locally with Docker Compose
-- [ ] Configure reverse proxy (if needed)
-- [ ] Set up SSL/TLS certificates
-- [ ] Configure firewall rules
-- [ ] Set up monitoring and logging
-- [ ] Configure automatic restarts
-
-## Performance
-
-Production build includes:
-- Code splitting
-- Tree shaking
-- Minification
-- Gzip compression
-- Asset caching
-- Optimized bundle size
-
-Expected bundle sizes:
-- Main bundle: ~150KB (gzipped)
-- Vendor bundle: ~200KB (gzipped)
-- Total: ~350KB (gzipped)
-
-## Security
-
-The Nginx configuration includes:
-- X-Frame-Options: SAMEORIGIN
-- X-Content-Type-Options: nosniff
-- X-XSS-Protection: 1; mode=block
-
-For production, also consider:
-- HTTPS/TLS
-- Content Security Policy
-- Rate limiting
-- Web Application Firewall
-
-## Scaling
-
-To run multiple instances:
-
-```yaml
-services:
-  frontend:
-    deploy:
-      replicas: 3
-    # ... rest of config
-```
-
-Then use a load balancer (Nginx, HAProxy, Traefik) in front.

@@ -148,27 +148,27 @@ Similar to access tokens, Google OAuth refresh tokens are also hashed before sto
 pip install -r requirements.txt
 
 # Set environment variables
-export DATABASE_URL="postgresql+asyncpg://integrationhub:integrationhub_password_2026@localhost:5432/integrationhub"
+export DATABASE_URL="postgresql+asyncpg://integrationhub:integrationhub_password_2026@localhost:5434/integrationhub"
 export SECRET_KEY="your-secret-key"
 
 # Run database migrations (if init.sql not run yet)
 # Connect to PostgreSQL and run init.sql manually
 
 # Start the API server
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn src.main:app --reload --host 0.0.0.0 --port 8010
 ```
 
 ### 2. Docker Compose (Recommended)
 
 ```bash
 # From project root
-docker-compose up -d postgres backend
+docker compose up -d postgres backend
 
 # View logs
-docker-compose logs -f backend
+docker compose logs -f backend
 
 # Stop services
-docker-compose down
+docker compose down
 ```
 
 ## API Usage Examples
@@ -176,7 +176,7 @@ docker-compose down
 ### Create Backup Flow
 
 ```bash
-curl -X POST http://localhost:8000/api/backup-flows \
+curl -X POST http://localhost:8010/api/backup-flows \
   -H "Content-Type: application/json" \
   -d '{
     "source": {
@@ -210,22 +210,22 @@ curl -X POST http://localhost:8000/api/backup-flows \
 
 ```bash
 # All flows
-curl http://localhost:8000/api/backup-flows
+curl http://localhost:8010/api/backup-flows
 
 # Filter by app
-curl http://localhost:8000/api/backup-flows?app=request
+curl http://localhost:8010/api/backup-flows?app=request
 
 # Filter by status
-curl http://localhost:8000/api/backup-flows?status=active
+curl http://localhost:8010/api/backup-flows?status=active
 
 # Pagination
-curl http://localhost:8000/api/backup-flows?skip=0&limit=10
+curl http://localhost:8010/api/backup-flows?skip=0&limit=10
 ```
 
 ### Run a Backup Flow
 
 ```bash
-curl -X POST http://localhost:8000/api/backup-flows/{flow_id}/run \
+curl -X POST http://localhost:8010/api/backup-flows/{flow_id}/run \
   -H "Content-Type: application/json" \
   -d '{"triggered_by": "admin@company.vn"}'
 ```

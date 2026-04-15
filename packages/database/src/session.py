@@ -5,7 +5,7 @@ import os
 from packages.database.src.base import Base
 
 # Database URL from environment
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://integrationhub:integrationhub_password_2026@localhost:5432/integrationhub")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://integrationhub:integrationhub_password_2026@localhost:5434/integrationhub")
 
 # Convert to async URL if needed
 if DATABASE_URL.startswith("postgresql://"):

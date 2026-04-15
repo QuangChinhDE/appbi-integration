@@ -177,25 +177,57 @@ class BackupFlowService:
         dest_dict = dict(destination or {})
         auth = dict(dest_dict.get('auth') or {})
 
+        raw_mode = str(auth.get('auth_mode') or auth.get('auth_method') or '').strip().lower()
+        if raw_mode == 'oauth':
+            raw_mode = 'google_oauth'
+
+        if auth.get('google_oauth_connection_id') and not auth.get('connection_id'):
+            auth['connection_id'] = auth.get('google_oauth_connection_id')
+        if auth.get('google_oauth_email') and not auth.get('email'):
+            auth['email'] = auth.get('google_oauth_email')
+
         if 'refresh_token' in auth and auth['refresh_token']:
             refresh_token = auth.pop('refresh_token')
             auth['refresh_token_hash'] = cls.hash_token(refresh_token)
 
-        if 'service_account_json' in auth and auth['service_account_json']:
-            raw_service_account = auth.pop('service_account_json')
+        raw_service_account = auth.pop('credentials_json', None)
+        if not raw_service_account:
+            raw_service_account = auth.pop('service_account_json', None)
+
+        if raw_service_account:
             if isinstance(raw_service_account, str):
                 service_account_text = raw_service_account
             else:
                 service_account_text = json.dumps(raw_service_account)
             auth['service_account_json_encrypted'] = cls.encrypt_token(service_account_text)
 
-        if auth.get('service_account_json_encrypted'):
+        if auth.get('service_account_json_encrypted') or raw_mode == 'service_account':
+            auth['auth_mode'] = 'service_account'
             auth['auth_method'] = 'service_account'
+            auth['uses_platform_service_account'] = not bool(auth.get('service_account_json_encrypted'))
         else:
-            auth['auth_method'] = auth.get('auth_method') or 'oauth'
+            auth['auth_mode'] = 'google_oauth'
+            auth['auth_method'] = 'oauth'
+            auth.pop('uses_platform_service_account', None)
 
         dest_dict['auth'] = auth
         return dest_dict
+
+    @classmethod
+    def build_flow_response(cls, flow: BackupFlow, include_source_token: bool = False) -> BackupFlowResponse:
+        response = BackupFlowResponse.model_validate(flow)
+        source = dict(response.source or {})
+        encrypted_token = source.pop('access_token_encrypted', None)
+        source.pop('access_token_hash', None)
+
+        if include_source_token and encrypted_token:
+            try:
+                source['access_token'] = cls.decrypt_token(encrypted_token)
+            except Exception:
+                source['access_token'] = ''
+
+        response.source = source or None
+        return response
     
     @staticmethod
     def generate_flow_name(
@@ -239,7 +271,7 @@ class BackupFlowService:
         self.db.add(new_flow)
         await self.db.commit()
         await self.db.refresh(new_flow)
-        return BackupFlowResponse.model_validate(new_flow)
+        return self.build_flow_response(new_flow)
 
     async def save_flow(self, flow_id: str, save_data: BackupFlowSave) -> Optional[BackupFlowResponse]:
         """Fill in all details for a draft and publish it (is_draft=0, is_published=1)"""
@@ -278,7 +310,7 @@ class BackupFlowService:
 
         await self.db.commit()
         await self.db.refresh(flow)
-        return BackupFlowResponse.model_validate(flow)
+        return self.build_flow_response(flow)
 
     async def autosave_flow(self, flow_id: str, data: BackupFlowAutosave) -> bool:
         """Partially update a draft at each wizard step. Only updates provided fields."""
@@ -347,7 +379,7 @@ class BackupFlowService:
         await self.db.commit()
         await self.db.refresh(new_flow)
         
-        return BackupFlowResponse.model_validate(new_flow)
+        return self.build_flow_response(new_flow)
     
     async def list_flows(
         self, 
@@ -413,7 +445,7 @@ class BackupFlowService:
         if not flow:
             return None
         
-        return BackupFlowResponse.model_validate(flow)
+        return self.build_flow_response(flow, include_source_token=True)
     
     async def update_flow(
         self, 
@@ -458,7 +490,7 @@ class BackupFlowService:
         await self.db.commit()
         await self.db.refresh(flow)
         
-        return BackupFlowResponse.model_validate(flow)
+        return self.build_flow_response(flow)
     
     async def delete_flow(self, flow_id: str) -> bool:
         """Delete a backup flow"""
@@ -489,7 +521,7 @@ class BackupFlowService:
 
         await self.db.commit()
         await self.db.refresh(flow)
-        return BackupFlowResponse.model_validate(flow)
+        return self.build_flow_response(flow)
     
     async def trigger_flow_run(
         self, 
