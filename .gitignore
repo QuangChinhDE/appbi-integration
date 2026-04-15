@@ -7,12 +7,17 @@ key.json
 
 # Node / frontend build outputs
 node_modules/
+dist/
 apps/web/dist/
 
 # Python caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
+
+# Local scratch files
+*.new.jsx
+*.original.jsx
 
 # Logs / temp
 *.log
