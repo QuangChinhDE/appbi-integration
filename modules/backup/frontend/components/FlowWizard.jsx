@@ -13,7 +13,7 @@ import StepReview from './wizard/StepReview'
 /**
  * Wizard shell — left sidebar + right step content + bottom nav.
  */
-const FlowWizard = ({ wizard, viewMode, onBack }) => {
+const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to list' }) => {
   const {
     currentStep, totalSteps, flowName,
     selectedApp, currentApp, isRequestApp, isServiceApp,
@@ -29,8 +29,12 @@ const FlowWizard = ({ wizard, viewMode, onBack }) => {
   const progressPercent = totalSteps > 1 ? Math.round((currentStep / (totalSteps - 1)) * 100) : 0
 
   const handleSubmit = async (runAfterSave = false) => {
-    const saved = await handleFinish(runAfterSave, viewMode)
-    if (saved && isEdit) onBack()
+    const saveResult = await handleFinish(runAfterSave, viewMode)
+    if (saveResult?.success && typeof onSaved === 'function') {
+      await onSaved(saveResult)
+      return
+    }
+    if (saveResult?.success && isEdit) onBack()
   }
 
   // Dynamic max-width for step content
@@ -78,179 +82,206 @@ const FlowWizard = ({ wizard, viewMode, onBack }) => {
   }
 
   return (
-    <div className="flex min-h-full flex-col bg-gray-50 lg:h-full lg:min-h-0 lg:flex-row lg:overflow-hidden">
-      {/* ── Left sidebar ── */}
-      <div className="w-full shrink-0 bg-white border-b border-gray-200 flex flex-col shadow-sm lg:h-full lg:min-h-0 lg:w-72 lg:border-b-0 lg:border-r lg:overflow-hidden xl:w-80">
-        {/* Header */}
-        <div className="px-5 py-5 border-b border-gray-100">
-          <button onClick={onBack}
-            className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors mb-4">
-            <ArrowLeft className="w-3.5 h-3.5" />
-            <span>Back to list</span>
-          </button>
+    <div className="p-8">
+      <div className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm lg:h-[calc(100vh-10rem)] lg:flex-row">
+        {/* ── Left sidebar ── */}
+        <div className="flex w-full shrink-0 flex-col border-b border-gray-200 bg-gradient-to-b from-white via-blue-50/30 to-cyan-50/50 lg:h-full lg:min-h-0 lg:w-80 lg:border-b-0 lg:border-r lg:overflow-hidden xl:w-96">
+          {/* Header */}
+          <div className="border-b border-gray-100 px-5 py-5">
+            <button
+              type="button"
+              onClick={onBack}
+              className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-gray-700"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>{backLabel}</span>
+            </button>
 
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shrink-0">
-              <Cloud className="w-4 h-4 text-white" />
+            <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold text-blue-700">
+              <Cloud className="h-3.5 w-3.5" />
+              {isEdit ? 'Edit backup flow' : 'Create backup flow'}
             </div>
-            <div>
-              <p className="text-[11px] font-medium text-blue-600 uppercase tracking-wide">
-                {isEdit ? 'Edit' : 'Create'}
-              </p>
-              <h2 className="text-sm font-bold text-gray-900 leading-tight">
-                Backup Flow
-              </h2>
+
+            <div className="mt-4 flex items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-200">
+                <Cloud className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900">Backup wizard</h2>
+                <p className="mt-1 text-sm leading-6 text-gray-500">
+                  Configure source scope, storage, and execution settings with the same reusable building blocks used across the platform.
+                </p>
+              </div>
+            </div>
+
+            {flowName && (
+              <div className="mt-4 rounded-2xl border border-white/70 bg-white/80 px-4 py-3 shadow-sm backdrop-blur">
+                <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Flow name</p>
+                <p className="mt-1 truncate text-sm font-semibold text-gray-700">{flowName}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Progress bar */}
+          <div className="border-b border-gray-100 px-5 py-4">
+            <div className="mb-1.5 flex items-center justify-between">
+              <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Progress</span>
+              <span className="text-xs font-semibold text-blue-600">{progressPercent}%</span>
+            </div>
+            <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+              <div className="h-full rounded-full bg-blue-500 transition-all duration-500" style={{ width: `${progressPercent}%` }} />
             </div>
           </div>
 
-          {flowName && (
-            <div className="mt-3 px-3 py-2 bg-gray-50 rounded-lg border border-gray-100">
-              <p className="text-[11px] text-gray-400 mb-0.5">Flow name</p>
-              <p className="text-sm font-medium text-gray-700 truncate">{flowName}</p>
+          {/* Steps nav */}
+          <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
+            {steps.map((step, idx) => {
+              const isDone = idx < currentStep
+              const isActive = idx === currentStep
+              const isPending = idx > currentStep
+              return (
+                <div
+                  key={idx}
+                  className={`flex items-start gap-3 rounded-2xl px-3 py-3 transition-all ${
+                    isActive
+                      ? 'border border-blue-200 bg-blue-50 shadow-sm'
+                      : isPending
+                        ? 'border border-transparent bg-transparent opacity-60'
+                        : 'border border-gray-100 bg-white/80 hover:bg-white'
+                  }`}
+                >
+                  <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold transition-all ${
+                    isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white shadow-sm shadow-blue-200' : 'bg-gray-100 text-gray-400'
+                  }`}>
+                    {isDone ? <Check className="h-3.5 w-3.5" /> : idx + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className={`text-sm font-semibold leading-tight ${isActive ? 'text-blue-700' : isDone ? 'text-green-700' : 'text-gray-500'}`}>
+                      {step.title}
+                    </p>
+                    {stepDescriptions[idx] && (
+                      <p className={`mt-0.5 text-xs leading-5 ${isActive ? 'text-blue-500' : isDone ? 'text-green-500' : 'text-gray-400'}`}>
+                        {stepDescriptions[idx]}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </nav>
+
+          {/* Sidebar summary card */}
+          {currentStep > 0 && (selectedApp || googleAuth) && (
+            <div className="mx-3 mb-4 shrink-0 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm backdrop-blur">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Configured</p>
+              <div className="mt-3 space-y-2.5">
+                {currentApp && (
+                  <div className="flex items-center gap-2">
+                    <span style={{ color: currentApp.color }}>
+                      {currentApp.icon && React.cloneElement(currentApp.icon, { className: 'w-3.5 h-3.5' })}
+                    </span>
+                    <span className="text-sm font-semibold" style={{ color: currentApp.color }}>{currentApp.name}</span>
+                  </div>
+                )}
+                {domain && (
+                  <div className="flex items-center gap-1.5 truncate text-xs text-gray-500">
+                    <Globe className="h-3.5 w-3.5 shrink-0 text-gray-400" />
+                    <span className="truncate">{domain}</span>
+                  </div>
+                )}
+                {backupType && (
+                  <div className="flex items-center gap-1.5">
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                      backupType === 'structured' ? 'bg-blue-100 text-blue-700' :
+                      backupType === 'unstructured' ? 'bg-amber-100 text-amber-700' :
+                      'bg-purple-100 text-purple-700'
+                    }`}>
+                      {backupType === 'structured' ? 'Structured' : backupType === 'unstructured' ? 'Files & Attachments' : 'Complete'}
+                    </span>
+                  </div>
+                )}
+                {storageDestination && (
+                  <div className="flex items-center gap-1.5 text-xs text-gray-500">
+                    {storageDestination === 'gsheets'
+                      ? <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                      : <Folder className="h-3.5 w-3.5 shrink-0 text-blue-500" />}
+                    <span>{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span>
+                  </div>
+                )}
+                {googleAuth?.email && (
+                  <div className="flex items-center gap-1.5 truncate text-xs text-gray-500">
+                    <CheckCircle className="h-3.5 w-3.5 shrink-0 text-green-500" />
+                    <span className="truncate">{googleAuth.email}</span>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>
 
-        {/* Progress bar */}
-        <div className="px-5 py-3 border-b border-gray-100">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[11px] text-gray-400">Progress</span>
-            <span className="text-[11px] font-semibold text-blue-600">{progressPercent}%</span>
-          </div>
-          <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-            <div className="h-full bg-blue-500 rounded-full transition-all duration-500" style={{ width: `${progressPercent}%` }} />
-          </div>
-        </div>
-
-        {/* Steps nav */}
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {steps.map((step, idx) => {
-            const isDone = idx < currentStep
-            const isActive = idx === currentStep
-            const isPending = idx > currentStep
-            return (
-              <div key={idx}
-                className={`flex items-start gap-3 px-3 py-3 rounded-xl transition-all ${
-                  isActive ? 'bg-blue-50 border border-blue-100' : isPending ? 'opacity-50' : 'hover:bg-gray-50'
-                }`}>
-                <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 mt-0.5 transition-all ${
-                  isDone ? 'bg-green-500 text-white' : isActive ? 'bg-blue-600 text-white shadow-sm shadow-blue-200' : 'bg-gray-100 text-gray-400'
-                }`}>
-                  {isDone ? <Check className="w-3.5 h-3.5" /> : idx + 1}
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-semibold leading-tight ${isActive ? 'text-blue-700' : isDone ? 'text-green-700' : 'text-gray-400'}`}>
-                    {step.title}
-                  </p>
-                  {stepDescriptions[idx] && (
-                    <p className={`text-[11px] mt-0.5 leading-snug ${isActive ? 'text-blue-500' : isDone ? 'text-green-500' : 'text-gray-300'}`}>
-                      {stepDescriptions[idx]}
-                    </p>
-                  )}
-                </div>
+        {/* ── Right: step content ── */}
+        <div className="flex min-w-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:overflow-hidden">
+          {/* Step header */}
+          <div className="shrink-0 border-b border-gray-200 bg-white px-5 py-4 lg:px-8 xl:px-10">
+            <div className="mx-auto w-full max-w-[1180px]">
+              <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+                <span>Step {currentStep + 1} / {totalSteps}</span>
               </div>
-            )
-          })}
-        </nav>
-
-        {/* Sidebar summary card */}
-        {currentStep > 0 && (selectedApp || googleAuth) && (
-          <div className="mx-3 mb-4 shrink-0 p-3 bg-gray-50 rounded-xl border border-gray-100 space-y-2">
-            <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">Configured</p>
-            {currentApp && (
-              <div className="flex items-center gap-2">
-                <span style={{ color: currentApp.color }}>
-                  {currentApp.icon && React.cloneElement(currentApp.icon, { className: 'w-3.5 h-3.5' })}
-                </span>
-                <span className="text-xs font-semibold" style={{ color: currentApp.color }}>{currentApp.name}</span>
-              </div>
-            )}
-            {domain && (
-              <div className="flex items-center gap-1.5 text-[11px] text-gray-500 truncate">
-                <Globe className="w-3 h-3 shrink-0 text-gray-400" />
-                <span className="truncate">{domain}</span>
-              </div>
-            )}
-            {backupType && (
-              <div className="flex items-center gap-1.5">
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                  backupType === 'structured' ? 'bg-blue-100 text-blue-700' :
-                  backupType === 'unstructured' ? 'bg-amber-100 text-amber-700' :
-                  'bg-purple-100 text-purple-700'
-                }`}>
-                  {backupType === 'structured' ? 'Structured' : backupType === 'unstructured' ? 'Files & Attachments' : 'Complete'}
-                </span>
-              </div>
-            )}
-            {storageDestination && (
-              <div className="flex items-center gap-1.5 text-[11px] text-gray-500">
-                {storageDestination === 'gsheets'
-                  ? <FileSpreadsheet className="w-3 h-3 text-green-500 shrink-0" />
-                  : <Folder className="w-3 h-3 text-blue-500 shrink-0" />}
-                <span>{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span>
-              </div>
-            )}
-            {googleAuth?.email && (
-              <div className="flex items-center gap-1.5 text-[11px] text-gray-500 truncate">
-                <CheckCircle className="w-3 h-3 text-green-500 shrink-0" />
-                <span className="truncate">{googleAuth.email}</span>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ── Right: step content ── */}
-      <div className="flex-1 flex flex-col min-w-0 lg:h-full lg:min-h-0 lg:overflow-hidden">
-        {/* Step header */}
-        <div className="shrink-0 bg-white border-b border-gray-200 px-5 py-4 lg:px-8 lg:py-4 xl:px-10">
-          <div className="mx-auto w-full max-w-[1180px]">
-            <div className="flex items-center gap-2 text-xs text-gray-400 mb-1">
-              <span>Step {currentStep + 1} / {totalSteps}</span>
+              <h1 className="text-xl font-bold text-gray-900">
+                {steps[currentStep]?.title || ''}
+              </h1>
+              {stepDescriptions[currentStep] && (
+                <p className="mt-1 text-sm leading-6 text-gray-500">{stepDescriptions[currentStep]}</p>
+              )}
             </div>
-            <h1 className="text-xl font-bold text-gray-900">
-              {steps[currentStep]?.title || ''}
-            </h1>
-            {stepDescriptions[currentStep] && (
-              <p className="text-sm text-gray-500 mt-0.5">{stepDescriptions[currentStep]}</p>
-            )}
           </div>
-        </div>
 
-        {/* Content area */}
-        <div className="flex-1 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:px-8 lg:py-5 xl:px-10">
-          <div className={stepContentShellClass}>
-            {renderStepContent()}
+          {/* Content area */}
+          <div className="flex-1 bg-gray-50/80 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:px-8 xl:px-10">
+            <div className={stepContentShellClass}>
+              {renderStepContent()}
+            </div>
           </div>
-        </div>
 
-        {/* Bottom nav bar */}
-        {(
-          <div className="shrink-0 border-t border-gray-200 bg-white px-5 py-3 lg:px-8 lg:py-3 xl:px-10">
+          {/* Bottom nav bar */}
+          <div className="shrink-0 border-t border-gray-200 bg-white px-5 py-3 lg:px-8 xl:px-10">
             <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-3">
-              <button disabled={currentStep === 0} onClick={prev}
-                className="flex items-center gap-2 px-5 py-2.5 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors font-medium">
-                <ArrowLeft className="w-4 h-4" /> Back
+              <button
+                type="button"
+                disabled={currentStep === 0}
+                onClick={prev}
+                className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ArrowLeft className="h-4 w-4" /> Back
               </button>
-              <div className="flex items-center gap-3 flex-wrap justify-end">
+              <div className="flex flex-wrap items-center justify-end gap-3">
                 {currentStep < totalSteps - 1 && (
-                  <button onClick={next}
-                    className="flex items-center gap-2 px-6 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-sm shadow-blue-200">
-                    Next <ChevronRight className="w-4 h-4" />
+                  <button
+                    type="button"
+                    onClick={next}
+                    className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
+                  >
+                    Next <ChevronRight className="h-4 w-4" />
                   </button>
                 )}
                 {currentStep === totalSteps - 1 && (
                   <>
-                    <button onClick={() => { void handleSubmit(false) }}
-                      className="flex items-center gap-2 px-6 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-sm shadow-blue-200">
+                    <button
+                      type="button"
+                      onClick={() => { void handleSubmit(false) }}
+                      className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
+                    >
                       {isEdit
-                        ? <><Pencil className="w-4 h-4" /> Save Changes</>
-                        : <><Rocket className="w-4 h-4" /> Create Backup Flow</>}
+                        ? <><Pencil className="h-4 w-4" /> Save Changes</>
+                        : <><Rocket className="h-4 w-4" /> Create Backup Flow</>}
                     </button>
                     {['request', 'service', 'workflow', 'wework'].includes(currentApp?.id || '') && (
-                      <button onClick={() => { void handleSubmit(true) }}
-                        className="flex items-center gap-2 px-5 py-2.5 text-sm border border-green-300 text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors font-medium">
-                        <Play className="w-4 h-4" />
+                      <button
+                        type="button"
+                        onClick={() => { void handleSubmit(true) }}
+                        className="inline-flex items-center gap-2 rounded-2xl border border-green-300 bg-green-50 px-5 py-2.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
+                      >
+                        <Play className="h-4 w-4" />
                         {isEdit ? 'Save & Run Now' : 'Create & Run Now'}
                       </button>
                     )}
@@ -259,7 +290,7 @@ const FlowWizard = ({ wizard, viewMode, onBack }) => {
               </div>
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

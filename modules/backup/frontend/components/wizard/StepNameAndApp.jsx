@@ -13,7 +13,6 @@ const StepNameAndApp = ({ wizard }) => {
   const {
     flowName, setFlowName,
     selectedApp, currentApp,
-    setShowAppSelectionModal, handleAppSelection,
     usesCondensedServiceWizard,
     connectionConfig,
     sourceConnectionId,
@@ -48,17 +47,80 @@ const StepNameAndApp = ({ wizard }) => {
   const isWeworkSelected = selectedApp === 'wework'
   const requiresDomain = Boolean(connectionConfig?.requiresDomain)
   const currentTokenValue = isRequestSelected ? accessTokenV2 : accessToken
-  const setCurrentTokenValue = isRequestSelected ? setAccessTokenV2 : setAccessToken
-  const showCurrentToken = isRequestSelected ? showTokenV2 : showToken
-  const setShowCurrentToken = isRequestSelected ? setShowTokenV2 : setShowToken
-  const canShowCondensedObjects = requiresDomain
-    ? Boolean(domain.trim() && currentTokenValue.trim())
-    : Boolean(currentTokenValue.trim())
+  const appliedSource = savedSourceConnections.find(source => String(source.id) === String(sourceConnectionId)) || null
+  const canShowCondensedObjects = Boolean(
+    sourceConnectionId
+    && (!requiresDomain || domain.trim())
+    && currentTokenValue.trim()
+  )
 
   // ── Condensed Request / Service / Workflow wizard ────────────────────
   if (usesCondensedServiceWizard) {
     return (
       <div className="w-full max-w-4xl space-y-8">
+        <div className="border border-gray-200 rounded-2xl bg-white p-5 space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
+                <Link2 className="w-4 h-4 text-blue-600" />
+                <span>Select a saved source</span>
+              </div>
+              <p className="text-xs text-gray-400 mt-1">
+                Start by choosing a source that was already configured in the Sources module. The wizard will apply the correct app automatically.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => loadSavedSourceConnections(null)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Refresh
+            </button>
+          </div>
+
+          {loadingSavedSourceConnections ? (
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-500">
+              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
+              <span>Loading saved sources…</span>
+            </div>
+          ) : savedSourceConnections.length > 0 ? (
+            <div className="grid gap-2 md:grid-cols-2">
+              {savedSourceConnections.map(source => {
+                const isActive = sourceConnectionId === String(source.id)
+                const sourceAppId = source.app_id || source.app
+                const sourceApp = APPS[sourceAppId]
+                return (
+                  <button
+                    key={source.id}
+                    type="button"
+                    onClick={() => applySourceConnection(source.id)}
+                    className={`rounded-2xl border px-4 py-3 text-left transition-all ${
+                      isActive
+                        ? 'border-blue-300 bg-blue-50 shadow-sm'
+                        : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className={`text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{source.name}</span>
+                      {isActive && <CheckCircle className="w-4 h-4 text-blue-600 shrink-0" />}
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-gray-400">
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{source.app_name || sourceApp?.name || sourceAppId || 'Source'}</span>
+                      {source.domain && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{source.domain}</span>}
+                    </div>
+                    {source.owner_email && <div className="mt-2 text-xs text-gray-400">Owner: {source.owner_email}</div>}
+                  </button>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-4 text-sm text-gray-500">
+              No saved sources yet. Create one in the Sources module, then come back here to reuse it.
+            </div>
+          )}
+        </div>
+
         <div className="grid gap-6 xl:grid-cols-2">
           {/* Flow name */}
           <div>
@@ -75,16 +137,15 @@ const StepNameAndApp = ({ wizard }) => {
             />
           </div>
 
-          {/* App picker */}
+          {/* Applied app */}
           <div>
             <label className="block text-sm font-semibold text-gray-800 mb-1">
-              Source Application <span className="text-red-500">*</span>
+              Source Application
             </label>
-            <p className="text-xs text-gray-400 mb-3">Choose the app whose data you want to back up</p>
-            <button
-              onClick={() => setShowAppSelectionModal(true)}
-              className={`w-full flex items-center gap-4 px-4 py-4 rounded-xl border-2 text-left transition-all ${
-                currentApp ? 'border-solid shadow-sm' : 'border-dashed border-gray-200 hover:border-blue-300 bg-white'
+            <p className="text-xs text-gray-400 mb-3">The selected source controls the application and credentials for this backup flow.</p>
+            <div
+              className={`w-full flex items-center gap-4 px-4 py-4 rounded-xl border-2 text-left ${
+                currentApp ? 'border-solid shadow-sm' : 'border-dashed border-gray-200 bg-white'
               }`}
               style={currentApp ? { borderColor: currentApp.color, backgroundColor: currentApp.bg } : {}}
             >
@@ -95,183 +156,43 @@ const StepNameAndApp = ({ wizard }) => {
               <div className="flex-1 min-w-0">
                 <p className={`text-sm font-semibold ${currentApp ? '' : 'text-gray-400'}`}
                   style={currentApp ? { color: currentApp.color } : {}}>
-                  {currentApp ? currentApp.name : 'Click to choose an app…'}
+                  {currentApp ? currentApp.name : 'Select a source above to load its application'}
                 </p>
                 {currentApp
                   ? <p className="text-xs mt-0.5" style={{ color: `${currentApp.color}99` }}>{currentApp.description}</p>
-                  : <p className="text-xs text-gray-400 mt-0.5">Request, Workflow, WeWork, Service…</p>}
+                  : <p className="text-xs text-gray-400 mt-0.5">Saved sources from the Sources module will determine the app automatically.</p>}
               </div>
-              {currentApp
-                ? <CheckCircle className="w-5 h-5 shrink-0" style={{ color: currentApp.color }} />
-                : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
-            </button>
+              {currentApp && <CheckCircle className="w-5 h-5 shrink-0" style={{ color: currentApp.color }} />}
+            </div>
           </div>
         </div>
 
         {currentApp && (
-          <div className="border border-gray-200 rounded-2xl bg-white p-5 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                  <Link2 className="w-4 h-4 text-blue-600" />
-                  <span>Reuse a saved source</span>
-                </div>
-                <p className="text-xs text-gray-400 mt-1">
-                  Apply a saved {currentApp.name} connection, then keep adjusting the backup scope below if needed.
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => loadSavedSourceConnections(selectedApp)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Refresh
-              </button>
-            </div>
-
-            {sourceConnectionId && (
-              <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                This flow is currently using a saved source template. Editing the connection details below will detach it from that template.
-              </div>
-            )}
-
-            {loadingSavedSourceConnections ? (
-              <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-500">
-                <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-                <span>Loading saved sources…</span>
-              </div>
-            ) : savedSourceConnections.length > 0 ? (
-              <div className="grid gap-2 md:grid-cols-2">
-                {savedSourceConnections.map(source => {
-                  const isActive = sourceConnectionId === String(source.id)
-                  return (
-                    <button
-                      key={source.id}
-                      type="button"
-                      onClick={() => applySourceConnection(source.id)}
-                      className={`rounded-2xl border px-4 py-3 text-left transition-all ${
-                        isActive
-                          ? 'border-blue-300 bg-blue-50 shadow-sm'
-                          : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <span className={`text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{source.name}</span>
-                        {isActive && <CheckCircle className="w-4 h-4 text-blue-600 shrink-0" />}
-                      </div>
-                      <div className="mt-1 text-xs text-gray-500">{source.domain || 'No domain configured'}</div>
-                      {source.description && <div className="mt-2 text-xs text-gray-400 line-clamp-2">{source.description}</div>}
-                    </button>
-                  )
-                })}
-              </div>
-            ) : (
-              <div className="rounded-xl border border-dashed border-gray-200 px-4 py-4 text-sm text-gray-500">
-                No saved {currentApp.name} sources yet. Create one in the Source module, then come back here to reuse it.
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Request / Service / Workflow connection */}
-        {(isRequestSelected || isServiceSelected || isWorkflowSelected || isWeworkSelected) && (
-          <>
+          <div className="space-y-4">
             <div className="border border-blue-100 rounded-2xl p-5 bg-blue-50/50 space-y-5">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-blue-600" />
-                <h4 className="text-sm font-bold text-blue-800">
-                  {connectionConfig?.stepTitle || (isServiceSelected ? 'Service Connection' : isWorkflowSelected ? 'Workflow Connection' : isWeworkSelected ? 'WeWork Connection' : 'Request Connection')}
-                </h4>
+                <h4 className="text-sm font-bold text-blue-800">Applied source profile</h4>
               </div>
-              <div className={`grid gap-5 ${requiresDomain ? 'xl:grid-cols-2' : ''}`}>
-                {requiresDomain && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-1">{connectionConfig?.domainLabel || 'Domain'} <span className="text-red-500">*</span></label>
-                    <p className="text-xs text-gray-400 mb-2">
-                      {connectionConfig?.domainHelp || <>Your system address, e.g. <code className="bg-white px-1 rounded">company.base.com.vn</code></>}
-                    </p>
-                    <input className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder={connectionConfig?.domainPlaceholder || 'e.g. company.base.com.vn'}
-                      value={domain}
-                      onChange={e => {
-                        clearAppliedSourceConnection()
-                        if (isRequestSelected) {
-                          setRequestPreview(null)
-                          setSelectedGroupIds([])
-                          setDraftSelectedGroupIds([])
-                        }
-                        if (isServiceSelected) setServiceSourceSetupSaved(false)
-                        setDomain(e.target.value)
-                        if (isServiceSelected) {
-                          setServicePreview(null)
-                          setSelectedServiceIds([])
-                          setDraftSelectedServiceIds([])
-                        }
-                        if (isWorkflowSelected) {
-                          setWorkflowPreview(null)
-                          setSelectedWorkflowIds([])
-                          setDraftSelectedWorkflowIds([])
-                        }
-                        if (isWeworkSelected) {
-                          setWeworkPreview(null)
-                          setSelectedProjectIds([])
-                          setDraftSelectedProjectIds([])
-                        }
-                      }} />
+
+              {appliedSource ? (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <div className="rounded-2xl border border-blue-200 bg-white p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Source name</div>
+                    <div className="mt-1 text-sm font-semibold text-gray-900">{appliedSource.name}</div>
+                    <div className="mt-2 text-xs text-gray-500">Owner: {appliedSource.owner_email || 'Unknown'}</div>
                   </div>
-                )}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-1">
-                    {connectionConfig?.tokenLabel || (isServiceSelected ? 'Access Token' : isWorkflowSelected ? 'API Access Token' : 'Access Token V2')} <span className="text-red-500">*</span>
-                  </label>
-                  <p className="text-xs text-gray-400 mb-2">
-                    {connectionConfig?.tokenHelp || (isServiceSelected
-                      ? <>From Service → <strong>Settings</strong> → <strong>API Keys</strong> → <em>access_token_v2</em></>
-                      : isWorkflowSelected
-                        ? <>From Workflow → <strong>Settings</strong> → <strong>API Keys</strong></>
-                        : isWeworkSelected
-                          ? <>From WeWork → <strong>Settings</strong> → <strong>API Keys</strong> → <em>access_token_v2</em></>
-                        : <>From Request → <strong>Settings</strong> → <strong>API Keys</strong> → <em>access_token_v2</em></>)}
-                  </p>
-                  <div className="relative">
-                    <input type={showCurrentToken ? 'text' : 'password'}
-                      className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                      placeholder={connectionConfig?.tokenPlaceholder || 'Paste your access token here…'}
-                      value={currentTokenValue}
-                      onChange={e => {
-                        clearAppliedSourceConnection()
-                        if (isRequestSelected) {
-                          setRequestPreview(null)
-                          setSelectedGroupIds([])
-                          setDraftSelectedGroupIds([])
-                        }
-                        if (isServiceSelected) {
-                          setServiceSourceSetupSaved(false)
-                          setServicePreview(null)
-                          setSelectedServiceIds([])
-                          setDraftSelectedServiceIds([])
-                        }
-                        if (isWorkflowSelected) {
-                          setWorkflowPreview(null)
-                          setSelectedWorkflowIds([])
-                          setDraftSelectedWorkflowIds([])
-                        }
-                        if (isWeworkSelected) {
-                          setWeworkPreview(null)
-                          setSelectedProjectIds([])
-                          setDraftSelectedProjectIds([])
-                        }
-                        setCurrentTokenValue(e.target.value)
-                      }} />
-                    <button type="button" onClick={() => setShowCurrentToken(v => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
-                      title={showCurrentToken ? 'Hide' : 'Show'}>
-                      {showCurrentToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                    </button>
+                  <div className="rounded-2xl border border-blue-200 bg-white p-4">
+                    <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Connection</div>
+                    <div className="mt-1 text-sm font-semibold text-gray-900">{appliedSource.domain || 'No domain configured'}</div>
+                    <div className="mt-2 text-xs text-gray-500">Managed from the Sources module</div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-700">
+                  Select one saved source above. To create or edit a source connection, use the Sources module first, then come back here.
+                </div>
+              )}
             </div>
 
             {/* Object selection */}
@@ -318,7 +239,7 @@ const StepNameAndApp = ({ wizard }) => {
                   </div>
                   <button
                     onClick={openRequestSelectorModal}
-                    disabled={!domain.trim() || !accessTokenV2.trim() || loadingRequestPreview}
+                    disabled={!sourceConnectionId || !domain.trim() || !accessTokenV2.trim() || loadingRequestPreview}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-orange-200 bg-orange-50 px-4 py-2 text-sm font-semibold text-orange-700 transition-colors hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loadingRequestPreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
@@ -345,8 +266,8 @@ const StepNameAndApp = ({ wizard }) => {
                   <p className="text-xs text-amber-600">Some Request groups could not be previewed completely ({requestPreview.partial_error_count}). You can still choose from the loaded list.</p>
                 )}
 
-                {!domain.trim() || !accessTokenV2.trim() ? (
-                  <p className="text-xs text-amber-600">Enter Request domain and access token first, then load the group list to choose what this flow will back up.</p>
+                {!sourceConnectionId ? (
+                  <p className="text-xs text-amber-600">Select a saved Request source first, then load the group list to choose what this flow will back up.</p>
                 ) : !requestPreview ? (
                   <p className="text-xs text-amber-600">Load the Request source preview to see the full list of groups available for backup.</p>
                 ) : selectedGroupIds.length === 0 ? (
@@ -366,7 +287,7 @@ const StepNameAndApp = ({ wizard }) => {
                   </div>
                   <button
                     onClick={openServiceSelectorModal}
-                    disabled={!domain.trim() || !accessToken.trim() || loadingServicePreview}
+                    disabled={!sourceConnectionId || !domain.trim() || !accessToken.trim() || loadingServicePreview}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loadingServicePreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
@@ -385,8 +306,8 @@ const StepNameAndApp = ({ wizard }) => {
                   </div>
                 </div>
 
-                {!domain.trim() || !accessToken.trim() ? (
-                  <p className="text-xs text-amber-600">Enter Service domain and access token first, then load the service list to choose what this flow will back up.</p>
+                {!sourceConnectionId ? (
+                  <p className="text-xs text-amber-600">Select a saved Service source first, then load the service list to choose what this flow will back up.</p>
                 ) : selectedServiceIds.length === 0 ? (
                   <p className="text-xs text-amber-600">Select at least one Service before moving to the next step.</p>
                 ) : (
@@ -404,7 +325,7 @@ const StepNameAndApp = ({ wizard }) => {
                   </div>
                   <button
                     onClick={openWorkflowSelectorModal}
-                    disabled={!domain.trim() || !accessToken.trim() || loadingWorkflowPreview}
+                    disabled={!sourceConnectionId || !domain.trim() || !accessToken.trim() || loadingWorkflowPreview}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loadingWorkflowPreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
@@ -431,8 +352,8 @@ const StepNameAndApp = ({ wizard }) => {
                   <p className="text-xs text-amber-600">Some workflows could not be previewed completely ({workflowPreview.partial_error_count}). You can still choose from the loaded list.</p>
                 )}
 
-                {!domain.trim() || !accessToken.trim() ? (
-                  <p className="text-xs text-amber-600">Enter Workflow domain and access token first, then load the workflow list to choose what this flow will back up.</p>
+                {!sourceConnectionId ? (
+                  <p className="text-xs text-amber-600">Select a saved Workflow source first, then load the workflow list to choose what this flow will back up.</p>
                 ) : !workflowPreview ? (
                   <p className="text-xs text-amber-600">Load the Workflow source preview to see the full list of workflows available for backup.</p>
                 ) : selectedWorkflowIds.length === 0 ? (
@@ -452,7 +373,7 @@ const StepNameAndApp = ({ wizard }) => {
                   </div>
                   <button
                     onClick={openWeworkSelectorModal}
-                    disabled={!domain.trim() || !accessToken.trim() || loadingWeworkPreview}
+                    disabled={!sourceConnectionId || !domain.trim() || !accessToken.trim() || loadingWeworkPreview}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-700 transition-colors hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {loadingWeworkPreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <ChevronRight className="w-4 h-4" />}
@@ -487,8 +408,8 @@ const StepNameAndApp = ({ wizard }) => {
                   <p className="text-xs text-amber-600">Some projects could not be previewed completely ({weworkPreview.partial_error_count}). You can still choose from the loaded list.</p>
                 )}
 
-                {!domain.trim() || !accessToken.trim() ? (
-                  <p className="text-xs text-amber-600">Enter WeWork domain and access token first, then load the project list to choose what this flow will back up.</p>
+                {!sourceConnectionId ? (
+                  <p className="text-xs text-amber-600">Select a saved WeWork source first, then load the project list to choose what this flow will back up.</p>
                 ) : !weworkPreview ? (
                   <p className="text-xs text-amber-600">Load the WeWork source preview to see the full list of projects available for backup.</p>
                 ) : selectedProjectIds.length === 0 ? (
@@ -498,7 +419,7 @@ const StepNameAndApp = ({ wizard }) => {
                 )}
               </div>
             )}
-          </>
+          </div>
         )}
       </div>
     )

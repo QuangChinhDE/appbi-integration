@@ -3,6 +3,9 @@ import api from '@shared/api/client'
 import { message } from '@packages/ui/src/components/common/ui'
 import { APPS, APP_CONNECTION_CONFIG, MOCK_FIELDS, DEFAULT_GOOGLE_REDIRECT, SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE } from '../constants'
 
+const GOOGLE_OAUTH_REQUEST_PARAMS = { post_message_origin: window.location.origin }
+const CONNECTOR_PREVIEW_TIMEOUT_MS = 60000
+
 /**
  * All wizard form state + validation + autosave + finish.
  * Keeps the same API contract so backend works untouched.
@@ -159,7 +162,7 @@ export default function useWizardState() {
     || Boolean(googleAuth?.credentials_json)
     || Boolean(googleAuth?.uses_platform_service_account)
 
-  const usesCondensedServiceWizard = isRequestApp || isServiceApp || isWorkflowApp || isWeworkApp
+  const usesCondensedServiceWizard = !selectedApp || isRequestApp || isServiceApp || isWorkflowApp || isWeworkApp
   const hasServiceAccountStep = googleAuthMethod === 'service_account'
   const totalSteps = usesCondensedServiceWizard ? 3 : (hasServiceAccountStep ? 5 : 4)
 
@@ -188,37 +191,35 @@ export default function useWizardState() {
     }
   }, [])
 
-  const loadSavedSourceConnections = useCallback(async (appId = selectedApp) => {
-    if (!appId) {
-      setSavedSourceConnections([])
-      return
-    }
+  const loadSavedSourceConnections = useCallback(async (appId = null) => {
+    const normalizedAppId = typeof appId === 'string' && appId.trim() ? appId : null
     setLoadingSavedSourceConnections(true)
     try {
-      const res = await api.get('/api/sources', { params: { app_id: appId } })
+      const res = await api.get('/api/sources', {
+        params: normalizedAppId ? { app_id: normalizedAppId } : undefined,
+      })
       setSavedSourceConnections(Array.isArray(res.data) ? res.data : [])
     } catch {
       setSavedSourceConnections([])
     } finally {
       setLoadingSavedSourceConnections(false)
     }
-  }, [selectedApp])
+  }, [])
 
-  const loadSavedDestinationProfiles = useCallback(async (destinationType = storageDestination) => {
-    if (!destinationType) {
-      setSavedDestinationProfiles([])
-      return
-    }
+  const loadSavedDestinationProfiles = useCallback(async (destinationType = null) => {
+    const normalizedDestinationType = typeof destinationType === 'string' && destinationType.trim() ? destinationType : null
     setLoadingSavedDestinationProfiles(true)
     try {
-      const res = await api.get('/api/destinations', { params: { destination_type: destinationType } })
+      const res = await api.get('/api/destinations', {
+        params: normalizedDestinationType ? { destination_type: normalizedDestinationType } : undefined,
+      })
       setSavedDestinationProfiles(Array.isArray(res.data) ? res.data : [])
     } catch {
       setSavedDestinationProfiles([])
     } finally {
       setLoadingSavedDestinationProfiles(false)
     }
-  }, [storageDestination])
+  }, [])
 
   useEffect(() => {
     void loadPlatformServiceAccount()
@@ -226,19 +227,11 @@ export default function useWizardState() {
   }, [loadPlatformServiceAccount, loadSavedGoogleConnections])
 
   useEffect(() => {
-    if (!selectedApp) {
-      setSavedSourceConnections([])
-      return
-    }
-    void loadSavedSourceConnections(selectedApp)
+    void loadSavedSourceConnections(null)
   }, [selectedApp, loadSavedSourceConnections])
 
   useEffect(() => {
-    if (!storageDestination) {
-      setSavedDestinationProfiles([])
-      return
-    }
-    void loadSavedDestinationProfiles(storageDestination)
+    void loadSavedDestinationProfiles(null)
   }, [storageDestination, loadSavedDestinationProfiles])
 
   useEffect(() => {
@@ -710,15 +703,17 @@ export default function useWizardState() {
     // Step 0 validation
     if (currentStep === 0) {
       if (!flowName.trim()) { message.warning('Please enter a name for this backup flow'); return }
-      if (!selectedApp) { message.warning('Please select an application'); return }
+      if (!sourceConnectionId) { message.warning('Please select a saved source from the Sources module'); return }
+      if (!selectedApp) { message.warning('The selected source is missing its application type. Update it in the Sources module first.'); return }
     }
 
     // Condensed source wizard (Service / Workflow)
     if (usesCondensedServiceWizard && totalSteps === 3) {
       if (currentStep === 0) {
-        if (connectionConfig?.requiresDomain && !domain) { message.warning(`Please provide ${currentApp?.name || 'source'} domain`); return }
-        if (isRequestApp && !accessTokenV2) { message.warning(`Please provide ${currentApp?.name || 'source'} access token`); return }
-        if (!isRequestApp && !accessToken) { message.warning(`Please provide ${currentApp?.name || 'source'} access token`); return }
+        if (!sourceConnectionId) { message.warning(`Please select a saved ${currentApp?.name || 'source'} connection from the Sources module`); return }
+        if (connectionConfig?.requiresDomain && !domain) { message.warning('The selected source is missing its domain. Update it in the Sources module first.'); return }
+        if (isRequestApp && !accessTokenV2) { message.warning('The selected source is missing its access token. Update it in the Sources module first.'); return }
+        if (!isRequestApp && !accessToken) { message.warning('The selected source is missing its access token. Update it in the Sources module first.'); return }
         if (selectedObjects.length === 0) { message.warning('Please select at least one object'); return }
         if (isRequestApp && !requestPreview) { message.warning('Please load Request preview and choose the groups for this flow'); return }
         if (isRequestApp && Array.isArray(requestPreview?.groups) && requestPreview.groups.length > 0 && selectedGroupIds.length === 0) {
@@ -745,9 +740,10 @@ export default function useWizardState() {
       }
       if (currentStep === 1) {
         if (isWorkflowApp && backupType === 'unstructured') { message.warning('Workflow currently supports Structured and Complete backup only'); return }
-        if (!backupType || !storageDestination || !googleAuthMethod) { message.warning('Please choose backup type, destination, and Google auth method'); return }
-        if (googleAuthMethod === 'oauth' && !googleAuth) { message.warning('Please connect with Google'); return }
-        if (googleAuthMethod === 'service_account' && !hasReadyServiceAccountAuth()) { message.warning(platformServiceAccount?.available ? 'Select the shared platform service account or upload a service account JSON key' : 'Please upload and analyze a Google service account JSON file'); return }
+        if (!backupType || !storageDestination) { message.warning('Please choose backup type and destination type'); return }
+        if (!destinationProfileId) { message.warning('Please select a saved destination profile from the Destinations module'); return }
+        if (!googleAuth) { message.warning('The selected destination profile is missing authentication details. Update it in the Destinations module first.'); return }
+        if (googleAuthMethod === 'service_account' && !hasReadyServiceAccountAuth()) { message.warning('The selected destination profile does not have a valid service account configuration. Update it in the Destinations module first.'); return }
       }
     } else if (isRequestApp) {
       if (currentStep === 1 && (!domain || !accessTokenV2)) { message.warning('Please provide domain and access token'); return }
@@ -784,6 +780,16 @@ export default function useWizardState() {
   // ── Finish (save/publish) ─────────────────────────────────────────────
   const handleFinish = useCallback(async (runAfterSave = false, viewMode = 'create') => {
     if (!draftFlowId) { message.error('No draft flow found. Please try again.'); return }
+
+    if (!sourceConnectionId) {
+      message.warning(`Please select a saved ${currentApp?.name || 'source'} connection before saving this flow`)
+      return
+    }
+
+    if (!destinationProfileId) {
+      message.warning('Please select a saved destination profile before saving this flow')
+      return
+    }
 
     if (hasServiceAccountStep && !hasReadyServiceAccountAuth()) {
       message.warning(platformServiceAccount?.available ? 'Select the shared platform service account or upload a service account JSON key first' : 'Please upload and analyze a Google service account JSON file first'); return
@@ -902,26 +908,44 @@ export default function useWizardState() {
       ? (isEdit ? 'Backup flow updated and started!' : 'Backup flow created and started!')
       : (isEdit ? 'Backup flow updated successfully!' : 'Backup flow created successfully!')
 
-    let saveCompleted = false
     try {
       message.loading({ content: actionLabel, key: 'save' })
-      await api.post(`/api/backup-flows/${draftFlowId}/save`, savePayload)
-      saveCompleted = true
-      if (runAfterSave) await api.post(`/api/backup-flows/${draftFlowId}/run`)
-      message.success({ content: successLabel, key: 'save' })
+      const saveResponse = await api.post(`/api/backup-flows/${draftFlowId}/save`, savePayload)
+      const savedFlow = saveResponse.data
+      let runStarted = true
+      let runError = null
+
+      if (runAfterSave) {
+        try {
+          await api.post(`/api/backup-flows/${draftFlowId}/run`)
+        } catch (runErr) {
+          runStarted = false
+          runError = runErr.response?.data?.detail || 'Backup flow was saved but could not be started.'
+        }
+      }
+
+      if (runAfterSave && !runStarted) {
+        message.warning({ content: runError, key: 'save' })
+      } else {
+        message.success({ content: successLabel, key: 'save' })
+      }
+
+      return {
+        success: true,
+        flow: savedFlow,
+        flowId: savedFlow?.id || draftFlowId,
+        runAfterSave,
+        runStarted,
+        runError,
+      }
     } catch (err) {
       const detail = err.response?.data?.detail
-      const errorContent = runAfterSave && saveCompleted
-        ? (detail || 'Backup flow was saved but could not be started.')
-        : (detail || `Failed to ${isEdit ? 'update' : 'save'} backup flow.`)
+      const errorContent = detail || `Failed to ${isEdit ? 'update' : 'save'} backup flow.`
       message.error({ content: errorContent, key: 'save' })
       console.error(err)
       return false
     }
-
-    resetAll()
-    return true
-  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, resetAll, hasReadyServiceAccountAuth, platformServiceAccount])
+  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, hasReadyServiceAccountAuth, platformServiceAccount])
 
   // ── Load flow for editing ─────────────────────────────────────────────
   const loadFlowForEdit = useCallback(async (flowId) => {
@@ -1080,7 +1104,7 @@ export default function useWizardState() {
         ticket_sample_limit: 2,
         service_ids: serviceIdsOverride.length ? serviceIdsOverride : undefined,
         detail_service_limit: serviceIdsOverride.length ? Math.min(serviceIdsOverride.length, 10) : 2,
-      })
+      }, { timeout: CONNECTOR_PREVIEW_TIMEOUT_MS })
       setServicePreview(res.data)
       if (!selectedServiceIds.length && Array.isArray(res.data?.services)) {
         const defaultIds = res.data.services.slice(0, 2).map(item => item.service_id)
@@ -1089,7 +1113,7 @@ export default function useWizardState() {
       }
       message.success('Loaded Service source preview')
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to load Service source preview')
+      message.error(err.code === 'ECONNABORTED' ? 'Loading Service source preview took too long. Please try again.' : err.response?.data?.detail || 'Failed to load Service source preview')
     } finally {
       setLoadingServicePreview(false)
     }
@@ -1106,7 +1130,7 @@ export default function useWizardState() {
         job_sample_limit: 2,
         workflow_ids: workflowIdsOverride.length ? workflowIdsOverride : undefined,
         detail_workflow_limit: workflowIdsOverride.length ? Math.min(workflowIdsOverride.length, 10) : 5,
-      })
+      }, { timeout: CONNECTOR_PREVIEW_TIMEOUT_MS })
       setWorkflowPreview(res.data)
       if (!selectedWorkflowIds.length && Array.isArray(res.data?.workflows)) {
         const defaultIds = res.data.workflows.map(item => item.workflow_id).filter(Boolean)
@@ -1115,7 +1139,7 @@ export default function useWizardState() {
       }
       message.success('Loaded Workflow source preview')
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to load Workflow source preview')
+      message.error(err.code === 'ECONNABORTED' ? 'Loading Workflow source preview took too long. Please try again.' : err.response?.data?.detail || 'Failed to load Workflow source preview')
     } finally {
       setLoadingWorkflowPreview(false)
     }
@@ -1132,7 +1156,7 @@ export default function useWizardState() {
         task_sample_limit: 3,
         project_ids: projectIdsOverride.length ? projectIdsOverride : undefined,
         detail_project_limit: projectIdsOverride.length ? Math.min(projectIdsOverride.length, 10) : 5,
-      })
+      }, { timeout: CONNECTOR_PREVIEW_TIMEOUT_MS })
       setWeworkPreview(res.data)
       if (!selectedProjectIds.length && Array.isArray(res.data?.projects)) {
         const defaultIds = res.data.projects.map(item => item.project_id).filter(Boolean)
@@ -1141,7 +1165,7 @@ export default function useWizardState() {
       }
       message.success('Loaded WeWork source preview')
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to load WeWork source preview')
+      message.error(err.code === 'ECONNABORTED' ? 'Loading WeWork source preview took too long. Please try again.' : err.response?.data?.detail || 'Failed to load WeWork source preview')
     } finally {
       setLoadingWeworkPreview(false)
     }
@@ -1158,7 +1182,7 @@ export default function useWizardState() {
         request_sample_limit: 2,
         group_ids: groupIdsOverride.length ? groupIdsOverride : undefined,
         detail_group_limit: groupIdsOverride.length ? Math.min(groupIdsOverride.length, 10) : 5,
-      })
+      }, { timeout: CONNECTOR_PREVIEW_TIMEOUT_MS })
       setRequestPreview(res.data)
       if (!selectedGroupIds.length && Array.isArray(res.data?.groups)) {
         const defaultIds = res.data.groups.map(item => item.group_id).filter(Boolean)
@@ -1167,7 +1191,7 @@ export default function useWizardState() {
       }
       message.success('Loaded Request source preview')
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to load Request source preview')
+      message.error(err.code === 'ECONNABORTED' ? 'Loading Request source preview took too long. Please try again.' : err.response?.data?.detail || 'Failed to load Request source preview')
     } finally {
       setLoadingRequestPreview(false)
     }
@@ -1221,7 +1245,7 @@ export default function useWizardState() {
 
   const handleGoogleConnect = useCallback(async () => {
     try {
-      const res = await api.get('/api/google/auth-url')
+      const res = await api.get('/api/google/auth-url', { params: GOOGLE_OAUTH_REQUEST_PARAMS })
       const data = await startGoogleOAuthPopup(res.data.url)
       setGoogleAuthMethod('oauth')
       setDestinationProfileId(null)
@@ -1347,6 +1371,7 @@ export default function useWizardState() {
     if (!googleAuth) return
     setGoogleFolderModal(true)
     setLoadingDrives(true)
+    setSharedFolderQuery('')
     setSharedFolderReference('')
     try {
       const res = isServiceAccountDestinationAuth
@@ -1383,7 +1408,6 @@ export default function useWizardState() {
       drive_id: folder.drive_id || null,
       drive_name: resolveDriveName(folder.drive_id, folder.drive_name || null),
     }
-    setDestinationProfileId(null)
     setGoogleAuth(nextAuth)
     await autosaveDestinationAuth(nextAuth)
     if (options.closeModal !== false) setGoogleFolderModal(false)
@@ -1404,7 +1428,6 @@ export default function useWizardState() {
       drive_id: current.driveId || null,
       drive_name: resolveDriveName(current.driveId, current.isDriveRoot ? current.name : null),
     }
-    setDestinationProfileId(null)
     setGoogleAuth(nextAuth)
     await autosaveDestinationAuth(nextAuth)
     setGoogleFolderModal(false)
@@ -1445,7 +1468,7 @@ export default function useWizardState() {
         client_secret: gcClientSecret.trim() || '__KEEP__',
         redirect_uri: gcRedirectUri.trim() || DEFAULT_GOOGLE_REDIRECT,
       })
-      const authRes = await api.get('/api/google/auth-url')
+      const authRes = await api.get('/api/google/auth-url', { params: GOOGLE_OAUTH_REQUEST_PARAMS })
       const data = await startGoogleOAuthPopup(authRes.data.url)
       setGoogleAuthMethod('oauth')
       setDestinationProfileId(null)
@@ -1572,8 +1595,8 @@ export default function useWizardState() {
   const getStepLabels = useCallback(() => {
     if (usesCondensedServiceWizard) {
       return [
-        { title: 'Source & Connection' },
-        { title: 'Storage Setup' },
+        { title: 'Select Source' },
+        { title: 'Select Destination' },
         { title: 'Review & Create' },
       ]
     }
@@ -1597,22 +1620,29 @@ export default function useWizardState() {
 
   const getStepDescriptions = useCallback(() => {
     if (usesCondensedServiceWizard) {
+      if (!selectedApp) {
+        return [
+          'Choose a saved source from the Sources module and name the backup flow',
+          'Choose a saved destination profile from the Destinations module',
+          'Confirm and create your flow',
+        ]
+      }
       if (isRequestApp) {
-        return ['Name your flow, connect Request, and choose data scope', 'Configure backup storage', 'Confirm & create your flow']
+        return ['Choose a saved Request source, name the flow, and set the backup scope', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
       }
       if (isServiceApp) {
-        return ['Name your flow, connect Service, and choose services', 'Configure backup storage', 'Confirm & create your flow']
+        return ['Choose a saved Service source, name the flow, and choose services', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
       }
       if (isWeworkApp) {
-        return ['Name your flow, connect WeWork, and choose projects', 'Configure backup storage', 'Confirm & create your flow']
+        return ['Choose a saved WeWork source, name the flow, and choose projects', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
       }
-      return ['Name your flow, connect Workflow, and choose workflows', 'Configure backup storage', 'Confirm & create your flow']
+      return ['Choose a saved Workflow source, name the flow, and choose workflows', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
     }
     if (isRequestApp) {
       return ['Name & choose application', 'Connection information', 'Backup type & storage', ...(hasServiceAccountStep ? ['Google authentication'] : []), 'Review & create']
     }
     return ['Name & choose application', 'Select data to backup', 'Connect & configure', ...(hasServiceAccountStep ? ['Google authentication'] : []), 'Review & create']
-  }, [usesCondensedServiceWizard, isServiceApp, isRequestApp, isWeworkApp, hasServiceAccountStep])
+  }, [usesCondensedServiceWizard, selectedApp, isServiceApp, isRequestApp, isWeworkApp, hasServiceAccountStep])
 
   return {
     // Core

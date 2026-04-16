@@ -44,6 +44,8 @@ const BackupFlowPage = () => {
     setDetailsFlowId(null)
     setDetailsFlowRecord(null)
     setDetailsActiveTab('overview')
+    setShowDestinationModal(false)
+    setDestinationSearch('')
     setDetailsFlow(null)
     setDetailsRuns([])
     resetAll()
@@ -56,6 +58,11 @@ const BackupFlowPage = () => {
     if (!location.state?.resetToListToken) return
     resetToBackupList()
   }, [location.state?.resetToListToken, resetToBackupList])
+
+  useEffect(() => {
+    if (!backupFlows.detailsFlow) return
+    setDetailsFlowRecord(backupFlows.detailsFlow)
+  }, [backupFlows.detailsFlow])
 
   // ── Sync google config modal fields ───────────────────────────────────
   useEffect(() => {
@@ -103,6 +110,7 @@ const BackupFlowPage = () => {
   // ── Handlers ──────────────────────────────────────────────────────────
 
   const handleCreateDraft = async () => {
+    resetAll()
     const id = await backupFlows.createDraft()
     if (!id) return
     wizard.setDraftFlowId(id)
@@ -126,8 +134,9 @@ const BackupFlowPage = () => {
 
   const handleEditFromDetail = async () => {
     const id = detailsFlowId || detailsFlowRecord?.id
-    if (id) await wizard.loadFlowForEdit(id)
-    setViewMode('edit')
+    if (!id) return
+    const loaded = await wizard.loadFlowForEdit(id)
+    if (loaded) setViewMode('edit')
   }
 
   const handleRunFromDetail = () => {
@@ -155,7 +164,11 @@ const BackupFlowPage = () => {
     )
   }
 
-  const handleBackToList = () => {
+  const handleBackFromWizard = () => {
+    if (viewMode === 'edit' && detailsFlowId) {
+      setViewMode('detail')
+      return
+    }
     resetToBackupList()
   }
 
@@ -171,6 +184,22 @@ const BackupFlowPage = () => {
     setDestinationSearch('')
   }
 
+  const handleWizardSaved = async (result) => {
+    const nextFlowId = result?.flowId || result?.flow?.id
+
+    if (result?.runAfterSave && nextFlowId) {
+      setDetailsFlowId(nextFlowId)
+      setDetailsFlowRecord(result?.flow || null)
+      setDetailsActiveTab('overview')
+      setViewMode('detail')
+      await backupFlows.fetchFlowDetails(nextFlowId)
+      return
+    }
+
+    await backupFlows.fetchFlows()
+    resetToBackupList()
+  }
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <AppLayout>
@@ -183,7 +212,10 @@ const BackupFlowPage = () => {
             onCreateDraft={handleCreateDraft}
             onOpenDetails={handleOpenDetails}
             onPublish={(record) => backupFlows.publishFlow(record)}
-            onEdit={(record) => { wizard.loadFlowForEdit(record.id); setViewMode('edit') }}
+            onEdit={async (record) => {
+              const loaded = await wizard.loadFlowForEdit(record.id)
+              if (loaded) setViewMode('edit')
+            }}
             onRun={(record) => backupFlows.runFlow(record)}
             onStop={(record) => backupFlows.stopFlow(record)}
             onDelete={(record) => backupFlows.deleteFlow(record)}
@@ -205,7 +237,13 @@ const BackupFlowPage = () => {
           onDelete={handleDeleteFromDetail}
         />
       ) : (
-        <FlowWizard wizard={wizard} viewMode={viewMode} onBack={handleBackToList} />
+        <FlowWizard
+          wizard={wizard}
+          viewMode={viewMode}
+          onBack={handleBackFromWizard}
+          onSaved={handleWizardSaved}
+          backLabel={viewMode === 'edit' && detailsFlowId ? 'Back to details' : 'Back to list'}
+        />
       )}
 
       {/* ── App Selection Modal ── */}
@@ -270,6 +308,7 @@ const BackupFlowPage = () => {
             ))}
         </div>
       </Modal>
+
     </AppLayout>
   )
 }
