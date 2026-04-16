@@ -33,6 +33,8 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.connectors.apps.request.common import RequestCredentials, RequestManagementClient, normalize_request_domain
+
 from packages.database.src.models import BackupFlow, BackupFlowRun
 from packages.database.src.session import async_session
 
@@ -108,13 +110,6 @@ def count_table_fields(form: Any) -> int:
 
 def strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "").strip()
-
-
-def get_api_base(domain: str) -> str:
-    """Build Base API base URL from domain string."""
-    if domain.startswith("http"):
-        return domain.rstrip("/") + "/extapi/v1"
-    return f"https://{domain}/extapi/v1"
 
 
 def build_excel_bytes(df: pd.DataFrame) -> bytes:
@@ -367,108 +362,6 @@ async def gdrive_upload_bytes(
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Base Request API calls
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def fetch_groups(access_token: str, domain: str) -> List[Dict]:
-    """Fetch all groups (paginated, stop when page returns < 20 items)."""
-    api = get_api_base(domain)
-    groups: List[Dict] = []
-    page = 1
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        while True:
-            resp = await client.post(
-                f"{api}/group/list",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={"access_token_v2": access_token, "page": str(page)},
-            )
-            resp.raise_for_status()
-            page_groups = resp.json().get("groups", [])
-            groups.extend(page_groups)
-            if len(page_groups) < 20:
-                break
-            page += 1
-    return groups
-
-
-async def fetch_requests_for_group(
-    access_token: str, domain: str, group_id: str
-) -> List[Dict]:
-    """Fetch all requests for a group (paginated, limit=10, stop when < 10)."""
-    api = get_api_base(domain)
-    all_requests: List[Dict] = []
-    page = 0
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        while True:
-            resp = await client.post(
-                f"{api}/request/list",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={
-                    "access_token_v2": access_token,
-                    "group": group_id,
-                    "page": str(page),
-                    "limit": "10",
-                },
-            )
-            resp.raise_for_status()
-            page_reqs = resp.json().get("requests", [])
-            if not page_reqs:
-                break
-            all_requests.extend(page_reqs)
-            if len(page_reqs) < 10:
-                break
-            page += 1
-    return all_requests
-
-
-async def fetch_posts(access_token: str, domain: str, request_id: str) -> List[Dict]:
-    """Fetch all posts for a request (paginated by last_id, stop when < 10)."""
-    api = get_api_base(domain)
-    all_posts: List[Dict] = []
-    last_id = ""
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        while True:
-            resp = await client.post(
-                f"{api}/request/post/load",
-                headers={"Content-Type": "application/x-www-form-urlencoded"},
-                data={
-                    "access_token_v2": access_token,
-                    "id": request_id,
-                    "last_id": last_id,
-                },
-            )
-            if resp.status_code != 200:
-                break
-            posts = resp.json().get("posts", [])
-            if not posts:
-                break
-            all_posts.extend(posts)
-            if len(posts) < 10:
-                break
-            last_id = posts[-1].get("id", "")
-    return all_posts
-
-
-async def fetch_comments(access_token: str, domain: str, hid: str) -> List[Dict]:
-    """Fetch all comments for a post hid."""
-    api = get_api_base(domain)
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{api}/request/comment/load",
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
-            data={
-                "access_token_v2": access_token,
-                "hid": hid,
-                "method": "prev",
-                "position": "0",
-            },
-        )
-        if resp.status_code == 200:
-            return resp.json().get("comments", [])
-    return []
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # Form table decoding (mirrors request.py logic)
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -625,16 +518,94 @@ def build_request_row(req: dict) -> dict:
     }
 
 
+def _normalize_excel_cell_value(value: Any) -> Any:
+    if value is None:
+        return ""
+    if isinstance(value, (dict, list, tuple, set)):
+        return json.dumps(value, ensure_ascii=False, default=str)
+    return value
+
+
+def _normalize_excel_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        str(key): _normalize_excel_cell_value(value)
+        for key, value in row.items()
+    }
+
+
+def _extract_request_custom_rows(form: Any) -> List[Dict[str, Any]]:
+    if not isinstance(form, list):
+        return []
+
+    custom: Dict[str, Any] = {}
+    for item in form:
+        if not isinstance(item, dict):
+            continue
+        item_type = str(item.get("type") or "")
+        if item_type in ["input-table", "select-master", "filebox"]:
+            continue
+        field_name = str(item.get("name") or item.get("label") or "").strip()
+        if not field_name:
+            continue
+        custom[field_name] = _normalize_excel_cell_value(item.get("value"))
+
+    return [custom] if custom else []
+
+
+def _build_request_detail_payload(
+    request_summary: Dict[str, Any],
+    detail_payload: Dict[str, Any] | None,
+    custom_payload: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    merged_request = dict(request_summary)
+
+    for payload in (detail_payload or {}, custom_payload or {}):
+        request_object = payload.get("request")
+        if isinstance(request_object, dict):
+            merged_request.update(request_object)
+
+    export_payload: Dict[str, Any] = {"request": merged_request}
+
+    for key in ("group", "files", "approver_followings", "extra_approvers", "esign_requests"):
+        value = (detail_payload or {}).get(key)
+        if value not in (None, "", [], {}):
+            export_payload[key] = value
+            if key in {"files", "approver_followings", "extra_approvers", "esign_requests"}:
+                merged_request[key] = value
+
+    for key in ("group", "custom_table", "esign_requests"):
+        value = (custom_payload or {}).get(key)
+        if value not in (None, "", [], {}):
+            export_payload[key] = value
+
+    return export_payload
+
+
+async def _upload_excel_rows(
+    gdrive_token: GoogleDriveTokenSource,
+    parent_id: str,
+    filename: str,
+    rows: List[Dict[str, Any]],
+) -> None:
+    dataframe = pd.DataFrame(rows)
+    await gdrive_upload_bytes(
+        gdrive_token,
+        filename,
+        build_excel_bytes(dataframe),
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        parent_id,
+    )
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Single request processor
 # ─────────────────────────────────────────────────────────────────────────────
 
 async def process_single_request(
     req: dict,
+    request_client: RequestManagementClient,
     gdrive_token: GoogleDriveTokenSource,
     group_folder_id: str,
-    access_token: str,
-    domain: str,
     log_lines: List[str],
 ) -> dict:
     """
@@ -651,8 +622,40 @@ async def process_single_request(
     # 1. Create request sub-folder
     req_folder_id = await gdrive_create_folder(gdrive_token, folder_name, group_folder_id)
 
+    detail_payload: Dict[str, Any] = {}
+    custom_payload: Dict[str, Any] = {}
+    try:
+        detail_payload = await request_client.get_request(req_id)
+    except Exception as e:
+        log_lines.append(f"      ✗ request detail: {e}")
+    try:
+        custom_payload = await request_client.get_request_with_custom_table(req_id)
+    except Exception as e:
+        log_lines.append(f"      ✗ request custom.table: {e}")
+
+    export_payload = _build_request_detail_payload(req, detail_payload, custom_payload)
+    merged_request = dict(export_payload.get("request") or req)
+
+    try:
+        await _upload_excel_rows(
+            gdrive_token,
+            req_folder_id,
+            "Thông tin request.xlsx",
+            [_normalize_excel_row(merged_request)],
+        )
+        await gdrive_upload_bytes(
+            gdrive_token,
+            "request.json",
+            json.dumps(export_payload, ensure_ascii=False, indent=2, default=str).encode("utf-8"),
+            "application/json",
+            req_folder_id,
+        )
+        log_lines.append("      ✓ request info/json")
+    except Exception as e:
+        log_lines.append(f"      ✗ request info/json: {e}")
+
     # 2. Download file attachments → "Tệp đính kèm" sub-folder
-    files = req.get("files") or []
+    files = merged_request.get("files") or []
     if files:
         att_folder_id = await gdrive_create_folder(
             gdrive_token, "Tệp đính kèm", req_folder_id
@@ -684,7 +687,7 @@ async def process_single_request(
                     log_lines.append(f"      ✗ attachment {filename}: {e}")
 
     # 3. Process form table items (input-table / select-master) → .xlsx per table
-    form = req.get("form") or []
+    form = merged_request.get("form") or []
     table_items = [
         x
         for x in form
@@ -707,57 +710,44 @@ async def process_single_request(
                 log_lines.append(f"      ✗ table {fname}: {e}")
 
     # 4. Process other custom fields → "Thông tin trường tùy chỉnh.xlsx"
-    other_items = [
-        x
-        for x in form
-        if isinstance(x, dict) and x.get("type") not in ["input-table", "select-master"]
-    ]
-    if other_items:
-        custom = {
-            x.get("name", ""): x.get("value", "")
-            for x in other_items
-            if x.get("name")
-        }
-        if custom:
-            try:
-                df = pd.DataFrame([custom])
-                await gdrive_upload_bytes(
-                    gdrive_token,
-                    "Thông tin trường tùy chỉnh.xlsx",
-                    build_excel_bytes(df),
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    req_folder_id,
-                )
-                log_lines.append(f"      ✓ custom fields excel")
-            except Exception as e:
-                log_lines.append(f"      ✗ custom fields: {e}")
+    custom_rows = _extract_request_custom_rows(form)
+    try:
+        await _upload_excel_rows(
+            gdrive_token,
+            req_folder_id,
+            "Thông tin trường tùy chỉnh.xlsx",
+            custom_rows or [{"Trạng thái": "Không có dữ liệu", "Chi tiết": "Không có custom field thường nào được Request API trả về cho request này."}],
+        )
+        log_lines.append("      ✓ custom fields excel")
+    except Exception as e:
+        log_lines.append(f"      ✗ custom fields: {e}")
 
     # 5. Fetch posts + comments → "post_and_comment.txt"
     try:
-        posts = await fetch_posts(access_token, domain, req_id)
+        posts = await request_client.get_request_posts(req_id)
         txt_lines: List[str] = []
         for post in posts:
             txt_lines.append(format_post_line(post, is_post=True))
             hid = post.get("hid", "")
             if hid:
-                comments = await fetch_comments(access_token, domain, hid)
+                comments = await request_client.get_request_comments(str(hid))
                 for c in comments:
                     txt_lines.append(format_post_line(c, is_post=False))
-        if txt_lines:
-            await gdrive_upload_bytes(
-                gdrive_token,
-                "post_and_comment.txt",
-                "\n".join(txt_lines).encode("utf-8"),
-                "text/plain; charset=UTF-8",
-                req_folder_id,
-            )
-            log_lines.append(
-                f"      ✓ posts+comments ({len(posts)} posts, {len(txt_lines) - len(posts)} comments)"
-            )
+        text_payload = "\n".join(txt_lines) if txt_lines else "Không có post hoặc comment nào được Request API trả về cho request này."
+        await gdrive_upload_bytes(
+            gdrive_token,
+            "post_and_comment.txt",
+            text_payload.encode("utf-8"),
+            "text/plain; charset=UTF-8",
+            req_folder_id,
+        )
+        log_lines.append(
+            f"      ✓ posts+comments ({len(posts)} posts, {max(len(txt_lines) - len(posts), 0)} comments)"
+        )
     except Exception as e:
         log_lines.append(f"      ✗ posts/comments: {e}")
 
-    return build_request_row(req)
+    return build_request_row(merged_request)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -768,10 +758,11 @@ async def process_group(
     group_id: str,
     group_name: str,
     requests_folder_id: str,
+    request_client: RequestManagementClient,
     gdrive_token: GoogleDriveTokenSource,
-    access_token: str,
-    domain: str,
     log_lines: List[str],
+    *,
+    include_request_folders: bool,
 ) -> int:
     """
     Process one group: create GDrive folder, fetch all requests, process each,
@@ -785,28 +776,30 @@ async def process_group(
         gdrive_token, folder_name, requests_folder_id
     )
 
-    reqs = await fetch_requests_for_group(access_token, domain, group_id)
+    reqs = await request_client.get_requests(group_id=group_id)
     log_lines.append(f"    {len(reqs)} requests found")
 
     rows: List[dict] = []
     for req in reqs:
         try:
-            row = await process_single_request(
-                req, gdrive_token, group_folder_id, access_token, domain, log_lines
-            )
+            row = build_request_row(req)
+            if include_request_folders:
+                row = await process_single_request(
+                    req, request_client, gdrive_token, group_folder_id, log_lines
+                )
             rows.append(row)
         except Exception as e:
             log_lines.append(
                 f"    ✗ error on request {req.get('id', '')}: {e}"
             )
 
-    # Upload group Excel (thong_tin_requests.xlsx)
+    # Upload group Excel
     df = pd.DataFrame(rows if rows else [], columns=REQUEST_COLUMNS)
     excel_bytes = build_excel_bytes(df)
     try:
         await gdrive_upload_bytes(
             gdrive_token,
-            "thong_tin_requests.xlsx",
+            "Danh sách request.xlsx",
             excel_bytes,
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             group_folder_id,
@@ -902,8 +895,25 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
 
         from modules.credentials.backend.services.google_auth_service import decrypt_value
         access_token = decrypt_value(enc_token)
-        domain = source.get("domain", "request.base.com.vn")
+        domain = normalize_request_domain(str(source.get("domain") or "request.base.com.vn"))
         log_lines.append(f"[INFO] Domain: {domain}")
+
+        structure = flow.structure or {}
+        selected_objects = {
+            str(item)
+            for item in (structure.get("objects") or [])
+            if str(item).strip()
+        }
+        selected_group_ids = [
+            str(item).strip()
+            for item in (structure.get("group_ids") or [])
+            if str(item).strip()
+        ]
+        selected_group_id_set = set(selected_group_ids)
+        include_group_scope = not selected_objects or bool(selected_objects & {"group", "request"})
+        include_request_folders = not selected_objects or "request" in selected_objects
+        include_direct_group = not selected_group_ids or "0" in selected_group_id_set
+        credentials = RequestCredentials(domain=domain, access_token=access_token)
 
         # ── Get Google Drive access token ───────────────────────────────────
         dest = flow.destination or {}
@@ -950,88 +960,129 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
             structure_path="Requests",
         )
 
-        # ── Fetch all groups ────────────────────────────────────────────────
-        log_lines.append("[INFO] Fetching groups...")
-        groups = await fetch_groups(access_token, domain)
-        total_groups = len(groups)
-        log_lines.append(f"[INFO] {total_groups} group(s) found")
-        await persist_progress(
-            "discovering_groups",
-            f"Discovered {total_groups} request group(s)",
-            25,
-            structure_path="Requests",
-        )
-
-        # ── Process each group ──────────────────────────────────────────────
-        for group in groups:
-            g_id = str(group.get("id", ""))
-            g_name = group.get("name", f"group_{g_id}")
-            current_structure_path = f"Requests / [{g_id}] {g_name}"
-            await persist_progress(
-                "processing_groups",
-                f"Processing group [{g_id}] {g_name}",
-                25 + int((completed_groups / max(total_groups, 1)) * 55),
-                structure_path=current_structure_path,
-                current_group_id=g_id,
-                current_group_name=g_name,
-            )
-            try:
-                count = await process_group(
-                    g_id, g_name, requests_folder_id,
-                    get_gdrive_token, access_token, domain, log_lines,
-                )
-                total_requests += count
-            except Exception as e:
-                log_lines.append(f"  ✗ group [{g_id}] {g_name}: {e}")
-            completed_groups += 1
-
-            await persist_progress(
-                "processing_groups",
-                f"Finished group [{g_id}] {g_name}",
-                25 + int((completed_groups / max(total_groups, 1)) * 55),
-                structure_path=current_structure_path,
-                current_group_id=g_id,
-                current_group_name=g_name,
-            )
-
-        # ── Process [direct] Đề xuất trực tiếp (group_id = "0") ────────────
-        log_lines.append("\n[INFO] Processing direct requests (group 0)...")
-        await persist_progress(
-            "processing_direct_requests",
-            "Processing direct requests folder",
-            88,
-            structure_path="Requests / [direct] Đề xuất trực tiếp",
-        )
-        direct_folder_id = await gdrive_create_folder(
-            get_gdrive_token, "[direct] Đề xuất trực tiếp", requests_folder_id
-        )
-        try:
-            direct_reqs = await fetch_requests_for_group(access_token, domain, "0")
-            log_lines.append(f"  {len(direct_reqs)} direct request(s) found")
-            direct_rows: List[dict] = []
-            for req in direct_reqs:
-                try:
-                    row = await process_single_request(
-                        req, gdrive_token, direct_folder_id, access_token, domain, log_lines
+        async with RequestManagementClient(credentials) as request_client:
+            # ── Fetch all groups ────────────────────────────────────────────
+            log_lines.append("[INFO] Fetching groups...")
+            groups = await request_client.get_all_groups() if include_group_scope else []
+            if selected_group_ids:
+                group_lookup = {
+                    str(group.get("id", "")).strip(): group
+                    for group in groups
+                    if str(group.get("id", "")).strip()
+                }
+                missing_group_ids = [
+                    group_id
+                    for group_id in selected_group_ids
+                    if group_id != "0" and group_id not in group_lookup
+                ]
+                if missing_group_ids:
+                    log_lines.append(
+                        f"[WARN] Some selected Request groups were not found: {', '.join(missing_group_ids)}"
                     )
-                    direct_rows.append(row)
-                    total_requests += 1
-                except Exception as e:
-                    log_lines.append(f"  ✗ direct request {req.get('id', '')}: {e}")
+                groups = [
+                    group_lookup[group_id]
+                    for group_id in selected_group_ids
+                    if group_id != "0" and group_id in group_lookup
+                ]
+            direct_group_count = 1 if include_group_scope and include_direct_group else 0
+            total_groups = len(groups)
+            total_groups += direct_group_count
+            log_lines.append(f"[INFO] {total_groups} selected request group source(s) found")
+            await persist_progress(
+                "discovering_groups",
+                f"Discovered {total_groups} request group(s)",
+                25,
+                structure_path="Requests",
+            )
 
-            df = pd.DataFrame(direct_rows if direct_rows else [], columns=REQUEST_COLUMNS)
-            await gdrive_upload_bytes(
-                get_gdrive_token,
-                "thong_tin_requests.xlsx",
-                build_excel_bytes(df),
-                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                direct_folder_id,
-            )
-            log_lines.append(
-                f"  ✓ direct Excel uploaded ({len(direct_rows)} rows)"
-            )
-        except Exception as e:
-            log_lines.append(f"  ✗ direct requests error: {e}")
+            # ── Process each group ──────────────────────────────────────────
+            for group in groups:
+                g_id = str(group.get("id", ""))
+                g_name = group.get("name", f"group_{g_id}")
+                current_structure_path = f"Requests / [{g_id}] {g_name}"
+                await persist_progress(
+                    "processing_groups",
+                    f"Processing group [{g_id}] {g_name}",
+                    25 + int((completed_groups / max(total_groups, 1)) * 55),
+                    structure_path=current_structure_path,
+                    current_group_id=g_id,
+                    current_group_name=g_name,
+                )
+                try:
+                    count = await process_group(
+                        g_id,
+                        g_name,
+                        requests_folder_id,
+                        request_client,
+                        get_gdrive_token,
+                        log_lines,
+                        include_request_folders=include_request_folders,
+                    )
+                    total_requests += count
+                except Exception as e:
+                    log_lines.append(f"  ✗ group [{g_id}] {g_name}: {e}")
+                completed_groups += 1
+
+                await persist_progress(
+                    "processing_groups",
+                    f"Finished group [{g_id}] {g_name}",
+                    25 + int((completed_groups / max(total_groups, 1)) * 55),
+                    structure_path=current_structure_path,
+                    current_group_id=g_id,
+                    current_group_name=g_name,
+                )
+
+            # ── Process [direct] Đề xuất trực tiếp (group_id = "0") ────────
+            if include_group_scope and include_direct_group:
+                log_lines.append("\n[INFO] Processing direct requests (group 0)...")
+                await persist_progress(
+                    "processing_direct_requests",
+                    "Processing direct requests folder",
+                    25 + int((completed_groups / max(total_groups, 1)) * 55),
+                    structure_path="Requests / [direct] Đề xuất trực tiếp",
+                )
+                direct_folder_id = await gdrive_create_folder(
+                    get_gdrive_token, "[direct] Đề xuất trực tiếp", requests_folder_id
+                )
+                try:
+                    direct_reqs = await request_client.get_requests(group_id="0")
+                    log_lines.append(f"  {len(direct_reqs)} direct request(s) found")
+                    direct_rows: List[dict] = []
+                    for req in direct_reqs:
+                        try:
+                            row = build_request_row(req)
+                            if include_request_folders:
+                                row = await process_single_request(
+                                    req, request_client, get_gdrive_token, direct_folder_id, log_lines
+                                )
+                            direct_rows.append(row)
+                            total_requests += 1
+                        except Exception as e:
+                            log_lines.append(f"  ✗ direct request {req.get('id', '')}: {e}")
+
+                    df = pd.DataFrame(direct_rows if direct_rows else [], columns=REQUEST_COLUMNS)
+                    await gdrive_upload_bytes(
+                        get_gdrive_token,
+                        "Danh sách request.xlsx",
+                        build_excel_bytes(df),
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        direct_folder_id,
+                    )
+                    log_lines.append(
+                        f"  ✓ direct Excel uploaded ({len(direct_rows)} rows)"
+                    )
+                except Exception as e:
+                    log_lines.append(f"  ✗ direct requests error: {e}")
+
+                completed_groups += 1
+                await persist_progress(
+                    "processing_direct_requests",
+                    "Finished direct requests folder",
+                    25 + int((completed_groups / max(total_groups, 1)) * 55),
+                    structure_path="Requests / [direct] Đề xuất trực tiếp",
+                    current_group_id="0",
+                    current_group_name="Đề xuất trực tiếp",
+                )
 
         # ── Finalise ────────────────────────────────────────────────────────
         await persist_progress(

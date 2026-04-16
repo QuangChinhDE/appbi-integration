@@ -8,6 +8,7 @@ import { message } from '@packages/ui/src/components/common/ui'
 export default function useBackupFlows() {
   const [flows, setFlows] = useState([])
   const [loadingFlows, setLoadingFlows] = useState(false)
+  const [stoppingFlowId, setStoppingFlowId] = useState(null)
 
   // Detail state
   const [detailsFlow, setDetailsFlow] = useState(null)
@@ -102,8 +103,8 @@ export default function useBackupFlows() {
 
   // ── Run ───────────────────────────────────────────────────────────────────
   const runFlow = useCallback(async (record, options = {}) => {
-    if (!['request', 'service'].includes(record.app)) {
-      message.warning('Run is currently supported only for Request and Service flows')
+    if (!['request', 'service', 'workflow', 'wework'].includes(record.app)) {
+      message.warning('Run is currently supported only for Request, Service, Workflow, and WeWork flows')
       return false
     }
     if (record.run_blocked_reason) {
@@ -122,13 +123,40 @@ export default function useBackupFlows() {
     }
   }, [fetchFlows])
 
+  const stopFlow = useCallback(async (record, options = {}) => {
+    if (!record?.id) return false
+    if (!window.confirm(`Stop the running backup for "${record.name || 'this flow'}"?`)) return false
+
+    setStoppingFlowId(record.id)
+    try {
+      const res = await api.post(`/api/backup-flows/${record.id}/stop`)
+      const cancelledCount = Number(res.data?.cancelled_task_count || 0)
+      const interruptedCount = Number(res.data?.interrupted_run_count || 0)
+
+      if (cancelledCount > 0 || interruptedCount > 0) {
+        message.success('Backup flow stopped')
+      } else {
+        message.info('No running backup found for this flow')
+      }
+
+      await fetchFlows()
+      if (typeof options.onStopped === 'function') await options.onStopped()
+      return true
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to stop flow')
+      return false
+    } finally {
+      setStoppingFlowId(null)
+    }
+  }, [fetchFlows])
+
   return {
     // List
-    flows, loadingFlows, fetchFlows,
+    flows, loadingFlows, fetchFlows, stoppingFlowId,
     // Detail
     detailsFlow, setDetailsFlow, detailsRuns, setDetailsRuns, loadingFlowDetails,
     fetchFlowDetails,
     // Actions
-    createDraft, deleteFlow, publishFlow, runFlow,
+    createDraft, deleteFlow, publishFlow, runFlow, stopFlow,
   }
 }

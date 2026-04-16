@@ -224,6 +224,21 @@ async def interrupt_all_backup_flow_runs(db: AsyncSession = Depends(get_db)):
     }
 
 
+@router.post("/api/backup-flows/{flow_id}/stop", status_code=200)
+async def stop_backup_flow_run(
+    flow_id: str,
+    db: AsyncSession = Depends(get_db),
+):
+    """Stop the active backup run(s) for a single flow."""
+    service = BackupFlowService(db)
+    result = await service.interrupt_flow_running_tasks(flow_id)
+    return {
+        "flow_id": flow_id,
+        "message": "Interrupt request sent to the running backup flow",
+        **result,
+    }
+
+
 @router.get("/api/backup-flows/{flow_id}/runs")
 async def get_flow_runs(
     flow_id: str,

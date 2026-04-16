@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   CheckCircle, Info, Cloud, Globe,
-  Headphones, Inbox, FolderKanban, Check, Folder,
+  Headphones, Inbox, FolderKanban, Building2, Check, Folder,
 } from 'lucide-react'
 import { Alert, Spinner, Tag } from '@packages/ui/src/components/common/ui'
 import { SummaryCard, SummaryField } from '../shared/SummaryCard'
@@ -19,67 +19,94 @@ const reviewSummaryColumnClass = 'min-w-0 space-y-4 overflow-y-auto'
 
 function buildServiceTreeLines(googleAuth, backupType) {
   const root = googleAuth?.folder_name || 'My Drive'
-  const hasTickets = backupType === 'unstructured' || backupType === 'all'
-  const hasStructured = backupType === 'structured' || backupType === 'all'
+  const hasTicketFolders = backupType === 'unstructured' || backupType === 'all'
 
   const lines = [
     { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
     { indent: 1, icon: '📁', text: 'Base Service', color: '#10b981' },
-    { indent: 2, icon: '📁', text: '01. Categories', color: '#60a5fa' },
+    { indent: 2, icon: '📁', text: '01. Danh mục', color: '#60a5fa' },
+    { indent: 3, icon: '📊', text: 'Danh sách service.xlsx', color: '#4ade80' },
+    { indent: 3, icon: '📊', text: 'Danh sách compound.xlsx', color: '#4ade80' },
+    { indent: 3, icon: '📊', text: 'Danh sách group.xlsx', color: '#4ade80' },
+    { indent: 2, icon: '📁', text: '[1001] Example Service', color: '#60a5fa' },
+    { indent: 3, icon: '📊', text: 'Thông tin service.xlsx', color: '#4ade80' },
+    { indent: 3, icon: '📊', text: 'Danh sách ticket.xlsx', color: '#4ade80' },
+    { indent: 3, icon: '📊', text: 'Danh sách stage.xlsx', color: '#4ade80' },
   ]
 
-  if (hasStructured) {
-    lines.push({ indent: 3, icon: '📊', text: 'ticket_types.xlsx', color: '#4ade80' })
-    lines.push({ indent: 3, icon: '📊', text: 'ticket_sources.xlsx', color: '#4ade80' })
-    lines.push({ indent: 3, icon: '📊', text: 'statuses.xlsx', color: '#4ade80' })
-  }
-
-  lines.push({ indent: 2, icon: '📁', text: 'Service A', color: '#60a5fa' })
-
-  if (hasStructured) {
-    lines.push({ indent: 3, icon: '📊', text: 'Ticket list.xlsx', color: '#4ade80' })
-    lines.push({ indent: 3, icon: '📊', text: 'Stage list.xlsx', color: '#4ade80' })
-  }
-
-  if (hasTickets) {
+  if (hasTicketFolders) {
     lines.push({ indent: 3, icon: '📁', text: 'Tickets', color: '#a78bfa' })
-    lines.push({ indent: 4, icon: '📁', text: '[TICKET-001] Ticket name 1', color: '#93c5fd' })
+    lines.push({ indent: 4, icon: '📁', text: '[INC-001] Example Ticket', color: '#93c5fd' })
+    lines.push({ indent: 5, icon: '📊', text: 'Thông tin ticket.xlsx', color: '#4ade80' })
     lines.push({ indent: 5, icon: '📋', text: 'ticket.json', color: '#94a3b8' })
-    lines.push({ indent: 5, icon: '📊', text: 'Ticket info.xlsx', color: '#94a3b8' })
-    lines.push({ indent: 5, icon: '📁', text: 'Attachments/', color: '#94a3b8' })
+    lines.push({ indent: 5, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
+    lines.push({ indent: 5, icon: '📊', text: '[resolution steps].xlsx', color: '#4ade80' })
+    lines.push({ indent: 5, icon: '📁', text: 'Tệp đính kèm', color: '#94a3b8' })
     lines.push({ indent: 6, icon: '📄', text: 'file.pdf', color: '#64748b' })
     lines.push({ indent: 6, icon: '🖼️', text: 'image.png', color: '#64748b' })
-    lines.push({ indent: 4, icon: '📁', text: '[TICKET-002] Ticket name 2', color: '#93c5fd' })
-    lines.push({ indent: 5, icon: '…', text: '(similar)', color: '#64748b' })
+    lines.push({ indent: 4, icon: '…', text: '(one folder per ticket)', color: '#64748b' })
   }
 
-  lines.push({ indent: 2, icon: '📁', text: 'Service B', color: '#60a5fa' })
-  lines.push({ indent: 3, icon: '…', text: '(similar)', color: '#64748b' })
+  lines.push({ indent: 2, icon: '…', text: '(one folder per selected service)', color: '#64748b' })
 
   return lines
 }
 
-function buildRequestTreeLines(googleAuth) {
+function buildRequestTreeLines(googleAuth, selectedObjects, selectedGroupIds) {
   const root = googleAuth?.folder_name || 'My Drive'
-  return [
+  const hasGroupScope = !selectedObjects.length || selectedObjects.includes('group') || selectedObjects.includes('request')
+  const hasRequestScope = !selectedObjects.length || selectedObjects.includes('request')
+  const hasExplicitGroupSelection = selectedGroupIds.length > 0
+  const hasNamedGroupSelection = !hasExplicitGroupSelection || selectedGroupIds.some(groupId => groupId !== '0')
+  const hasDirectSelection = !hasExplicitGroupSelection || selectedGroupIds.includes('0')
+
+  const lines = [
     { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
     { indent: 1, icon: '📁', text: 'Requests', color: '#10b981' },
-    { indent: 2, icon: '📁', text: '[001] Request Group A', color: '#60a5fa' },
-    { indent: 3, icon: '📊', text: 'request_info.xlsx', color: '#4ade80' },
-    { indent: 3, icon: '📁', text: '[1234] Request name 1', color: '#60a5fa' },
-    { indent: 4, icon: '📊', text: 'Custom fields.xlsx', color: '#94a3b8' },
-    { indent: 4, icon: '📝', text: 'post_and_comment.txt', color: '#94a3b8' },
-    { indent: 4, icon: '📊', text: '[table name].xlsx', color: '#94a3b8' },
-    { indent: 4, icon: '📁', text: 'Attachments/', color: '#94a3b8' },
-    { indent: 5, icon: '📄', text: 'file1.pdf', color: '#64748b' },
-    { indent: 5, icon: '🖼️', text: 'image.png', color: '#64748b' },
-    { indent: 3, icon: '📁', text: '[1235] Request name 2', color: '#60a5fa' },
-    { indent: 4, icon: '…', text: '(similar)', color: '#64748b' },
-    { indent: 2, icon: '📁', text: '[002] Request Group B', color: '#60a5fa' },
-    { indent: 3, icon: '…', text: '(similar)', color: '#64748b' },
-    { indent: 2, icon: '📁', text: '[direct] Direct requests', color: '#60a5fa' },
-    { indent: 3, icon: '…', text: '(requests not in any group)', color: '#64748b' },
   ]
+
+  if (!hasGroupScope) {
+    lines.push({ indent: 2, icon: '…', text: '(select at least one Request data type)', color: '#64748b' })
+    return lines
+  }
+
+  if (hasNamedGroupSelection) {
+    lines.push({ indent: 2, icon: '📁', text: '[001] Request Group A', color: '#60a5fa' })
+    lines.push({ indent: 3, icon: '📊', text: 'Danh sách request.xlsx', color: '#4ade80' })
+
+    if (hasRequestScope) {
+      lines.push({ indent: 3, icon: '📁', text: '[1234] Request name 1', color: '#60a5fa' })
+      lines.push({ indent: 4, icon: '📊', text: 'Thông tin request.xlsx', color: '#4ade80' })
+      lines.push({ indent: 4, icon: '📋', text: 'request.json', color: '#94a3b8' })
+      lines.push({ indent: 4, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
+      lines.push({ indent: 4, icon: '📊', text: '[table name].xlsx', color: '#4ade80' })
+      lines.push({ indent: 4, icon: '📝', text: 'post_and_comment.txt', color: '#94a3b8' })
+      lines.push({ indent: 4, icon: '📁', text: 'Tệp đính kèm', color: '#94a3b8' })
+      lines.push({ indent: 5, icon: '📄', text: 'file1.pdf', color: '#64748b' })
+      lines.push({ indent: 5, icon: '🖼️', text: 'image.png', color: '#64748b' })
+      lines.push({ indent: 3, icon: '📁', text: '[1235] Request name 2', color: '#60a5fa' })
+      lines.push({ indent: 4, icon: '…', text: '(similar)', color: '#64748b' })
+    } else {
+      lines.push({ indent: 3, icon: '…', text: '(request folders are skipped when Request is not selected)', color: '#64748b' })
+    }
+
+    lines.push({ indent: 2, icon: '📁', text: '[002] Request Group B', color: '#60a5fa' })
+    lines.push({ indent: 3, icon: '…', text: '(similar)', color: '#64748b' })
+  } else {
+    lines.push({ indent: 2, icon: '…', text: '(named group folders are skipped when only direct requests are selected)', color: '#64748b' })
+  }
+
+  if (hasDirectSelection) {
+    lines.push({ indent: 2, icon: '📁', text: '[direct] Đề xuất trực tiếp', color: '#60a5fa' })
+    lines.push({ indent: 3, icon: '📊', text: 'Danh sách request.xlsx', color: '#4ade80' })
+    if (hasRequestScope) {
+      lines.push({ indent: 3, icon: '…', text: '(requests not in any group)', color: '#64748b' })
+    }
+  } else {
+    lines.push({ indent: 2, icon: '…', text: '(direct requests are excluded by the current group selection)', color: '#64748b' })
+  }
+
+  return lines
 }
 
 function buildGenericTreeLines(googleAuth, currentApp) {
@@ -91,6 +118,140 @@ function buildGenericTreeLines(googleAuth, currentApp) {
     { indent: 3, icon: '📄', text: 'file.pdf', color: '#64748b' },
     { indent: 2, icon: '…', text: '(structure depends on actual data)', color: '#64748b' },
   ]
+}
+
+function buildWorkflowTreeLines(googleAuth, backupType, selectedObjects) {
+  const root = googleAuth?.folder_name || 'My Drive'
+  const hasWorkflowScope = selectedObjects.some(objectId => ['workflow', 'job'].includes(objectId))
+  const hasJobScope = selectedObjects.includes('job')
+
+  const lines = [
+    { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
+    { indent: 1, icon: '📁', text: 'Base Workflow', color: '#10b981' },
+  ]
+
+  if (!selectedObjects.length) {
+    lines.push({ indent: 2, icon: '…', text: '(select at least one Workflow data type)', color: '#64748b' })
+    return lines
+  }
+
+  lines.push({ indent: 2, icon: '📁', text: 'Workflows', color: '#60a5fa' })
+
+  if (!hasWorkflowScope) {
+    lines.push({ indent: 3, icon: '…', text: '(workflow folders are created when Workflow or Job is selected)', color: '#64748b' })
+    lines.push({ indent: 2, icon: '📁', text: '0. Danh mục chung', color: '#60a5fa' })
+    lines.push({ indent: 3, icon: '📊', text: 'Danh sách workflow.xlsx', color: '#4ade80' })
+    lines.push({ indent: 3, icon: '📋', text: 'backup_manifest.json', color: '#94a3b8' })
+    return lines
+  }
+
+  lines.push({ indent: 3, icon: '📁', text: '[8899] Example Workflow', color: '#60a5fa' })
+  lines.push({ indent: 4, icon: '📁', text: '0. Hướng dẫn', color: '#93c5fd' })
+  lines.push({ indent: 5, icon: '📝', text: 'README.txt', color: '#94a3b8' })
+  lines.push({ indent: 4, icon: '📁', text: '1. Cấu hình workflow', color: '#93c5fd' })
+  lines.push({ indent: 5, icon: '📊', text: 'Thông tin workflow.xlsx', color: '#4ade80' })
+  lines.push({ indent: 5, icon: '📊', text: 'Danh sách stage.xlsx', color: '#4ade80' })
+
+  if (hasJobScope) {
+    lines.push({ indent: 4, icon: '📁', text: '2. Danh sách công việc', color: '#93c5fd' })
+    lines.push({ indent: 5, icon: '📊', text: 'Danh sách job.xlsx', color: '#4ade80' })
+    lines.push({ indent: 4, icon: '📁', text: '3. Jobs', color: '#a78bfa' })
+    lines.push({ indent: 5, icon: '📁', text: '[73301] Example Job', color: '#93c5fd' })
+    lines.push({ indent: 6, icon: '📁', text: '1. Thông tin', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📊', text: 'Thông tin job.xlsx', color: '#4ade80' })
+    lines.push({ indent: 7, icon: '📊', text: 'Thông tin job log.xlsx', color: '#4ade80' })
+    lines.push({ indent: 7, icon: '📊', text: 'Thông tin job moves.xlsx', color: '#4ade80' })
+    lines.push({ indent: 6, icon: '📁', text: '2. Dữ liệu nhập', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📊', text: 'custom_fields.xlsx', color: '#4ade80' })
+    lines.push({ indent: 7, icon: '📊', text: 'input table.xlsx', color: '#4ade80' })
+    lines.push({ indent: 7, icon: '📊', text: 'input table kèm base table.xlsx', color: '#4ade80' })
+    lines.push({ indent: 7, icon: '📊', text: 'select master.xlsx', color: '#4ade80' })
+    lines.push({ indent: 6, icon: '📁', text: '3. Nội dung', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📝', text: 'post_and_comment.txt', color: '#94a3b8' })
+    lines.push({ indent: 6, icon: '📁', text: '4. Tệp đính kèm', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📝', text: 'Thông tin files', color: '#94a3b8' })
+    lines.push({ indent: 5, icon: '…', text: '(one folder per job)', color: '#64748b' })
+  } else {
+    lines.push({ indent: 4, icon: '…', text: '(job list and job folders are skipped when Job is not selected)', color: '#64748b' })
+  }
+
+  lines.push({ indent: 3, icon: '…', text: '(one folder per selected workflow)', color: '#64748b' })
+  lines.push({ indent: 2, icon: '📁', text: '0. Danh mục chung', color: '#60a5fa' })
+  lines.push({ indent: 3, icon: '📊', text: 'Danh sách workflow.xlsx', color: '#4ade80' })
+  lines.push({ indent: 3, icon: '📋', text: 'backup_manifest.json', color: '#94a3b8' })
+
+  return lines
+}
+
+function buildWeworkTreeLines(googleAuth, selectedObjects, selectedProjectIds) {
+  const root = googleAuth?.folder_name || 'My Drive'
+  const hasDepartmentScope = selectedObjects.includes('department')
+  const hasProjectScope = selectedObjects.includes('project')
+  const hasTaskScope = selectedObjects.includes('task')
+  const hasProjectContainers = hasProjectScope || hasTaskScope
+
+  const lines = [
+    { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
+    { indent: 1, icon: '📁', text: 'Base WeWork', color: '#10b981' },
+    { indent: 2, icon: '📁', text: '0. Danh mục chung', color: '#60a5fa' },
+    { indent: 3, icon: '📊', text: 'Danh sách phòng ban.xlsx', color: '#4ade80' },
+    { indent: 3, icon: '📊', text: 'Danh sách project.xlsx', color: '#4ade80' },
+    { indent: 3, icon: '📋', text: 'backup_manifest.json', color: '#94a3b8' },
+    { indent: 2, icon: '📁', text: '1. Departments', color: '#60a5fa' },
+  ]
+
+  if (!selectedObjects.length) {
+    lines.push({ indent: 3, icon: '…', text: '(select at least one WeWork data type)', color: '#64748b' })
+    return lines
+  }
+
+  lines.push({ indent: 3, icon: '📁', text: '[301] Product Department', color: '#93c5fd' })
+  if (hasDepartmentScope) {
+    lines.push({ indent: 4, icon: '📊', text: 'Thông tin phòng ban.xlsx', color: '#4ade80' })
+  } else {
+    lines.push({ indent: 4, icon: '…', text: '(department info is skipped when Department is not selected)', color: '#64748b' })
+  }
+
+  if (hasProjectContainers) {
+    lines.push({ indent: 4, icon: '📁', text: '[771] Project Apollo', color: '#60a5fa' })
+    if (hasProjectScope) {
+      lines.push({ indent: 5, icon: '📁', text: '1. Thông tin', color: '#bfdbfe' })
+      lines.push({ indent: 6, icon: '📊', text: 'Thông tin project.xlsx', color: '#4ade80' })
+      lines.push({ indent: 6, icon: '📊', text: 'Danh sách tasklist.xlsx', color: '#4ade80' })
+      lines.push({ indent: 6, icon: '📊', text: 'Danh sách milestone.xlsx', color: '#4ade80' })
+      lines.push({ indent: 5, icon: '📁', text: '2. Tùy chỉnh', color: '#bfdbfe' })
+      lines.push({ indent: 6, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
+      lines.push({ indent: 6, icon: '📊', text: 'custom_budget.xlsx', color: '#4ade80' })
+    } else {
+      lines.push({ indent: 5, icon: '…', text: '(project info and custom exports are skipped when Project is not selected)', color: '#64748b' })
+    }
+
+    if (hasTaskScope) {
+      lines.push({ indent: 5, icon: '📁', text: '3. Tasks', color: '#a78bfa' })
+      lines.push({ indent: 6, icon: '📊', text: 'Danh sách task.xlsx', color: '#4ade80' })
+      lines.push({ indent: 6, icon: '📁', text: '[5001] Root Task', color: '#93c5fd' })
+      lines.push({ indent: 7, icon: '📁', text: '1. Thông tin', color: '#bfdbfe' })
+      lines.push({ indent: 8, icon: '📊', text: 'Thông tin task.xlsx', color: '#4ade80' })
+      lines.push({ indent: 8, icon: '📋', text: 'task.json', color: '#94a3b8' })
+      lines.push({ indent: 7, icon: '📁', text: '2. Tùy chỉnh', color: '#bfdbfe' })
+      lines.push({ indent: 8, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
+      lines.push({ indent: 7, icon: '📁', text: '3. Công việc con', color: '#bfdbfe' })
+      lines.push({ indent: 8, icon: '📁', text: '[5002] Child Task', color: '#93c5fd' })
+      lines.push({ indent: 9, icon: '📁', text: '1. Thông tin', color: '#bfdbfe' })
+      lines.push({ indent: 10, icon: '📊', text: 'Thông tin task.xlsx', color: '#4ade80' })
+      lines.push({ indent: 8, icon: '…', text: '(nested again when a child task becomes a parent)', color: '#64748b' })
+    } else {
+      lines.push({ indent: 5, icon: '…', text: '(task folders are skipped when Task is not selected)', color: '#64748b' })
+    }
+  } else {
+    lines.push({ indent: 4, icon: '…', text: '(project folders are created when Project or Task is selected)', color: '#64748b' })
+  }
+
+  if (selectedProjectIds.length > 1) {
+    lines.push({ indent: 3, icon: '…', text: '(one department/project branch per selected project)', color: '#64748b' })
+  }
+
+  return lines
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
@@ -231,20 +392,25 @@ function ServiceReview({ wizard, isEdit }) {
           <FileTreePreview lines={treeLines} />
           <div className="mt-3 shrink-0">
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              <span className="text-green-500 font-bold">📊 .xlsx</span> — Spreadsheet data &nbsp;·&nbsp;
+              <span className="text-green-500 font-bold">📊 .xlsx</span> — Catalog, service summaries, ticket info, and custom exports &nbsp;·&nbsp;
               {(backupType === 'unstructured' || backupType === 'all') && (
-                <><span className="text-purple-400 font-bold">📁 Tickets/</span> — Ticket folders with files &amp; attachments &nbsp;·&nbsp;</>
+                <><span className="text-purple-400 font-bold">📁 Tickets/</span> — Per-ticket folders with info, custom sheets, and attachments &nbsp;·&nbsp;</>
               )}
-              <span className="text-blue-400 font-bold">📋 ticket.json</span> — Raw ticket data
+              <span className="text-blue-400 font-bold">📋 ticket.json</span> — Raw merged ticket payload
             </p>
             {backupType === 'structured' && (
               <p className="text-[11px] text-amber-600 mt-1.5">
-                With <strong>Structured</strong> backup, only .xlsx files are created — no Tickets folder or attachments.
+                With <strong>Structured</strong> backup, the system creates catalog and service-level spreadsheets only. Per-ticket folders and attachments are skipped.
               </p>
             )}
             {backupType === 'unstructured' && (
               <p className="text-[11px] text-amber-600 mt-1.5">
-                With <strong>Files &amp; Attachments</strong> backup, only Tickets folders with JSON and attachments are created — no summary .xlsx.
+                With <strong>Files &amp; Attachments</strong> backup, service summary spreadsheets are still created, and the backup also adds per-ticket info/custom files plus attachments.
+              </p>
+            )}
+            {backupType === 'all' && (
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                <strong>Complete</strong> backup keeps the service summary spreadsheets and also creates per-ticket folders with info, custom exports, raw JSON, and attachments.
               </p>
             )}
           </div>
@@ -263,10 +429,15 @@ function ServiceReview({ wizard, isEdit }) {
 function RequestReview({ wizard, isEdit }) {
   const {
     currentApp, domain, accessTokenV2, backupType, storageDestination, googleAuth,
+    selectedObjects,
+    requestPreview, loadingRequestPreview, selectedGroupIds,
     selectedApp, getGoogleDriveRunBlockedReason,
   } = wizard
 
-  const treeLines = buildRequestTreeLines(googleAuth)
+  const hasRequestScope = !selectedObjects.length || selectedObjects.includes('request')
+  const hasNamedGroupSelection = selectedGroupIds.length === 0 || selectedGroupIds.some(groupId => groupId !== '0')
+  const includesDirectRequests = selectedGroupIds.length === 0 || selectedGroupIds.includes('0')
+  const treeLines = buildRequestTreeLines(googleAuth, selectedObjects, selectedGroupIds)
   const blocked = getGoogleDriveRunBlockedReason()
   const archiveNotice = renderServiceArchiveNotice(selectedApp, storageDestination)
   const destinationLabel = storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'
@@ -287,6 +458,15 @@ function RequestReview({ wizard, isEdit }) {
                 {accessTokenV2 ? `••••${accessTokenV2.slice(-4)}` : <span className="text-red-400">Not set</span>}
               </span>
             </SummaryField>
+            <SummaryField label="Data">
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {selectedObjects.map(objectId => (
+                  <span key={objectId} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-orange-100 text-orange-700">
+                    {currentApp?.objectLabels?.[objectId] || objectId}
+                  </span>
+                ))}
+              </div>
+            </SummaryField>
           </SummaryCard>
 
           <SummaryCard title="Storage" icon={Cloud} color="#2563eb">
@@ -300,11 +480,56 @@ function RequestReview({ wizard, isEdit }) {
             <SummaryField label="Storage Folder"><span className="text-xs text-gray-700">{googleAuth?.folder_name || <span className="text-gray-400">My Drive (default)</span>}</span></SummaryField>
           </SummaryCard>
 
+          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+              <Inbox className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Request Group Summary</span>
+            </div>
+            <div className="px-4 py-3 flex gap-3">
+              <div className="flex-1 bg-gray-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold text-gray-800">{requestPreview?.selectable_source_count ?? selectedGroupIds.length}</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">Groups/direct sources loaded</div>
+              </div>
+              <div className="flex-1 bg-orange-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold text-orange-700">{selectedGroupIds.length}</div>
+                <div className="text-[11px] text-orange-500 mt-0.5">Selected for backup</div>
+              </div>
+            </div>
+            {loadingRequestPreview && (
+              <div className="px-4 pb-3 flex items-center gap-2 text-xs text-gray-400"><Spinner /><span>Loading…</span></div>
+            )}
+            {!loadingRequestPreview && requestPreview && !requestPreview.request_count_complete && (
+              <div className="px-4 pb-3">
+                <Alert type="warning" message={`Loaded ${requestPreview.detail_loaded_count || 0} sources. Open list and refresh to update.`} />
+              </div>
+            )}
+            <div className="px-4 pb-4 space-y-1 text-xs text-gray-600">
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Named group folders</span>
+                <span className={`font-semibold ${hasNamedGroupSelection ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasNamedGroupSelection ? 'Included' : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Direct requests folder</span>
+                <span className={`font-semibold ${includesDirectRequests ? 'text-green-600' : 'text-gray-400'}`}>
+                  {includesDirectRequests ? 'Included' : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Per-request folders</span>
+                <span className={`font-semibold ${hasRequestScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasRequestScope ? 'Included' : 'Excluded'}
+                </span>
+              </div>
+            </div>
+          </div>
+
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
             <div className="flex gap-2">
               <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
               <p className="text-[11px] text-amber-700 leading-relaxed">
-                <strong>Note:</strong> For Request, the system always backs up all data (spreadsheets + attachments) regardless of the selected backup type.
+                <strong>Note:</strong> Request uses the selected data scope (<strong>Group</strong> / <strong>Request</strong>) for structure, while the backup type is currently treated as a storage setup choice rather than changing the Request export content.
               </p>
             </div>
           </div>
@@ -314,10 +539,16 @@ function RequestReview({ wizard, isEdit }) {
           <FileTreePreview lines={treeLines} />
           <div className="mt-3 space-y-1 shrink-0">
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              <span className="text-green-500 font-bold">📊 .xlsx</span> — Request list &amp; custom fields &nbsp;·&nbsp;
+              <span className="text-green-500 font-bold">📊 .xlsx</span> — Group request lists, request info, and custom exports &nbsp;·&nbsp;
+              <span className="text-blue-400 font-bold">📋 .json</span> — Full request detail bundle &nbsp;·&nbsp;
               <span className="text-blue-400 font-bold">📝 .txt</span> — Posts &amp; comments &nbsp;·&nbsp;
-              <span className="text-gray-400 font-bold">📁 Attachments/</span> — Original files or metadata if unavailable
+              <span className="text-gray-400 font-bold">📁 Tệp đính kèm/</span> — Files attached to the request when available
             </p>
+            {!hasRequestScope && (
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                Only the group-level <strong>Danh sách request.xlsx</strong> files are created when <strong>Request</strong> is not selected.
+              </p>
+            )}
           </div>
         </div>
       </div>
@@ -328,7 +559,244 @@ function RequestReview({ wizard, isEdit }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
- * GENERIC review variant (Workflow / WeWork)
+ * WORKFLOW review variant
+ * ═══════════════════════════════════════════════════════════════════════ */
+
+function WorkflowReview({ wizard, isEdit }) {
+  const {
+    currentApp, domain, accessToken, selectedObjects,
+    backupType, storageDestination, googleAuth,
+    workflowPreview, loadingWorkflowPreview, selectedWorkflowIds,
+    getGoogleDriveRunBlockedReason,
+  } = wizard
+
+  const hasWorkflowScope = selectedObjects.some(objectId => ['workflow', 'job'].includes(objectId))
+  const hasJobScope = selectedObjects.includes('job')
+  const hasDiscussionExports = hasJobScope && backupType === 'all'
+  const treeLines = buildWorkflowTreeLines(googleAuth, backupType, selectedObjects)
+  const blocked = getGoogleDriveRunBlockedReason()
+  const destinationLabel = storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'
+
+  return (
+    <div className="h-full flex flex-col gap-4">
+      {!blocked && <ReadyBanner />}
+
+      <div className={reviewSplitLayoutClass}>
+        <div className={reviewSummaryColumnClass}>
+          <SummaryCard title="Data Source" icon={FolderKanban} color="#7c3aed">
+            <SummaryField label="App"><span className="font-semibold text-violet-700">Workflow</span></SummaryField>
+            <SummaryField label="Domain">
+              <span className="font-mono text-xs text-gray-700">{domain || <span className="text-red-400">Not set</span>}</span>
+            </SummaryField>
+            <SummaryField label="Access Token">
+              <span className="font-mono text-gray-500 text-xs">
+                {accessToken ? `••••${accessToken.slice(-4)}` : <span className="text-red-400">Not set</span>}
+              </span>
+            </SummaryField>
+            <SummaryField label="Data">
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {selectedObjects.map(objectId => (
+                  <span key={objectId} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-violet-100 text-violet-700">
+                    {currentApp?.objectLabels?.[objectId] || objectId}
+                  </span>
+                ))}
+              </div>
+            </SummaryField>
+          </SummaryCard>
+
+          <SummaryCard title="Storage" icon={Cloud} color="#2563eb">
+            <SummaryField label="Backup Type">
+              {backupType
+                ? <span className="font-semibold text-sm" style={{ color: BACKUP_TYPE_COLORS[backupType] }}>{BACKUP_TYPE_LABELS[backupType]}</span>
+                : <span className="text-red-400 text-xs">Not selected</span>}
+            </SummaryField>
+            <SummaryField label="Destination"><span className="font-semibold">{destinationLabel}</span></SummaryField>
+            <SummaryField label="Google Account"><span className="text-xs text-gray-700 break-all">{googleAuth?.email || <span className="text-red-400">Not connected</span>}</span></SummaryField>
+            <SummaryField label="Storage Folder"><span className="text-xs text-gray-700">{googleAuth?.folder_name || <span className="text-gray-400">My Drive (default)</span>}</span></SummaryField>
+          </SummaryCard>
+
+          <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+              <FolderKanban className="w-3.5 h-3.5 text-gray-500" />
+              <span className="text-[11px] font-bold text-gray-600 uppercase tracking-wide">Workflow Summary</span>
+            </div>
+            <div className="px-4 py-3 flex gap-3">
+              <div className="flex-1 bg-gray-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold text-gray-800">{workflowPreview?.workflow_count ?? selectedWorkflowIds.length}</div>
+                <div className="text-[11px] text-gray-400 mt-0.5">Workflows loaded</div>
+              </div>
+              <div className="flex-1 bg-violet-50 rounded-xl p-3 text-center">
+                <div className="text-2xl font-bold text-violet-700">{selectedWorkflowIds.length}</div>
+                <div className="text-[11px] text-violet-500 mt-0.5">Selected for backup</div>
+              </div>
+            </div>
+            {loadingWorkflowPreview && (
+              <div className="px-4 pb-3 flex items-center gap-2 text-xs text-gray-400"><Spinner /><span>Loading…</span></div>
+            )}
+            {!loadingWorkflowPreview && workflowPreview && !workflowPreview.job_count_complete && (
+              <div className="px-4 pb-3">
+                <Alert type="warning" message={`Loaded ${workflowPreview.detail_loaded_count || 0} workflows. Open list and refresh to update.`} />
+              </div>
+            )}
+            <div className="px-4 pb-4 space-y-1 text-xs text-gray-600">
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Guide and workflow config</span>
+                <span className={`font-semibold ${hasWorkflowScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasWorkflowScope ? 'Included' : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Job list and per-job folders</span>
+                <span className={`font-semibold ${hasJobScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasJobScope ? 'Included' : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Job info, log, and move files</span>
+                <span className={`font-semibold ${hasJobScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasJobScope ? 'Generated' : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Input data exports</span>
+                <span className={`font-semibold ${hasWorkflowScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasWorkflowScope ? 'Included' : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Posts/comments content</span>
+                <span className={`font-semibold ${hasJobScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasJobScope ? (hasDiscussionExports ? 'Included' : 'Note only') : 'Excluded'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                <span>Attachment/file info</span>
+                <span className={`font-semibold ${hasJobScope ? 'text-green-600' : 'text-gray-400'}`}>
+                  {hasJobScope ? 'Generated' : 'Excluded'}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="min-w-0 flex flex-col min-h-[360px] xl:min-h-0">
+          <FileTreePreview lines={treeLines} />
+          <div className="mt-3 shrink-0">
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              <span className="text-green-500 font-bold">📊 .xlsx</span> — Workflow config, job lists, job info, logs/moves, and input-data exports &nbsp;·&nbsp;
+              <span className="text-blue-400 font-bold">📝 .txt</span> — README, post/comment export, and file info &nbsp;·&nbsp;
+              <span className="text-purple-400 font-bold">📁 Workflows/</span> — One folder per selected workflow
+            </p>
+            {backupType === 'structured' && (
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                With <strong>Structured</strong> backup, the <strong>3. Nội dung/post_and_comment.txt</strong> file is still created, but it contains a note instead of post/comment content.
+              </p>
+            )}
+            {backupType === 'all' && hasJobScope && (
+              <p className="text-[11px] text-amber-600 mt-1.5">
+                With <strong>Complete</strong> backup, each job folder includes <strong>post_and_comment.txt</strong> with the job discussion content returned by Workflow API.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <ReviewNotice blocked={blocked} archiveNotice={null} />
+    </div>
+  )
+}
+
+function WeworkReview({ wizard, isEdit }) {
+  const {
+    currentApp, domain, accessToken,
+    selectedObjects, storageDestination, googleAuth,
+    weworkPreview, loadingWeworkPreview, selectedProjectIds,
+    getGoogleDriveRunBlockedReason,
+  } = wizard
+
+  const hasDepartmentScope = selectedObjects.includes('department')
+  const hasProjectScope = selectedObjects.includes('project')
+  const hasTaskScope = selectedObjects.includes('task')
+  const treeLines = buildWeworkTreeLines(googleAuth, selectedObjects, selectedProjectIds)
+  const blocked = getGoogleDriveRunBlockedReason()
+
+  return (
+    <div className="h-full flex flex-col gap-4">
+      {!blocked && <ReadyBanner />}
+
+      <div className={reviewSplitLayoutClass}>
+        <div className={reviewSummaryColumnClass}>
+          <SummaryCard title="Data Source" icon={Building2} color="#2563eb">
+            <SummaryField label="App"><span className="font-semibold" style={{ color: currentApp?.color }}>{currentApp?.name}</span></SummaryField>
+            <SummaryField label="Domain"><span className="font-mono text-xs text-gray-700">{domain || <span className="text-red-400">Not set</span>}</span></SummaryField>
+            <SummaryField label="Access Token"><span className="font-mono text-xs text-gray-500">{accessToken ? `••••${accessToken.slice(-4)}` : <span className="text-red-400">Not set</span>}</span></SummaryField>
+            <SummaryField label="Backup Data">
+              <div className="flex flex-wrap gap-1 mt-0.5">
+                {selectedObjects.map(obj => (
+                  <span key={obj} className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold" style={{ backgroundColor: currentApp?.bg, color: currentApp?.color }}>{currentApp?.objectLabels[obj]}</span>
+                ))}
+              </div>
+            </SummaryField>
+          </SummaryCard>
+
+          <SummaryCard title="Selection Scope" icon={FolderKanban} color="#0f766e">
+            <SummaryField label="Projects selected"><span className="font-semibold text-gray-800">{selectedProjectIds.length}</span></SummaryField>
+            <SummaryField label="Projects loaded"><span className="text-gray-700">{weworkPreview?.project_count ?? '—'}</span></SummaryField>
+            <SummaryField label="Departments in scope"><span className="text-gray-700">{weworkPreview?.department_count ?? '—'}</span></SummaryField>
+            <SummaryField label="Tasks previewed"><span className="text-gray-700">{weworkPreview?.total_task_count ?? '—'}</span></SummaryField>
+            <SummaryField label="Exports generated">
+              <div className="space-y-1.5 text-xs text-gray-600">
+                <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                  <span>Department info</span>
+                  <span className={`font-semibold ${hasDepartmentScope ? 'text-green-600' : 'text-gray-400'}`}>{hasDepartmentScope ? 'Included' : 'Container only'}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                  <span>Project info + tasklists + milestones</span>
+                  <span className={`font-semibold ${hasProjectScope ? 'text-green-600' : 'text-gray-400'}`}>{hasProjectScope ? 'Included' : 'Excluded'}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2">
+                  <span>Nested task folders</span>
+                  <span className={`font-semibold ${hasTaskScope ? 'text-green-600' : 'text-gray-400'}`}>{hasTaskScope ? 'Included' : 'Excluded'}</span>
+                </div>
+              </div>
+            </SummaryField>
+            {loadingWeworkPreview && <div className="text-xs text-gray-400">Loading current WeWork preview…</div>}
+            {weworkPreview?.catalog_warning && <Alert type="warning" message="Department catalog loaded partially" description={weworkPreview.catalog_warning} />}
+            {weworkPreview?.partial_error_count > 0 && <Alert type="warning" message={`Some projects could not be previewed completely (${weworkPreview.partial_error_count})`} />}
+          </SummaryCard>
+
+          <SummaryCard title="Storage" icon={Cloud} color="#2563eb">
+            <SummaryField label="Destination"><span className="font-semibold">{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span></SummaryField>
+            <SummaryField label="Google Account"><span className="text-xs text-gray-700 break-all">{googleAuth?.email || <span className="text-red-400">Not connected</span>}</span></SummaryField>
+            <SummaryField label="Storage Folder"><span className="text-xs text-gray-700">{googleAuth?.folder_name || <span className="text-gray-400">My Drive (default)</span>}</span></SummaryField>
+          </SummaryCard>
+        </div>
+
+        <div className="min-w-0 flex flex-col min-h-[360px] xl:min-h-0">
+          <FileTreePreview lines={treeLines} />
+          <div className="mt-3 shrink-0 space-y-2">
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              <span className="text-green-500 font-bold">📊 .xlsx</span> — Department/project info, tasklists, milestones, task lists, and custom exports &nbsp;·&nbsp;
+              <span className="text-slate-400 font-bold">📋 .json</span> — Raw task detail snapshot for each task folder &nbsp;·&nbsp;
+              <span className="text-blue-400 font-bold">📁 Nested task folders</span> — Child tasks are placed under the parent task whose ID matches their <strong>parent_id</strong>
+            </p>
+            <div className="bg-sky-50 border border-sky-200 rounded-xl p-3 flex gap-2">
+              <Info className="w-3.5 h-3.5 text-sky-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-sky-700 leading-relaxed">
+                WeWork task folders are built from task payload relationships, not from a separate subtask endpoint. Any task with <strong>parent_id = "0"</strong> becomes a top-level folder, and any task whose <strong>parent_id</strong> matches another task ID is nested under that parent.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <ReviewNotice blocked={blocked} archiveNotice={null} />
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+ * GENERIC review fallback
  * ═══════════════════════════════════════════════════════════════════════ */
 
 function GenericReview({ wizard, isEdit }) {
@@ -477,6 +945,8 @@ const StepReview = ({ wizard, viewMode }) => {
   const isEdit = viewMode === 'edit'
 
   if (wizard.isServiceApp) return <ServiceReview wizard={wizard} isEdit={isEdit} />
+  if (wizard.isWorkflowApp) return <WorkflowReview wizard={wizard} isEdit={isEdit} />
+  if (wizard.isWeworkApp) return <WeworkReview wizard={wizard} isEdit={isEdit} />
   if (wizard.isRequestApp) return <RequestReview wizard={wizard} isEdit={isEdit} />
   return <GenericReview wizard={wizard} isEdit={isEdit} />
 }

@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  Plus, Eye, Pencil, Play, Rocket, Trash2, Cloud,
+  Plus, Eye, Pencil, Play, Rocket, Square, Trash2, Cloud,
   Inbox, FolderKanban, Building2, Headphones, FileSpreadsheet, Globe,
 } from 'lucide-react'
 import { Tag, SpinCenter, Empty } from '@packages/ui/src/components/common/ui'
@@ -14,7 +14,9 @@ const FlowListView = ({
   onPublish,
   onEdit,
   onRun,
+  onStop,
   onDelete,
+  stoppingFlowId,
 }) => {
   const appIcons = {
     request:  <Inbox className="w-4 h-4" />,
@@ -63,6 +65,9 @@ const FlowListView = ({
                   const meta = APP_META[record.app] || { color: '#64748b' }
                   const icon = appIcons[record.app] || <Cloud className="w-4 h-4" />
                   const bt = BACKUP_TYPE_TAG[record.backup_type]
+                  const supportsRun = ['request', 'service', 'workflow', 'wework'].includes(record.app)
+                  const hasActiveRun = ['pending', 'running'].includes(record.last_run_status)
+                  const isStopping = stoppingFlowId === record.id
 
                   return (
                     <tr key={record.id} className="hover:bg-gray-50 transition-colors">
@@ -116,7 +121,14 @@ const FlowListView = ({
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs border border-gray-300 rounded-md hover:bg-gray-50 transition-colors">
                             <Pencil className="w-3.5 h-3.5" /> Edit
                           </button>
-                          {record.is_published === 1 && ['request', 'service'].includes(record.app) && (
+                          {record.is_published === 1 && supportsRun && hasActiveRun ? (
+                            <button
+                              onClick={() => onStop(record)}
+                              disabled={isStopping}
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
+                              <Square className="w-3.5 h-3.5" /> {isStopping ? 'Stopping…' : 'Stop'}
+                            </button>
+                          ) : record.is_published === 1 && supportsRun && (
                             <button
                               onClick={() => onRun(record)}
                               disabled={Boolean(record.run_blocked_reason)}

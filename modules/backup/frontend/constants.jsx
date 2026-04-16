@@ -24,7 +24,7 @@ export const APPS = {
     color: '#7c3aed',
     bg: '#f5f3ff',
     description: 'Backup workflow configurations',
-    objects: ['workflow', 'job', 'todo'],
+    objects: ['workflow', 'job'],
     objectLabels: { workflow: 'Workflow', job: 'Job', todo: 'Todo' },
     isSpecial: false,
   },
@@ -62,6 +62,39 @@ export const APP_META = {
 
 // ── Connection config per app ───────────────────────────────────────────────
 export const APP_CONNECTION_CONFIG = {
+  request: {
+    stepTitle: 'Request Connection',
+    stepDescription: 'Provide the Request domain and Base Account token used for backup access.',
+    requiresDomain: true,
+    domainLabel: 'Base Domain',
+    domainPlaceholder: 'base.com.vn',
+    domainHelp: 'Enter base.com.vn, request.base.com.vn, or a full Request URL. The backend will normalize it.',
+    tokenLabel: 'Access Token V2',
+    tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
+    tokenHelp: 'Get this value from Request → Settings → API Keys. Use the Base Account access_token_v2 token.',
+  },
+  workflow: {
+    stepTitle: 'Workflow Connection',
+    stepDescription: 'Provide the Workflow domain and API token used for backup access.',
+    requiresDomain: true,
+    domainLabel: 'Base Domain',
+    domainPlaceholder: 'company.base.com.vn',
+    domainHelp: 'Enter your Workflow domain, for example company.base.com.vn. The backend will normalize it.',
+    tokenLabel: 'API Access Token',
+    tokenPlaceholder: 'Paste your Workflow access token here…',
+    tokenHelp: 'Get this value from Workflow → Settings → API Keys.',
+  },
+  wework: {
+    stepTitle: 'WeWork Connection',
+    stepDescription: 'Provide the WeWork domain and Base Account token used for backup access.',
+    requiresDomain: true,
+    domainLabel: 'Base Domain',
+    domainPlaceholder: 'base.com.vn',
+    domainHelp: 'Enter base.com.vn, wework.base.com.vn, or a full WeWork URL. The backend will normalize it.',
+    tokenLabel: 'Access Token V2',
+    tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
+    tokenHelp: 'Get this value from WeWork → Settings → API Keys. Use the Base Account access_token_v2 token.',
+  },
   service: {
     stepTitle: 'Connection Information',
     stepDescription: 'Provide the Service domain and Base Account token used for backup access.',

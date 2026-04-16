@@ -1,6 +1,6 @@
 import React from 'react'
 import {
-  ArrowLeft, Globe, Cloud, Clock, FolderKanban, Pencil, RefreshCw, Play, Trash2,
+  ArrowLeft, Globe, Cloud, Clock, FolderKanban, Pencil, RefreshCw, Play, Square, Trash2,
   Inbox, Building2, Headphones, CheckCircle, Info, Loader2,
 } from 'lucide-react'
 import { Tag, Alert, SpinCenter, Empty } from '@packages/ui/src/components/common/ui'
@@ -41,6 +41,12 @@ function getHistoryRunSummary(run) {
   if (details.app === 'request') {
     return `${details.completed_groups || 0}/${details.total_groups || 0} groups, ${details.total_requests || 0} requests`
   }
+  if (details.app === 'workflow') {
+    return `${details.completed_workflows || 0}/${details.total_workflows || 0} workflows, ${details.completed_jobs || 0}/${details.total_jobs || 0} jobs`
+  }
+  if (details.app === 'wework') {
+    return `${details.completed_projects || 0}/${details.total_projects || 0} projects, ${details.completed_tasks || 0}/${details.total_tasks || 0} tasks`
+  }
   return details.structure_path || 'No execution summary yet'
 }
 
@@ -69,7 +75,9 @@ const FlowDetailView = ({
   onEdit,
   onRefresh,
   onRun,
+  onStop,
   onDelete,
+  stoppingFlowId,
 }) => {
   const source = detailsFlow?.source || {}
   const destination = detailsFlow?.destination || {}
@@ -81,11 +89,14 @@ const FlowDetailView = ({
   const appConfig = APPS[source.app] || {}
   const objectLabels = appConfig.objectLabels || {}
   const detailObjects = Array.isArray(structure.objects) ? structure.objects.map(id => objectLabels[id] || id) : []
-  const supportsRun = ['request', 'service'].includes(detailsFlowRecord?.app || source.app)
+  const supportsRun = ['request', 'service', 'workflow', 'wework'].includes(detailsFlowRecord?.app || source.app)
   const isPublished = detailsFlowRecord?.is_published === 1 || detailsFlow?.is_published === 1
   const runBlockedReason = detailsFlowRecord?.run_blocked_reason
-  const runDisabled = !supportsRun || !isPublished || Boolean(runBlockedReason)
   const isDraft = detailsFlow?.is_draft === 1
+  const hasActiveRun = detailsRuns.some(run => ['pending', 'running'].includes(run.status))
+    || ['pending', 'running'].includes(detailsFlow?.last_run_status || detailsFlowRecord?.last_run_status)
+  const runDisabled = !supportsRun || !isPublished || Boolean(runBlockedReason) || hasActiveRun
+  const isStopping = stoppingFlowId === (detailsFlowId || detailsFlowRecord?.id)
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-gray-50 overflow-y-auto">
@@ -145,8 +156,14 @@ const FlowDetailView = ({
                       title="Refresh">
                       {loadingFlowDetails ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                     </button>
+                    {hasActiveRun && (
+                      <button onClick={onStop} disabled={isStopping}
+                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
+                        <Square className="w-4 h-4" /> {isStopping ? 'Stopping…' : 'Stop Current Run'}
+                      </button>
+                    )}
                     <button disabled={runDisabled} onClick={onRun}
-                      title={runBlockedReason || (!supportsRun ? 'This app type does not support running' : !isPublished ? 'Must publish flow first' : undefined)}
+                      title={runBlockedReason || (hasActiveRun ? 'A backup is already running for this flow' : !supportsRun ? 'This app type does not support running' : !isPublished ? 'Must publish flow first' : undefined)}
                       className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
                       <Play className="w-4 h-4" /> Run Backup Now
                     </button>

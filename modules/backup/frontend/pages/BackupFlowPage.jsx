@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
+import { useLocation } from 'react-router-dom'
 import { Loader2, RefreshCw, Globe, Folder, ChevronRight, FileSpreadsheet, Cloud } from 'lucide-react'
 import { Modal, Alert, SpinCenter, Tag, Empty, message } from '@packages/ui/src/components/common/ui'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
@@ -13,7 +14,10 @@ import FlowWizard from '../components/FlowWizard'
 import AppSelectionModal from '../components/shared/AppSelectionModal'
 import GoogleConfigModal from '../components/shared/GoogleConfigModal'
 import FolderPickerModal from '../components/shared/FolderPickerModal'
+import RequestSelectorModal from '../components/shared/RequestSelectorModal'
 import ServiceSelectorModal from '../components/shared/ServiceSelectorModal'
+import WorkflowSelectorModal from '../components/shared/WorkflowSelectorModal'
+import WeworkSelectorModal from '../components/shared/WeworkSelectorModal'
 
 const BackupFlowPage = () => {
   // ── View mode ─────────────────────────────────────────────────────────
@@ -27,13 +31,31 @@ const BackupFlowPage = () => {
   // ── Destination modal local state ─────────────────────────────────────
   const [showDestinationModal, setShowDestinationModal] = useState(false)
   const [destinationSearch, setDestinationSearch] = useState('')
+  const location = useLocation()
 
   // ── Hooks ─────────────────────────────────────────────────────────────
   const backupFlows = useBackupFlows()
   const wizard = useWizardState()
+  const { setDetailsFlow, setDetailsRuns } = backupFlows
+  const { resetAll } = wizard
+
+  const resetToBackupList = useCallback(() => {
+    setViewMode('list')
+    setDetailsFlowId(null)
+    setDetailsFlowRecord(null)
+    setDetailsActiveTab('overview')
+    setDetailsFlow(null)
+    setDetailsRuns([])
+    resetAll()
+  }, [resetAll, setDetailsFlow, setDetailsRuns])
 
   // ── Fetch flows on mount ──────────────────────────────────────────────
   useEffect(() => { backupFlows.fetchFlows() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!location.state?.resetToListToken) return
+    resetToBackupList()
+  }, [location.state?.resetToListToken, resetToBackupList])
 
   // ── Sync google config modal fields ───────────────────────────────────
   useEffect(() => {
@@ -51,6 +73,27 @@ const BackupFlowPage = () => {
       wizard.shouldResetServicePreviewScrollRef.current = false
     }
   }, [wizard.servicePreview]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (wizard.shouldResetWorkflowPreviewScrollRef.current && wizard.workflowPreviewListRef.current) {
+      wizard.workflowPreviewListRef.current.scrollTop = 0
+      wizard.shouldResetWorkflowPreviewScrollRef.current = false
+    }
+  }, [wizard.workflowPreview]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (wizard.shouldResetRequestPreviewScrollRef.current && wizard.requestPreviewListRef.current) {
+      wizard.requestPreviewListRef.current.scrollTop = 0
+      wizard.shouldResetRequestPreviewScrollRef.current = false
+    }
+  }, [wizard.requestPreview]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (wizard.shouldResetWeworkPreviewScrollRef.current && wizard.weworkPreviewListRef.current) {
+      wizard.weworkPreviewListRef.current.scrollTop = 0
+      wizard.shouldResetWeworkPreviewScrollRef.current = false
+    }
+  }, [wizard.weworkPreview]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived ───────────────────────────────────────────────────────────
   const servicePreviewRows = Array.isArray(wizard.servicePreview?.services)
@@ -95,34 +138,29 @@ const BackupFlowPage = () => {
     )
   }
 
+  const handleStopFromDetail = () => {
+    const source = backupFlows.detailsFlow?.source || {}
+    backupFlows.stopFlow(
+      detailsFlowRecord || { id: detailsFlowId, name: backupFlows.detailsFlow?.name, app: source.app },
+      { onStopped: () => backupFlows.fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id) }
+    )
+  }
+
   const handleDeleteFromDetail = () => {
     backupFlows.deleteFlow(
       detailsFlowRecord || { id: detailsFlowId, name: backupFlows.detailsFlow?.name },
       {
-        onDeleted: () => {
-          setViewMode('list')
-          setDetailsFlowId(null)
-          setDetailsFlowRecord(null)
-          backupFlows.setDetailsFlow(null)
-          backupFlows.setDetailsRuns([])
-        },
+        onDeleted: resetToBackupList,
       }
     )
   }
 
   const handleBackToList = () => {
-    setViewMode('list')
-    wizard.setCurrentStep(0)
-    wizard.setSelectedApp(null)
-    wizard.setFlowName('')
-    wizard.setDraftFlowId(null)
-    wizard.setEditFlowId(null)
+    resetToBackupList()
   }
 
   const handleBackFromDetail = () => {
-    setViewMode('list')
-    backupFlows.setDetailsFlow(null)
-    backupFlows.setDetailsRuns([])
+    resetToBackupList()
   }
 
   const handleSelectDestination = (opt) => {
@@ -141,11 +179,13 @@ const BackupFlowPage = () => {
           <FlowListView
             flows={backupFlows.flows}
             loadingFlows={backupFlows.loadingFlows}
+            stoppingFlowId={backupFlows.stoppingFlowId}
             onCreateDraft={handleCreateDraft}
             onOpenDetails={handleOpenDetails}
             onPublish={(record) => backupFlows.publishFlow(record)}
             onEdit={(record) => { wizard.loadFlowForEdit(record.id); setViewMode('edit') }}
             onRun={(record) => backupFlows.runFlow(record)}
+            onStop={(record) => backupFlows.stopFlow(record)}
             onDelete={(record) => backupFlows.deleteFlow(record)}
           />
         </div>
@@ -156,10 +196,12 @@ const BackupFlowPage = () => {
           detailsFlowId={detailsFlowId}
           detailsFlowRecord={detailsFlowRecord}
           loadingFlowDetails={backupFlows.loadingFlowDetails}
+          stoppingFlowId={backupFlows.stoppingFlowId}
           onBack={handleBackFromDetail}
           onEdit={handleEditFromDetail}
           onRefresh={handleRefreshDetails}
           onRun={handleRunFromDetail}
+          onStop={handleStopFromDetail}
           onDelete={handleDeleteFromDetail}
         />
       ) : (
@@ -182,6 +224,15 @@ const BackupFlowPage = () => {
 
       {/* ── Service Selector Modal ── */}
       <ServiceSelectorModal wizard={wizard} />
+
+      {/* ── Request Selector Modal ── */}
+      <RequestSelectorModal wizard={wizard} />
+
+      {/* ── Workflow Selector Modal ── */}
+      <WorkflowSelectorModal wizard={wizard} />
+
+      {/* ── WeWork Selector Modal ── */}
+      <WeworkSelectorModal wizard={wizard} />
 
       {/* ── Destination Selection Modal ── */}
       <Modal

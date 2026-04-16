@@ -21,7 +21,10 @@ class StructureInfo(BaseModel):
     objects: Optional[List[str]] = Field(None, description="Selected objects to backup")
     custom_fields: Optional[List[str]] = Field(None, description="Selected custom field IDs")
     export_formats: Optional[Dict[str, str]] = Field(None, description="Export formats for fields")
+    group_ids: Optional[List[str]] = Field(None, description="Selected Request group identifiers for Request backups")
+    project_ids: Optional[List[str]] = Field(None, description="Selected WeWork project identifiers for WeWork backups")
     service_ids: Optional[List[str]] = Field(None, description="Selected Service identifiers for Service backups")
+    workflow_ids: Optional[List[str]] = Field(None, description="Selected Workflow identifiers for Workflow backups")
     ticket_limit_per_service: Optional[int] = Field(None, ge=1, description="Optional cap on tickets processed per selected service")
     include_catalog: Optional[bool] = Field(None, description="Include group/compound/service catalog artifacts")
     include_stages: Optional[bool] = Field(None, description="Include service stage metadata")
@@ -29,22 +32,22 @@ class StructureInfo(BaseModel):
     include_activity_logs: Optional[bool] = Field(None, description="Fetch ticket activity logs for each ticket")
     activity_log_filters: Optional[Dict[str, Any]] = Field(None, description="Optional filters for Service ticket activity log extraction")
 
-    @field_validator('service_ids', mode='before')
-    def normalize_service_ids(cls, value):
+    @field_validator('group_ids', 'project_ids', 'service_ids', 'workflow_ids', mode='before')
+    def normalize_identifier_list(cls, value):
         if value is None:
             return value
         if isinstance(value, str):
-            service_ids = [item.strip() for item in value.split(',') if item.strip()]
+            identifiers = [item.strip() for item in value.split(',') if item.strip()]
         else:
-            service_ids = [str(item).strip() for item in value if str(item).strip()]
+            identifiers = [str(item).strip() for item in value if str(item).strip()]
 
         seen = set()
         output = []
-        for service_id in service_ids:
-            if service_id in seen:
+        for identifier in identifiers:
+            if identifier in seen:
                 continue
-            seen.add(service_id)
-            output.append(service_id)
+            seen.add(identifier)
+            output.append(identifier)
         return output
 
 # Schedule schema

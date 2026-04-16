@@ -38,12 +38,11 @@ class BackupFlowService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def interrupt_incomplete_runs(self, message: Optional[str] = None) -> int:
-        """Mark pending/running runs as failed with the provided interruption message."""
-        result = await self.db.execute(
-            select(BackupFlowRun).where(BackupFlowRun.status.in_(("pending", "running")))
-        )
-        active_runs = result.scalars().all()
+    async def _mark_runs_interrupted(
+        self,
+        active_runs: List[BackupFlowRun],
+        message: Optional[str] = None,
+    ) -> int:
         if not active_runs:
             return 0
 
@@ -87,6 +86,14 @@ class BackupFlowService:
         await self.db.commit()
         return len(active_runs)
 
+    async def interrupt_incomplete_runs(self, message: Optional[str] = None) -> int:
+        """Mark pending/running runs as failed with the provided interruption message."""
+        result = await self.db.execute(
+            select(BackupFlowRun).where(BackupFlowRun.status.in_(("pending", "running")))
+        )
+        active_runs = result.scalars().all()
+        return await self._mark_runs_interrupted(active_runs, message)
+
     async def interrupt_all_running_tasks(self) -> dict:
         cancelled_task_count = 0
         for run_id, task in list(BACKUP_RUN_TASKS.items()):
@@ -97,6 +104,40 @@ class BackupFlowService:
             cancelled_task_count += 1
 
         interrupted_run_count = await self.interrupt_incomplete_runs(self.MANUALLY_STOPPED_RUN_MESSAGE)
+        return {
+            'cancelled_task_count': cancelled_task_count,
+            'interrupted_run_count': interrupted_run_count,
+        }
+
+    async def interrupt_flow_running_tasks(self, flow_id: str) -> dict:
+        result = await self.db.execute(
+            select(BackupFlowRun)
+            .where(
+                and_(
+                    BackupFlowRun.flow_id == flow_id,
+                    BackupFlowRun.status.in_(("pending", "running")),
+                )
+            )
+            .order_by(BackupFlowRun.started_at.desc())
+        )
+        active_runs = result.scalars().all()
+
+        cancelled_task_count = 0
+        for run in active_runs:
+            run_id = str(run.id)
+            task = BACKUP_RUN_TASKS.get(run_id)
+            if task is None:
+                continue
+            if task.done():
+                BACKUP_RUN_TASKS.pop(run_id, None)
+                continue
+            task.cancel()
+            cancelled_task_count += 1
+
+        interrupted_run_count = await self._mark_runs_interrupted(
+            active_runs,
+            self.MANUALLY_STOPPED_RUN_MESSAGE,
+        )
         return {
             'cancelled_task_count': cancelled_task_count,
             'interrupted_run_count': interrupted_run_count,
@@ -542,36 +583,48 @@ class BackupFlowService:
         if destination.get('type') == 'gdrive':
             validate_service_account_drive_destination(dict(destination.get('auth') or {}))
         
+        # Launch backup asynchronously (non-blocking)
+        source = flow.source or {}
+        app = source.get('app', '')
+        runner = None
+        if app == 'request':
+            from modules.connectors.apps.request.backup.extractor import run_request_backup
+            runner = run_request_backup
+        elif app == 'service':
+            from modules.connectors.apps.service.backup.extractor import run_service_backup
+            runner = run_service_backup
+        elif app == 'wework':
+            from modules.connectors.apps.wework.backup.extractor import run_wework_backup
+            runner = run_wework_backup
+        elif app == 'workflow':
+            from modules.connectors.apps.workflow.backup.extractor import run_workflow_backup
+            runner = run_workflow_backup
+        else:
+            raise ValueError(f"Unsupported backup app: {app}")
+
         # Create a new run record
         new_run = BackupFlowRun(
             flow_id=flow_id,
             status='pending',
             triggered_by=triggered_by
         )
-        
+
         self.db.add(new_run)
         await self.db.commit()
         await self.db.refresh(new_run)
 
-        # Launch backup asynchronously (non-blocking)
-        source = flow.source or {}
-        app = source.get('app', '')
-        task = None
-        if app == 'request':
-            from modules.connectors.apps.request.backup.extractor import run_request_backup
-            task = asyncio.create_task(
-                run_request_backup(str(flow.id), str(new_run.id))
-            )
-        elif app == 'service':
-            from modules.connectors.apps.service.backup.extractor import run_service_backup
-            task = asyncio.create_task(
-                run_service_backup(str(flow.id), str(new_run.id))
-            )
+        flow.last_run_at = new_run.started_at
+        flow.last_run_status = 'running'
+        flow.last_run_message = 'Backup is starting'
+        await self.db.commit()
 
-        if task is not None:
-            run_id_key = str(new_run.id)
-            BACKUP_RUN_TASKS[run_id_key] = task
-            task.add_done_callback(lambda _: BACKUP_RUN_TASKS.pop(run_id_key, None))
+        task = None
+        task = asyncio.create_task(
+            runner(str(flow.id), str(new_run.id))
+        )
+        run_id_key = str(new_run.id)
+        BACKUP_RUN_TASKS[run_id_key] = task
+        task.add_done_callback(lambda _: BACKUP_RUN_TASKS.pop(run_id_key, None))
         
         return new_run
     

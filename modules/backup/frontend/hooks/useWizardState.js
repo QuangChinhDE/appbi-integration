@@ -56,10 +56,37 @@ export default function useWizardState() {
   const servicePreviewListRef = useRef(null)
   const shouldResetServicePreviewScrollRef = useRef(false)
 
+  // ── Request preview ───────────────────────────────────────────────────
+  const [requestPreview, setRequestPreview] = useState(null)
+  const [loadingRequestPreview, setLoadingRequestPreview] = useState(false)
+  const [selectedGroupIds, setSelectedGroupIds] = useState([])
+  const [draftSelectedGroupIds, setDraftSelectedGroupIds] = useState([])
+  const requestPreviewListRef = useRef(null)
+  const shouldResetRequestPreviewScrollRef = useRef(false)
+
+  // ── Workflow preview ──────────────────────────────────────────────────
+  const [workflowPreview, setWorkflowPreview] = useState(null)
+  const [loadingWorkflowPreview, setLoadingWorkflowPreview] = useState(false)
+  const [selectedWorkflowIds, setSelectedWorkflowIds] = useState([])
+  const [draftSelectedWorkflowIds, setDraftSelectedWorkflowIds] = useState([])
+  const workflowPreviewListRef = useRef(null)
+  const shouldResetWorkflowPreviewScrollRef = useRef(false)
+
+  // ── WeWork preview ────────────────────────────────────────────────────
+  const [weworkPreview, setWeworkPreview] = useState(null)
+  const [loadingWeworkPreview, setLoadingWeworkPreview] = useState(false)
+  const [selectedProjectIds, setSelectedProjectIds] = useState([])
+  const [draftSelectedProjectIds, setDraftSelectedProjectIds] = useState([])
+  const weworkPreviewListRef = useRef(null)
+  const shouldResetWeworkPreviewScrollRef = useRef(false)
+
   // ── Modals ────────────────────────────────────────────────────────────
   const [showAppSelectionModal, setShowAppSelectionModal] = useState(false)
   const [showDestinationModal, setShowDestinationModal] = useState(false)
+  const [requestSelectorModalOpen, setRequestSelectorModalOpen] = useState(false)
   const [serviceSelectorModalOpen, setServiceSelectorModalOpen] = useState(false)
+  const [workflowSelectorModalOpen, setWorkflowSelectorModalOpen] = useState(false)
+  const [weworkSelectorModalOpen, setWeworkSelectorModalOpen] = useState(false)
 
   // ── Google folder picker ──────────────────────────────────────────────
   const [googleFolderModal, setGoogleFolderModal] = useState(false)
@@ -90,6 +117,8 @@ export default function useWizardState() {
   const currentApp = selectedApp ? APPS[selectedApp] : null
   const isRequestApp = currentApp?.isSpecial
   const isServiceApp = currentApp?.id === 'service'
+  const isWorkflowApp = currentApp?.id === 'workflow'
+  const isWeworkApp = currentApp?.id === 'wework'
   const connectionConfig = selectedApp ? APP_CONNECTION_CONFIG[selectedApp] : null
 
   const buildPlatformServiceAccountState = useCallback((overrides = {}) => {
@@ -124,7 +153,7 @@ export default function useWizardState() {
     || Boolean(googleAuth?.credentials_json)
     || Boolean(googleAuth?.uses_platform_service_account)
 
-  const usesCondensedServiceWizard = isServiceApp
+  const usesCondensedServiceWizard = isRequestApp || isServiceApp || isWorkflowApp || isWeworkApp
   const hasServiceAccountStep = googleAuthMethod === 'service_account'
   const totalSteps = usesCondensedServiceWizard ? 3 : (hasServiceAccountStep ? 5 : 4)
 
@@ -181,7 +210,19 @@ export default function useWizardState() {
     setExportFormats({})
     setServicePreview(null)
     setSelectedServiceIds([])
+    setDraftSelectedServiceIds([])
+    setRequestPreview(null)
+    setSelectedGroupIds([])
+    setDraftSelectedGroupIds([])
+    setWorkflowPreview(null)
+    setSelectedWorkflowIds([])
+    setDraftSelectedWorkflowIds([])
+    setWeworkPreview(null)
+    setSelectedProjectIds([])
+    setDraftSelectedProjectIds([])
     setShowAppSelectionModal(false)
+    setRequestSelectorModalOpen(false)
+    setWeworkSelectorModalOpen(false)
     setServiceSourceSetupSaved(false)
     setServiceBackupSetupSaved(false)
     setServiceAccountAnalysis(null)
@@ -207,7 +248,19 @@ export default function useWizardState() {
     setExportFormats({})
     setServicePreview(null)
     setSelectedServiceIds([])
+    setDraftSelectedServiceIds([])
+    setRequestPreview(null)
+    setSelectedGroupIds([])
+    setDraftSelectedGroupIds([])
+    setWorkflowPreview(null)
+    setSelectedWorkflowIds([])
+    setDraftSelectedWorkflowIds([])
+    setWeworkPreview(null)
+    setSelectedProjectIds([])
+    setDraftSelectedProjectIds([])
     setShowAppSelectionModal(false)
+    setRequestSelectorModalOpen(false)
+    setWeworkSelectorModalOpen(false)
     setServiceSourceSetupSaved(false)
     setServiceBackupSetupSaved(false)
     setServiceAccountAnalysis(null)
@@ -382,12 +435,23 @@ export default function useWizardState() {
 
   // ── Build autosave payload per step ───────────────────────────────────
   const buildAutosavePayload = useCallback((step) => {
-    if (isServiceApp && totalSteps === 3) {
+    if (usesCondensedServiceWizard && totalSteps === 3) {
       if (step === 0) {
         return {
           name: flowName.trim() || undefined,
-          source: selectedApp ? { app: selectedApp, app_name: currentApp?.name, domain, access_token: accessToken } : undefined,
-          structure: { objects: selectedObjects, service_ids: selectedServiceIds },
+          source: selectedApp ? {
+            app: selectedApp,
+            app_name: currentApp?.name,
+            domain: connectionConfig?.requiresDomain ? domain : selectedApp,
+            access_token: isRequestApp ? accessTokenV2 : accessToken,
+          } : undefined,
+          structure: {
+            objects: selectedObjects,
+            ...(isRequestApp ? { group_ids: selectedGroupIds } : {}),
+            ...(isWeworkApp ? { project_ids: selectedProjectIds } : {}),
+            ...(isServiceApp ? { service_ids: selectedServiceIds } : {}),
+            ...(isWorkflowApp ? { workflow_ids: selectedWorkflowIds } : {}),
+          },
         }
       }
       if (step === 1) {
@@ -440,7 +504,7 @@ export default function useWizardState() {
       }
     }
     return {}
-  }, [isServiceApp, totalSteps, flowName, selectedApp, currentApp, domain, accessToken, selectedObjects, selectedServiceIds, backupType, storageDestination, buildGoogleDestinationAuth, isRequestApp, accessTokenV2])
+  }, [usesCondensedServiceWizard, totalSteps, flowName, selectedApp, currentApp, connectionConfig, domain, accessToken, selectedObjects, selectedGroupIds, selectedProjectIds, selectedServiceIds, selectedWorkflowIds, isServiceApp, isWorkflowApp, isWeworkApp, backupType, storageDestination, buildGoogleDestinationAuth, isRequestApp, accessTokenV2])
 
   // ── Navigation ────────────────────────────────────────────────────────
   const next = useCallback(async () => {
@@ -450,17 +514,38 @@ export default function useWizardState() {
       if (!selectedApp) { message.warning('Please select an application'); return }
     }
 
-    // Condensed service wizard
-    if (isServiceApp && totalSteps === 3) {
+    // Condensed source wizard (Service / Workflow)
+    if (usesCondensedServiceWizard && totalSteps === 3) {
       if (currentStep === 0) {
-        if (!domain || !accessToken) { message.warning('Please provide Service domain and access token'); return }
+        if (connectionConfig?.requiresDomain && !domain) { message.warning(`Please provide ${currentApp?.name || 'source'} domain`); return }
+        if (isRequestApp && !accessTokenV2) { message.warning(`Please provide ${currentApp?.name || 'source'} access token`); return }
+        if (!isRequestApp && !accessToken) { message.warning(`Please provide ${currentApp?.name || 'source'} access token`); return }
         if (selectedObjects.length === 0) { message.warning('Please select at least one object'); return }
-        if (!servicePreview) { message.warning('Please load Service preview and choose the Services for this flow'); return }
-        if (Array.isArray(servicePreview.services) && servicePreview.services.length > 0 && selectedServiceIds.length === 0) {
+        if (isRequestApp && !requestPreview) { message.warning('Please load Request preview and choose the groups for this flow'); return }
+        if (isRequestApp && Array.isArray(requestPreview?.groups) && requestPreview.groups.length > 0 && selectedGroupIds.length === 0) {
+          message.warning('Please select at least one Request group for this flow'); return
+        }
+        if (isServiceApp && !servicePreview) { message.warning('Please load Service preview and choose the Services for this flow'); return }
+        if (isServiceApp && Array.isArray(servicePreview.services) && servicePreview.services.length > 0 && selectedServiceIds.length === 0) {
           message.warning('Please select at least one Service for this flow'); return
+        }
+        if (isWeworkApp && !weworkPreview) { message.warning('Please load WeWork preview and choose the Projects for this flow'); return }
+        if (isWeworkApp && Array.isArray(weworkPreview?.projects) && weworkPreview.projects.length === 0) {
+          message.warning('No projects are available for this token'); return
+        }
+        if (isWeworkApp && Array.isArray(weworkPreview?.projects) && weworkPreview.projects.length > 0 && selectedProjectIds.length === 0) {
+          message.warning('Please select at least one WeWork project for this flow'); return
+        }
+        if (isWorkflowApp && !workflowPreview) { message.warning('Please load Workflow preview and choose the Workflows for this flow'); return }
+        if (isWorkflowApp && Array.isArray(workflowPreview?.workflows) && workflowPreview.workflows.length === 0) {
+          message.warning('No workflows are available for this token'); return
+        }
+        if (isWorkflowApp && Array.isArray(workflowPreview?.workflows) && workflowPreview.workflows.length > 0 && selectedWorkflowIds.length === 0) {
+          message.warning('Please select at least one Workflow for this flow'); return
         }
       }
       if (currentStep === 1) {
+        if (isWorkflowApp && backupType === 'unstructured') { message.warning('Workflow currently supports Structured and Complete backup only'); return }
         if (!backupType || !storageDestination || !googleAuthMethod) { message.warning('Please choose backup type, destination, and Google auth method'); return }
         if (googleAuthMethod === 'oauth' && !googleAuth) { message.warning('Please connect with Google'); return }
         if (googleAuthMethod === 'service_account' && !hasReadyServiceAccountAuth()) { message.warning(platformServiceAccount?.available ? 'Select the shared platform service account or upload a service account JSON key' : 'Please upload and analyze a Google service account JSON file'); return }
@@ -493,7 +578,7 @@ export default function useWizardState() {
     }
 
     setCurrentStep(prev => prev + 1)
-  }, [currentStep, flowName, selectedApp, isServiceApp, totalSteps, domain, accessToken, selectedObjects, backupType, storageDestination, googleAuthMethod, googleAuth, isRequestApp, accessTokenV2, hasServiceAccountStep, draftFlowId, buildAutosavePayload, servicePreview, selectedServiceIds, hasReadyServiceAccountAuth, platformServiceAccount])
+  }, [currentStep, flowName, selectedApp, usesCondensedServiceWizard, isServiceApp, isWorkflowApp, isWeworkApp, totalSteps, connectionConfig, currentApp, domain, accessToken, selectedObjects, backupType, storageDestination, googleAuthMethod, googleAuth, isRequestApp, accessTokenV2, hasServiceAccountStep, draftFlowId, buildAutosavePayload, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, hasReadyServiceAccountAuth, platformServiceAccount])
 
   const prev = useCallback(() => setCurrentStep(s => s - 1), [])
 
@@ -509,8 +594,44 @@ export default function useWizardState() {
       message.warning('Please load the current Service source preview before saving this flow'); return
     }
 
+    if (isRequestApp && !requestPreview) {
+      message.warning('Please load the current Request source preview before saving this flow'); return
+    }
+
+    if (isRequestApp && Array.isArray(requestPreview?.groups) && requestPreview.groups.length > 0 && selectedGroupIds.length === 0) {
+      message.warning('Please select at least one Request group for this flow'); return
+    }
+
     if (isServiceApp && Array.isArray(servicePreview?.services) && servicePreview.services.length > 0 && selectedServiceIds.length === 0) {
       message.warning('Please select at least one Service for this test flow'); return
+    }
+
+    if (isWeworkApp && !weworkPreview) {
+      message.warning('Please load the current WeWork source preview before saving this flow'); return
+    }
+
+    if (isWeworkApp && Array.isArray(weworkPreview?.projects) && weworkPreview.projects.length === 0) {
+      message.warning('No projects are available for this token'); return
+    }
+
+    if (isWeworkApp && Array.isArray(weworkPreview?.projects) && weworkPreview.projects.length > 0 && selectedProjectIds.length === 0) {
+      message.warning('Please select at least one WeWork project for this flow'); return
+    }
+
+    if (isWorkflowApp && !workflowPreview) {
+      message.warning('Please load the current Workflow source preview before saving this flow'); return
+    }
+
+    if (isWorkflowApp && Array.isArray(workflowPreview?.workflows) && workflowPreview.workflows.length === 0) {
+      message.warning('No workflows are available for this token'); return
+    }
+
+    if (isWorkflowApp && Array.isArray(workflowPreview?.workflows) && workflowPreview.workflows.length > 0 && selectedWorkflowIds.length === 0) {
+      message.warning('Please select at least one Workflow for this flow'); return
+    }
+
+    if (isWorkflowApp && backupType === 'unstructured') {
+      message.warning('Workflow currently supports Structured and Complete backup only'); return
     }
 
     if (runAfterSave) {
@@ -527,18 +648,21 @@ export default function useWizardState() {
         name: storageDestination === 'gdrive' ? 'Google Drive' : 'Google Sheets',
         auth: buildGoogleDestinationAuth(),
       },
-      structure: { objects: ['group', 'request'] },
+      structure: {
+        objects: selectedObjects.length ? selectedObjects : ['group', 'request'],
+        group_ids: selectedGroupIds,
+      },
       updated_by: 'current_user',
     } : {
       name: flowName.trim() || undefined,
       source: {
         app: selectedApp,
         app_name: currentApp.name,
-        domain: isServiceApp ? domain : selectedApp,
+        domain: connectionConfig?.requiresDomain ? domain : selectedApp,
         access_token: accessToken,
       },
-      backup_type: isServiceApp ? backupType : 'all',
-      destination: isServiceApp ? {
+      backup_type: usesCondensedServiceWizard ? backupType : 'all',
+      destination: usesCondensedServiceWizard ? {
         type: storageDestination,
         name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
         auth: buildGoogleDestinationAuth(),
@@ -551,6 +675,12 @@ export default function useWizardState() {
         objects: selectedObjects,
         custom_fields: selectedFieldIds,
         export_formats: exportFormats,
+        ...(isWeworkApp ? {
+          project_ids: selectedProjectIds,
+        } : {}),
+        ...(isWorkflowApp ? {
+          workflow_ids: selectedWorkflowIds,
+        } : {}),
         ...(isServiceApp ? {
           service_ids: selectedServiceIds,
           include_catalog: true,
@@ -589,7 +719,7 @@ export default function useWizardState() {
 
     resetAll()
     return true
-  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, servicePreview, selectedServiceIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, domain, accessTokenV2, backupType, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, accessToken, selectedObjects, selectedFieldIds, exportFormats, resetAll, hasReadyServiceAccountAuth, platformServiceAccount])
+  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, domain, accessTokenV2, backupType, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, resetAll, hasReadyServiceAccountAuth, platformServiceAccount])
 
   // ── Load flow for editing ─────────────────────────────────────────────
   const loadFlowForEdit = useCallback(async (flowId) => {
@@ -609,6 +739,12 @@ export default function useWizardState() {
       if (src.app === 'request') {
         if (src.domain) setDomain(src.domain)
         if (src.access_token) setAccessTokenV2(src.access_token)
+        if (Array.isArray(struct.objects)) setSelectedObjects(struct.objects)
+        else setSelectedObjects(['group', 'request'])
+        if (Array.isArray(struct.group_ids)) {
+          setSelectedGroupIds(struct.group_ids)
+          setDraftSelectedGroupIds(struct.group_ids)
+        }
         if (f.backup_type) setBackupType(f.backup_type)
         if (dest.type) setStorageDestination(dest.type)
         const auth = dest.auth || {}
@@ -653,14 +789,22 @@ export default function useWizardState() {
           })
         }
       } else {
-        if (src.app === 'service' && src.domain) setDomain(src.domain)
+        if ((src.app === 'service' || src.app === 'workflow' || src.app === 'wework') && src.domain) setDomain(src.domain)
         if (f.backup_type) setBackupType(f.backup_type)
         if (dest.type) setStorageDestination(dest.type)
         if (src.access_token) setAccessToken(src.access_token)
         if (Array.isArray(struct.objects)) setSelectedObjects(struct.objects)
         if (Array.isArray(struct.custom_fields)) setSelectedFieldIds(struct.custom_fields)
         if (struct.export_formats && typeof struct.export_formats === 'object') setExportFormats(struct.export_formats)
+        if (Array.isArray(struct.project_ids)) {
+          setSelectedProjectIds(struct.project_ids)
+          setDraftSelectedProjectIds(struct.project_ids)
+        }
         if (Array.isArray(struct.service_ids)) setSelectedServiceIds(struct.service_ids)
+        if (Array.isArray(struct.workflow_ids)) {
+          setSelectedWorkflowIds(struct.workflow_ids)
+          setDraftSelectedWorkflowIds(struct.workflow_ids)
+        }
         const auth = dest.auth || {}
         if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
           setGoogleAuthMethod('service_account')
@@ -746,6 +890,84 @@ export default function useWizardState() {
       setLoadingServicePreview(false)
     }
   }, [domain, accessToken, selectedServiceIds])
+
+  const loadWorkflowPreview = useCallback(async (workflowIdsOverride = selectedWorkflowIds) => {
+    if (!domain || !accessToken) { message.warning('Please enter Workflow domain and access token first'); return }
+    shouldResetWorkflowPreviewScrollRef.current = true
+    setLoadingWorkflowPreview(true)
+    try {
+      const res = await api.post('/api/connectors/workflow/preview', {
+        domain,
+        access_token: accessToken,
+        job_sample_limit: 2,
+        workflow_ids: workflowIdsOverride.length ? workflowIdsOverride : undefined,
+        detail_workflow_limit: workflowIdsOverride.length ? Math.min(workflowIdsOverride.length, 10) : 5,
+      })
+      setWorkflowPreview(res.data)
+      if (!selectedWorkflowIds.length && Array.isArray(res.data?.workflows)) {
+        const defaultIds = res.data.workflows.map(item => item.workflow_id).filter(Boolean)
+        setSelectedWorkflowIds(defaultIds)
+        setDraftSelectedWorkflowIds(defaultIds)
+      }
+      message.success('Loaded Workflow source preview')
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to load Workflow source preview')
+    } finally {
+      setLoadingWorkflowPreview(false)
+    }
+  }, [domain, accessToken, selectedWorkflowIds])
+
+  const loadWeworkPreview = useCallback(async (projectIdsOverride = selectedProjectIds) => {
+    if (!domain || !accessToken) { message.warning('Please enter WeWork domain and access token first'); return }
+    shouldResetWeworkPreviewScrollRef.current = true
+    setLoadingWeworkPreview(true)
+    try {
+      const res = await api.post('/api/connectors/wework/preview', {
+        domain,
+        access_token: accessToken,
+        task_sample_limit: 3,
+        project_ids: projectIdsOverride.length ? projectIdsOverride : undefined,
+        detail_project_limit: projectIdsOverride.length ? Math.min(projectIdsOverride.length, 10) : 5,
+      })
+      setWeworkPreview(res.data)
+      if (!selectedProjectIds.length && Array.isArray(res.data?.projects)) {
+        const defaultIds = res.data.projects.map(item => item.project_id).filter(Boolean)
+        setSelectedProjectIds(defaultIds)
+        setDraftSelectedProjectIds(defaultIds)
+      }
+      message.success('Loaded WeWork source preview')
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to load WeWork source preview')
+    } finally {
+      setLoadingWeworkPreview(false)
+    }
+  }, [domain, accessToken, selectedProjectIds])
+
+  const loadRequestPreview = useCallback(async (groupIdsOverride = selectedGroupIds) => {
+    if (!domain || !accessTokenV2) { message.warning('Please enter Request domain and access token first'); return }
+    shouldResetRequestPreviewScrollRef.current = true
+    setLoadingRequestPreview(true)
+    try {
+      const res = await api.post('/api/connectors/request/preview', {
+        domain,
+        access_token: accessTokenV2,
+        request_sample_limit: 2,
+        group_ids: groupIdsOverride.length ? groupIdsOverride : undefined,
+        detail_group_limit: groupIdsOverride.length ? Math.min(groupIdsOverride.length, 10) : 5,
+      })
+      setRequestPreview(res.data)
+      if (!selectedGroupIds.length && Array.isArray(res.data?.groups)) {
+        const defaultIds = res.data.groups.map(item => item.group_id).filter(Boolean)
+        setSelectedGroupIds(defaultIds)
+        setDraftSelectedGroupIds(defaultIds)
+      }
+      message.success('Loaded Request source preview')
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to load Request source preview')
+    } finally {
+      setLoadingRequestPreview(false)
+    }
+  }, [domain, accessTokenV2, selectedGroupIds])
 
   // ── Google OAuth popup ────────────────────────────────────────────────
   const startGoogleOAuthPopup = useCallback((url) => new Promise((resolve, reject) => {
@@ -1034,6 +1256,27 @@ export default function useWizardState() {
   }, [gcClientId, gcClientSecret, googleSecretSet, gcRedirectUri, startGoogleOAuthPopup, loadSavedGoogleConnections])
 
   // ── Service selector modal helpers ────────────────────────────────────
+  const openRequestSelectorModal = useCallback(() => {
+    if (!requestPreview && !loadingRequestPreview) loadRequestPreview()
+    setDraftSelectedGroupIds(selectedGroupIds)
+    setRequestSelectorModalOpen(true)
+  }, [requestPreview, loadingRequestPreview, selectedGroupIds, loadRequestPreview])
+
+  const closeRequestSelectorModal = useCallback(() => {
+    setDraftSelectedGroupIds(selectedGroupIds)
+    setRequestSelectorModalOpen(false)
+  }, [selectedGroupIds])
+
+  const applyRequestSelectorModal = useCallback(async () => {
+    setSelectedGroupIds(draftSelectedGroupIds)
+    setRequestSelectorModalOpen(false)
+    if (draftFlowId) {
+      await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
+        structure: { objects: selectedObjects, group_ids: draftSelectedGroupIds },
+      }).catch(() => {})
+    }
+  }, [draftSelectedGroupIds, draftFlowId, selectedObjects])
+
   const openServiceSelectorModal = useCallback(() => {
     if (!servicePreview && !loadingServicePreview) loadServicePreview()
     setDraftSelectedServiceIds(selectedServiceIds)
@@ -1054,6 +1297,48 @@ export default function useWizardState() {
       }).catch(() => {})
     }
   }, [draftSelectedServiceIds, draftFlowId, selectedObjects])
+
+  const openWorkflowSelectorModal = useCallback(() => {
+    if (!workflowPreview && !loadingWorkflowPreview) loadWorkflowPreview()
+    setDraftSelectedWorkflowIds(selectedWorkflowIds)
+    setWorkflowSelectorModalOpen(true)
+  }, [workflowPreview, loadingWorkflowPreview, selectedWorkflowIds, loadWorkflowPreview])
+
+  const closeWorkflowSelectorModal = useCallback(() => {
+    setDraftSelectedWorkflowIds(selectedWorkflowIds)
+    setWorkflowSelectorModalOpen(false)
+  }, [selectedWorkflowIds])
+
+  const applyWorkflowSelectorModal = useCallback(async () => {
+    setSelectedWorkflowIds(draftSelectedWorkflowIds)
+    setWorkflowSelectorModalOpen(false)
+    if (draftFlowId) {
+      await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
+        structure: { objects: selectedObjects, workflow_ids: draftSelectedWorkflowIds },
+      }).catch(() => {})
+    }
+  }, [draftSelectedWorkflowIds, draftFlowId, selectedObjects])
+
+  const openWeworkSelectorModal = useCallback(() => {
+    if (!weworkPreview && !loadingWeworkPreview) loadWeworkPreview()
+    setDraftSelectedProjectIds(selectedProjectIds)
+    setWeworkSelectorModalOpen(true)
+  }, [weworkPreview, loadingWeworkPreview, selectedProjectIds, loadWeworkPreview])
+
+  const closeWeworkSelectorModal = useCallback(() => {
+    setDraftSelectedProjectIds(selectedProjectIds)
+    setWeworkSelectorModalOpen(false)
+  }, [selectedProjectIds])
+
+  const applyWeworkSelectorModal = useCallback(async () => {
+    setSelectedProjectIds(draftSelectedProjectIds)
+    setWeworkSelectorModalOpen(false)
+    if (draftFlowId) {
+      await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
+        structure: { objects: selectedObjects, project_ids: draftSelectedProjectIds },
+      }).catch(() => {})
+    }
+  }, [draftSelectedProjectIds, draftFlowId, selectedObjects])
 
   // ── Drive folder summary helper ───────────────────────────────────────
   const getGoogleDriveFolderSummary = useCallback((
@@ -1102,19 +1387,29 @@ export default function useWizardState() {
 
   const getStepDescriptions = useCallback(() => {
     if (usesCondensedServiceWizard) {
-      return ['Name your flow, connect Service, and choose services', 'Configure backup storage', 'Confirm & create your flow']
+      if (isRequestApp) {
+        return ['Name your flow, connect Request, and choose data scope', 'Configure backup storage', 'Confirm & create your flow']
+      }
+      if (isServiceApp) {
+        return ['Name your flow, connect Service, and choose services', 'Configure backup storage', 'Confirm & create your flow']
+      }
+      if (isWeworkApp) {
+        return ['Name your flow, connect WeWork, and choose projects', 'Configure backup storage', 'Confirm & create your flow']
+      }
+      return ['Name your flow, connect Workflow, and choose workflows', 'Configure backup storage', 'Confirm & create your flow']
     }
     if (isRequestApp) {
       return ['Name & choose application', 'Connection information', 'Backup type & storage', ...(hasServiceAccountStep ? ['Google authentication'] : []), 'Review & create']
     }
     return ['Name & choose application', 'Select data to backup', 'Connect & configure', ...(hasServiceAccountStep ? ['Google authentication'] : []), 'Review & create']
-  }, [usesCondensedServiceWizard, isRequestApp, hasServiceAccountStep])
+  }, [usesCondensedServiceWizard, isServiceApp, isRequestApp, isWeworkApp, hasServiceAccountStep])
 
   return {
     // Core
     currentStep, setCurrentStep, draftFlowId, setDraftFlowId, editFlowId, setEditFlowId, flowName, setFlowName,
     // App
-    selectedApp, setSelectedApp, currentApp, isRequestApp, isServiceApp, connectionConfig,
+    selectedApp, setSelectedApp, currentApp, isRequestApp, isServiceApp, isWorkflowApp, connectionConfig,
+    isWeworkApp,
     // Source
     domain, setDomain, accessTokenV2, setAccessTokenV2, showTokenV2, setShowTokenV2,
     accessToken, setAccessToken, showToken, setShowToken, selectedObjects, setSelectedObjects,
@@ -1135,10 +1430,22 @@ export default function useWizardState() {
     serviceSourceSetupSaved, setServiceSourceSetupSaved,
     serviceBackupSetupSaved, setServiceBackupSetupSaved,
     servicePreviewListRef, shouldResetServicePreviewScrollRef,
+    requestPreview, setRequestPreview, loadingRequestPreview, selectedGroupIds, setSelectedGroupIds,
+    draftSelectedGroupIds, setDraftSelectedGroupIds,
+    requestPreviewListRef, shouldResetRequestPreviewScrollRef,
+    workflowPreview, setWorkflowPreview, loadingWorkflowPreview, selectedWorkflowIds, setSelectedWorkflowIds,
+    draftSelectedWorkflowIds, setDraftSelectedWorkflowIds,
+    workflowPreviewListRef, shouldResetWorkflowPreviewScrollRef,
+    weworkPreview, setWeworkPreview, loadingWeworkPreview, selectedProjectIds, setSelectedProjectIds,
+    draftSelectedProjectIds, setDraftSelectedProjectIds,
+    weworkPreviewListRef, shouldResetWeworkPreviewScrollRef,
     // Modals
     showAppSelectionModal, setShowAppSelectionModal,
     showDestinationModal, setShowDestinationModal,
+    requestSelectorModalOpen, setRequestSelectorModalOpen,
     serviceSelectorModalOpen, setServiceSelectorModalOpen,
+    workflowSelectorModalOpen, setWorkflowSelectorModalOpen,
+    weworkSelectorModalOpen, setWeworkSelectorModalOpen,
     // Folder picker
     googleFolderModal, setGoogleFolderModal,
     drives, loadingDrives, currentDriveId, folders, folderPath, loadingFolders,
@@ -1165,7 +1472,10 @@ export default function useWizardState() {
     handleOpenFolderPicker, handleDriveChange, handleOpenSubFolder, handleBreadcrumbNav,
     handleSelectCurrentFolder, handleResolveSharedFolder,
     applyGoogleFolderSelection, openFolderLocation, loadSharedFolders,
+    loadRequestPreview, openRequestSelectorModal, closeRequestSelectorModal, applyRequestSelectorModal,
     openServiceSelectorModal, closeServiceSelectorModal, applyServiceSelectorModal,
+    loadWorkflowPreview, openWorkflowSelectorModal, closeWorkflowSelectorModal, applyWorkflowSelectorModal,
+    loadWeworkPreview, openWeworkSelectorModal, closeWeworkSelectorModal, applyWeworkSelectorModal,
     getStepLabels, getStepDescriptions,
   }
 }

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import {
   Globe, Eye, EyeOff, Check, CheckCircle, Lock,
   Folder, FileSpreadsheet, ChevronRight,
@@ -13,6 +13,7 @@ import { BACKUP_TYPE_OPTIONS, DESTINATION_OPTIONS } from '../../constants'
  */
 const BackupSetupSection = ({ wizard }) => {
   const {
+    isWorkflowApp,
     backupType, setBackupType,
     storageDestination, selectDestination,
     googleAuthMethod, setGoogleAuthMethod, googleAuth, setGoogleAuth,
@@ -38,6 +39,15 @@ const BackupSetupSection = ({ wizard }) => {
 
   const folderSummary = getGoogleDriveFolderSummary()
   const blockedReason = getGoogleDriveRunBlockedReason()
+  const availableBackupTypes = isWorkflowApp
+    ? BACKUP_TYPE_OPTIONS.filter(type => type.id !== 'unstructured')
+    : BACKUP_TYPE_OPTIONS
+
+  useEffect(() => {
+    if (isWorkflowApp && backupType === 'unstructured') {
+      setBackupType(null)
+    }
+  }, [isWorkflowApp, backupType, setBackupType])
 
   return (
     <div className="w-full max-w-4xl space-y-6">
@@ -48,8 +58,11 @@ const BackupSetupSection = ({ wizard }) => {
           What type of backup do you need? <span className="text-red-500">*</span>
         </label>
         <p className="text-xs text-gray-400 mb-3">Choose the format that best fits your future needs</p>
+        {isWorkflowApp && (
+          <Alert type="info" message="Workflow v1 supports Structured and Complete backup only" description="The current Workflow APIs do not provide a separate unstructured read path yet, so Files & Attachments is hidden for this app." className="mb-3" />
+        )}
         <div className="space-y-2.5">
-          {BACKUP_TYPE_OPTIONS.map(type => (
+          {availableBackupTypes.map(type => (
             <div
               key={type.id}
               onClick={() => { setBackupType(type.id); setServiceBackupSetupSaved(false) }}

@@ -28,6 +28,11 @@ const FlowWizard = ({ wizard, viewMode, onBack }) => {
   const stepDescriptions = getStepDescriptions()
   const progressPercent = totalSteps > 1 ? Math.round((currentStep / (totalSteps - 1)) * 100) : 0
 
+  const handleSubmit = async (runAfterSave = false) => {
+    const saved = await handleFinish(runAfterSave, viewMode)
+    if (saved && isEdit) onBack()
+  }
+
   // Dynamic max-width for step content
   const isReviewStep = currentStep === totalSteps - 1
   const stepContentShellClass = isReviewStep
@@ -236,14 +241,14 @@ const FlowWizard = ({ wizard, viewMode, onBack }) => {
                 )}
                 {currentStep === totalSteps - 1 && (
                   <>
-                    <button onClick={() => handleFinish(false)}
+                    <button onClick={() => { void handleSubmit(false) }}
                       className="flex items-center gap-2 px-6 py-2.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-sm shadow-blue-200">
                       {isEdit
                         ? <><Pencil className="w-4 h-4" /> Save Changes</>
                         : <><Rocket className="w-4 h-4" /> Create Backup Flow</>}
                     </button>
-                    {['request', 'service'].includes(currentApp?.id || '') && (
-                      <button onClick={() => handleFinish(true)}
+                    {['request', 'service', 'workflow', 'wework'].includes(currentApp?.id || '') && (
+                      <button onClick={() => { void handleSubmit(true) }}
                         className="flex items-center gap-2 px-5 py-2.5 text-sm border border-green-300 text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors font-medium">
                         <Play className="w-4 h-4" />
                         {isEdit ? 'Save & Run Now' : 'Create & Run Now'}
