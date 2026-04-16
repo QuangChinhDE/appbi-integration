@@ -171,7 +171,7 @@ class BackupFlowService:
     @staticmethod
     def get_run_blocked_reason(flow: BackupFlow) -> Optional[str]:
         destination = flow.destination or {}
-        if destination.get('type') != 'gdrive':
+        if destination.get('type') not in {'gdrive', 'gsheets'}:
             return None
 
         try:
@@ -580,7 +580,7 @@ class BackupFlowService:
             return None
 
         destination = flow.destination or {}
-        if destination.get('type') == 'gdrive':
+        if destination.get('type') in {'gdrive', 'gsheets'}:
             validate_service_account_drive_destination(dict(destination.get('auth') or {}))
         
         # Launch backup asynchronously (non-blocking)

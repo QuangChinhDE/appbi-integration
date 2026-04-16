@@ -18,6 +18,7 @@ __pycache__/
 # Local scratch files
 *.new.jsx
 *.original.jsx
+.vscode/
 
 # Logs / temp
 *.log

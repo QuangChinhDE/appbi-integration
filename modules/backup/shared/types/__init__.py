@@ -5,6 +5,7 @@ from uuid import UUID
 
 # Source schema
 class SourceInfo(BaseModel):
+    source_connection_id: Optional[str] = Field(None, description="Reusable source connection ID")
     app: str = Field(..., description="App identifier (request, workflow, wework, service)")
     app_name: str = Field(..., description="Human-readable app name")
     domain: str = Field(..., description="Domain for the app (e.g., company.vn)")
@@ -12,6 +13,7 @@ class SourceInfo(BaseModel):
 
 # Destination schema
 class DestinationInfo(BaseModel):
+    destination_profile_id: Optional[str] = Field(None, description="Reusable destination profile ID")
     type: str = Field(..., description="Destination type (gdrive, gsheets)")
     name: str = Field(..., description="Human-readable destination name")
     auth: Dict[str, Any] = Field(..., description="Authentication information")

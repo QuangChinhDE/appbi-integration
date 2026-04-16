@@ -5,7 +5,7 @@ import hashlib
 import base64
 from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, Mapping
-from urllib.parse import parse_qs, urlencode, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 
 import httpx
 from cryptography import x509
@@ -52,6 +52,63 @@ def encrypt_value(value: str) -> str:
 
 def decrypt_value(encrypted: str) -> str:
     return _get_fernet().decrypt(encrypted.encode()).decode()
+
+
+SERVICE_ACCOUNT_ENV_DEFAULTS = {
+    "type": "service_account",
+    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+    "token_uri": "https://oauth2.googleapis.com/token",
+    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+    "universe_domain": "googleapis.com",
+}
+
+SERVICE_ACCOUNT_ENV_FIELD_MAP = {
+    "type": "GCP_SERVICE_ACCOUNT_TYPE",
+    "project_id": "GCP_SERVICE_ACCOUNT_PROJECT_ID",
+    "private_key_id": "GCP_SERVICE_ACCOUNT_PRIVATE_KEY_ID",
+    "private_key": "GCP_SERVICE_ACCOUNT_PRIVATE_KEY",
+    "client_email": "GCP_SERVICE_ACCOUNT_CLIENT_EMAIL",
+    "client_id": "GCP_SERVICE_ACCOUNT_CLIENT_ID",
+    "auth_uri": "GCP_SERVICE_ACCOUNT_AUTH_URI",
+    "token_uri": "GCP_SERVICE_ACCOUNT_TOKEN_URI",
+    "auth_provider_x509_cert_url": "GCP_SERVICE_ACCOUNT_AUTH_PROVIDER_X509_CERT_URL",
+    "client_x509_cert_url": "GCP_SERVICE_ACCOUNT_CLIENT_X509_CERT_URL",
+    "universe_domain": "GCP_SERVICE_ACCOUNT_UNIVERSE_DOMAIN",
+}
+
+
+def build_service_account_info_from_env() -> Optional[Dict[str, Any]]:
+    raw_client_email = (
+        os.getenv("GCP_SERVICE_ACCOUNT_CLIENT_EMAIL", "")
+        or os.getenv("GCP_SERVICE_ACCOUNT_EMAIL", "")
+    ).strip()
+    raw_private_key = os.getenv("GCP_SERVICE_ACCOUNT_PRIVATE_KEY", "").strip()
+    raw_project_id = os.getenv("GCP_SERVICE_ACCOUNT_PROJECT_ID", "").strip()
+    raw_private_key_id = os.getenv("GCP_SERVICE_ACCOUNT_PRIVATE_KEY_ID", "").strip()
+
+    if not any([raw_client_email, raw_private_key, raw_project_id, raw_private_key_id]):
+        return None
+
+    payload: Dict[str, Any] = {}
+    for field_name, env_name in SERVICE_ACCOUNT_ENV_FIELD_MAP.items():
+        value = os.getenv(env_name, "").strip()
+        if value:
+            payload[field_name] = value
+
+    if raw_client_email and not payload.get("client_email"):
+        payload["client_email"] = raw_client_email
+
+    for field_name, default_value in SERVICE_ACCOUNT_ENV_DEFAULTS.items():
+        if default_value and not payload.get(field_name):
+            payload[field_name] = default_value
+
+    if payload.get("client_email") and not payload.get("client_x509_cert_url"):
+        payload["client_x509_cert_url"] = (
+            "https://www.googleapis.com/robot/v1/metadata/x509/"
+            f"{quote(str(payload['client_email']), safe='')}"
+        )
+
+    return normalize_service_account_info(payload)
 
 
 def normalize_service_account_info(value: Any) -> Dict[str, Any]:
@@ -265,15 +322,29 @@ class AppConfigService:
         ).strip()
 
         normalized_payload: Optional[Dict[str, Any]] = None
+        diagnostic_message: Optional[str] = None
         if str(raw_json or "").strip():
-            normalized_payload = normalize_service_account_info(raw_json)
-            if not email:
-                email = str(normalized_payload.get("client_email") or "").strip()
+            try:
+                normalized_payload = normalize_service_account_info(raw_json)
+            except ValueError as exc:
+                diagnostic_message = str(exc)
+            else:
+                if not email:
+                    email = str(normalized_payload.get("client_email") or "").strip()
+        else:
+            try:
+                normalized_payload = build_service_account_info_from_env()
+            except ValueError as exc:
+                diagnostic_message = str(exc)
+            else:
+                if normalized_payload and not email:
+                    email = str(normalized_payload.get("client_email") or "").strip()
 
         return {
             "configured": normalized_payload is not None,
             "service_account_json": normalized_payload,
             "service_account_email": email or None,
+            "diagnostic_message": diagnostic_message,
         }
 
 
@@ -492,10 +563,13 @@ class GoogleAuthService:
             if service_account_payload is None:
                 platform_cfg = await AppConfigService(self.db).get_platform_service_account_config()
                 service_account_payload = platform_cfg["service_account_json"]
+                if service_account_payload is None and platform_cfg.get("diagnostic_message"):
+                    raise ValueError(str(platform_cfg["diagnostic_message"]))
             if service_account_payload is None:
                 raise ValueError(
                     "Service account mode is selected, but no service account JSON is available. "
-                    "Upload a JSON key or configure a platform service account first."
+                    "Upload a JSON key or configure a platform service account first. "
+                    "You can use either GCP_SERVICE_ACCOUNT_JSON or the discrete GCP_SERVICE_ACCOUNT_* env fields."
                 )
             normalized = normalize_service_account_info(service_account_payload)
             return await self.get_service_account_access_token_details(normalized)

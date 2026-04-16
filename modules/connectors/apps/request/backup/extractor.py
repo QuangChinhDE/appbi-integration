@@ -119,6 +119,18 @@ def build_excel_bytes(df: pd.DataFrame) -> bytes:
     return buf.read()
 
 
+def is_google_sheets_destination(destination_type: Optional[str]) -> bool:
+    return str(destination_type or "").strip().lower() == "gsheets"
+
+
+def normalize_google_sheet_filename(filename: str) -> str:
+    lowered = filename.lower()
+    for extension in (".xlsx", ".xls", ".csv", ".tsv"):
+        if lowered.endswith(extension):
+            return filename[: -len(extension)]
+    return filename
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Google Drive helpers
 # ─────────────────────────────────────────────────────────────────────────────
@@ -333,9 +345,18 @@ async def gdrive_upload_bytes(
     content: bytes,
     mime_type: str,
     parent_id: str,
+    *,
+    convert_to_google_sheet: bool = False,
 ) -> str:
     """Upload bytes as a file to Google Drive. Returns new file ID."""
-    metadata = json.dumps({"name": filename, "parents": [parent_id]})
+    metadata_payload: Dict[str, Any] = {
+        "name": normalize_google_sheet_filename(filename) if convert_to_google_sheet else filename,
+        "parents": [parent_id],
+    }
+    if convert_to_google_sheet:
+        metadata_payload["mimeType"] = "application/vnd.google-apps.spreadsheet"
+
+    metadata = json.dumps(metadata_payload)
     boundary = "gdrive_boundary_2026"
     body = (
         f"--{boundary}\r\n"
@@ -359,6 +380,24 @@ async def gdrive_upload_bytes(
         )
         resp.raise_for_status()
         return resp.json()["id"]
+
+
+async def gdrive_upload_tabular_bytes(
+    token: GoogleDriveTokenSource,
+    filename: str,
+    content: bytes,
+    parent_id: str,
+    *,
+    destination_type: Optional[str] = None,
+) -> str:
+    return await gdrive_upload_bytes(
+        token,
+        filename,
+        content,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        parent_id,
+        convert_to_google_sheet=is_google_sheets_destination(destination_type),
+    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -586,14 +625,16 @@ async def _upload_excel_rows(
     parent_id: str,
     filename: str,
     rows: List[Dict[str, Any]],
+    *,
+    destination_type: Optional[str] = None,
 ) -> None:
     dataframe = pd.DataFrame(rows)
-    await gdrive_upload_bytes(
+    await gdrive_upload_tabular_bytes(
         gdrive_token,
         filename,
         build_excel_bytes(dataframe),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         parent_id,
+        destination_type=destination_type,
     )
 
 
@@ -607,6 +648,8 @@ async def process_single_request(
     gdrive_token: GoogleDriveTokenSource,
     group_folder_id: str,
     log_lines: List[str],
+    *,
+    destination_type: Optional[str] = None,
 ) -> dict:
     """
     Process one request: create sub-folder, upload attachments, tables,
@@ -642,6 +685,7 @@ async def process_single_request(
             req_folder_id,
             "Thông tin request.xlsx",
             [_normalize_excel_row(merged_request)],
+            destination_type=destination_type,
         )
         await gdrive_upload_bytes(
             gdrive_token,
@@ -698,12 +742,12 @@ async def process_single_request(
         if result:
             fname, fbytes = result
             try:
-                await gdrive_upload_bytes(
+                await gdrive_upload_tabular_bytes(
                     gdrive_token,
                     fname,
                     fbytes,
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     req_folder_id,
+                    destination_type=destination_type,
                 )
                 log_lines.append(f"      ✓ table: {fname}")
             except Exception as e:
@@ -717,6 +761,7 @@ async def process_single_request(
             req_folder_id,
             "Thông tin trường tùy chỉnh.xlsx",
             custom_rows or [{"Trạng thái": "Không có dữ liệu", "Chi tiết": "Không có custom field thường nào được Request API trả về cho request này."}],
+            destination_type=destination_type,
         )
         log_lines.append("      ✓ custom fields excel")
     except Exception as e:
@@ -763,6 +808,7 @@ async def process_group(
     log_lines: List[str],
     *,
     include_request_folders: bool,
+    destination_type: Optional[str] = None,
 ) -> int:
     """
     Process one group: create GDrive folder, fetch all requests, process each,
@@ -785,7 +831,12 @@ async def process_group(
             row = build_request_row(req)
             if include_request_folders:
                 row = await process_single_request(
-                    req, request_client, gdrive_token, group_folder_id, log_lines
+                    req,
+                    request_client,
+                    gdrive_token,
+                    group_folder_id,
+                    log_lines,
+                    destination_type=destination_type,
                 )
             rows.append(row)
         except Exception as e:
@@ -797,12 +848,12 @@ async def process_group(
     df = pd.DataFrame(rows if rows else [], columns=REQUEST_COLUMNS)
     excel_bytes = build_excel_bytes(df)
     try:
-        await gdrive_upload_bytes(
+        await gdrive_upload_tabular_bytes(
             gdrive_token,
             "Danh sách request.xlsx",
             excel_bytes,
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             group_folder_id,
+            destination_type=destination_type,
         )
         log_lines.append(f"    ✓ group Excel uploaded ({len(rows)} rows)")
     except Exception as e:
@@ -917,6 +968,7 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
 
         # ── Get Google Drive access token ───────────────────────────────────
         dest = flow.destination or {}
+        destination_type = str(dest.get("type") or "gdrive").strip().lower()
         auth = dest.get("auth") or {}
         from modules.credentials.backend.services.google_auth_service import (
             GoogleAuthService,
@@ -1017,6 +1069,7 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
                         get_gdrive_token,
                         log_lines,
                         include_request_folders=include_request_folders,
+                        destination_type=destination_type,
                     )
                     total_requests += count
                 except Exception as e:
@@ -1053,7 +1106,12 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
                             row = build_request_row(req)
                             if include_request_folders:
                                 row = await process_single_request(
-                                    req, request_client, get_gdrive_token, direct_folder_id, log_lines
+                                    req,
+                                    request_client,
+                                    get_gdrive_token,
+                                    direct_folder_id,
+                                    log_lines,
+                                    destination_type=destination_type,
                                 )
                             direct_rows.append(row)
                             total_requests += 1
@@ -1061,12 +1119,12 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
                             log_lines.append(f"  ✗ direct request {req.get('id', '')}: {e}")
 
                     df = pd.DataFrame(direct_rows if direct_rows else [], columns=REQUEST_COLUMNS)
-                    await gdrive_upload_bytes(
+                    await gdrive_upload_tabular_bytes(
                         get_gdrive_token,
                         "Danh sách request.xlsx",
                         build_excel_bytes(df),
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         direct_folder_id,
+                        destination_type=destination_type,
                     )
                     log_lines.append(
                         f"  ✓ direct Excel uploaded ({len(direct_rows)} rows)"

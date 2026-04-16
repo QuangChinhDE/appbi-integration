@@ -33,7 +33,7 @@ const GoogleConfigModal = ({ wizard }) => {
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-4">Enter <strong>Client ID</strong>, <strong>Client Secret</strong> and <strong>Redirect URI</strong> then connect.</p>
+      <p className="text-sm text-gray-500 mb-4">Enter <strong>Client ID</strong>, <strong>Client Secret</strong> and <strong>Redirect URI</strong> then connect. If these values are already set in `.env`, this step is optional.</p>
       {googleConfigError && <Alert type="error" message={googleConfigError} className="mb-4" />}
       {googleConfigLoading ? <SpinCenter /> : (
         <div className="space-y-4">

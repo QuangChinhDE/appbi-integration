@@ -7,6 +7,8 @@ from modules.backup.backend.api.routes import router as backup_router
 from modules.backup.backend.services.backup_flow_service import BackupFlowService
 from modules.connectors.backend.api.routes import router as connectors_router
 from modules.credentials.backend.api.routes import router as credentials_router
+from modules.destinations.backend.api.routes import router as destinations_router
+from modules.sources.backend.api.routes import router as sources_router
 from packages.database.src import Base, async_session, engine, get_db
 
 # Create FastAPI app
@@ -43,6 +45,8 @@ async def health_check():
 app.include_router(backup_router)
 app.include_router(credentials_router)
 app.include_router(connectors_router)
+app.include_router(sources_router)
+app.include_router(destinations_router)
 
 
 if __name__ == "__main__":

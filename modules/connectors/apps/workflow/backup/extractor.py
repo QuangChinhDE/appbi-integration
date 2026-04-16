@@ -19,6 +19,7 @@ from modules.connectors.apps.request.backup.extractor import (
     build_excel_bytes,
     gdrive_create_folder,
     gdrive_recreate_folder,
+    gdrive_upload_tabular_bytes,
     gdrive_upload_bytes,
     sanitize_name,
     truncate_name,
@@ -681,14 +682,16 @@ async def _upload_excel_rows(
     parent_id: str,
     filename: str,
     rows: list[dict[str, Any]],
+    *,
+    destination_type: str = "gdrive",
 ) -> str:
     dataframe = pd.DataFrame(rows)
-    return await gdrive_upload_bytes(
+    return await gdrive_upload_tabular_bytes(
         token,
         filename,
         build_excel_bytes(dataframe),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         parent_id,
+        destination_type=destination_type,
     )
 
 
@@ -698,12 +701,15 @@ async def _upload_excel_rows_or_note(
     filename: str,
     rows: list[dict[str, Any]],
     empty_message: str,
+    *,
+    destination_type: str = "gdrive",
 ) -> str:
     return await _upload_excel_rows(
         token,
         parent_id,
         filename,
         rows if rows else _note_rows(empty_message),
+        destination_type=destination_type,
     )
 
 
@@ -728,6 +734,7 @@ async def _persist_catalog(
     root_folder_id: str,
     workflows: list[dict[str, Any]],
     include_raw_payloads: bool,
+    destination_type: str,
 ) -> tuple[str, int]:
     raw_payload_files = 0
     catalog_folder_id = await gdrive_create_folder(gdrive_token, "0. Danh mục chung", root_folder_id)
@@ -736,6 +743,7 @@ async def _persist_catalog(
         catalog_folder_id,
         "Danh sách workflow.xlsx",
         [_flatten_workflow_row(workflow) for workflow in workflows],
+        destination_type=destination_type,
     )
     return catalog_folder_id, raw_payload_files
 
@@ -751,6 +759,7 @@ async def _persist_job_artifacts(
     include_comments: bool,
     include_raw_payloads: bool,
     log_lines: list[str],
+    destination_type: str,
 ) -> tuple[int, int, int, int]:
     job_id = _job_id(job)
     if not job_id:
@@ -778,6 +787,7 @@ async def _persist_job_artifacts(
         info_folder_id,
         "Thông tin job.xlsx",
         [_build_job_detail_row(merged_job)],
+        destination_type=destination_type,
     )
 
     raw_payload_files = 0
@@ -788,6 +798,7 @@ async def _persist_job_artifacts(
         "Thông tin job log.xlsx",
         _extract_job_log_rows(merged_job),
         "Workflow API không trả dữ liệu job log riêng cho job này.",
+        destination_type=destination_type,
     )
     await _upload_excel_rows_or_note(
         gdrive_token,
@@ -795,6 +806,7 @@ async def _persist_job_artifacts(
         "Thông tin job moves.xlsx",
         _extract_job_move_rows(merged_job),
         "Workflow API không trả dữ liệu move history riêng cho job này.",
+        destination_type=destination_type,
     )
 
     custom_tables_exported = 0
@@ -806,6 +818,7 @@ async def _persist_job_artifacts(
         "custom_fields.xlsx",
         custom_fields_rows,
         "Không có custom fields nào được Workflow API trả về cho job này.",
+        destination_type=destination_type,
     )
     if custom_fields_rows:
         custom_tables_exported += 1
@@ -817,6 +830,7 @@ async def _persist_job_artifacts(
             filename,
             rows,
             empty_message,
+            destination_type=destination_type,
         )
         if rows:
             custom_tables_exported += 1
@@ -941,6 +955,7 @@ async def _execute_workflow_backup(flow_id: str, run_id: str, db: AsyncSession) 
         credentials = WorkflowCredentials(domain=workflow_domain, access_token=workflow_access_token)
 
         destination = flow.destination or {}
+        destination_type = str(destination.get("type") or "gdrive").strip().lower()
         auth = destination.get("auth") or {}
         validate_service_account_drive_destination(auth)
         google_auth_service = GoogleAuthService(db)
@@ -1001,6 +1016,7 @@ async def _execute_workflow_backup(flow_id: str, run_id: str, db: AsyncSession) 
                 root_folder_id=workflow_root_folder_id,
                 workflows=[dict(item) for item in workflows],
                 include_raw_payloads=include_raw_payloads,
+                destination_type=destination_type,
             )
             raw_payload_files += catalog_raw_files
             await persist_progress(
@@ -1080,6 +1096,7 @@ async def _execute_workflow_backup(flow_id: str, run_id: str, db: AsyncSession) 
                         config_folder_id,
                         "Thông tin workflow.xlsx",
                         [_flatten_workflow_row(workflow_detail)],
+                        destination_type=destination_type,
                     )
 
                 if include_stages:
@@ -1088,6 +1105,7 @@ async def _execute_workflow_backup(flow_id: str, run_id: str, db: AsyncSession) 
                         config_folder_id,
                         "Danh sách stage.xlsx",
                         [_flatten_stage_row(stage) for stage in stages],
+                        destination_type=destination_type,
                     )
 
                 if include_job_list:
@@ -1106,6 +1124,7 @@ async def _execute_workflow_backup(flow_id: str, run_id: str, db: AsyncSession) 
                         "Danh sách job.xlsx",
                         [_flatten_job_row(job) for job in jobs],
                         "Không có job nào được Workflow API trả về cho workflow này.",
+                        destination_type=destination_type,
                     )
 
                 if include_job_details:
@@ -1131,6 +1150,7 @@ async def _execute_workflow_backup(flow_id: str, run_id: str, db: AsyncSession) 
                             include_comments=include_comments,
                             include_raw_payloads=include_raw_payloads,
                             log_lines=log_lines,
+                            destination_type=destination_type,
                         )
                         custom_tables_exported += exported_tables
                         raw_payload_files += raw_files

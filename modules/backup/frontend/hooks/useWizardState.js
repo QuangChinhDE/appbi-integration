@@ -18,6 +18,9 @@ export default function useWizardState() {
   const [selectedApp, setSelectedApp] = useState(null)
 
   // ── Source ──────────────────────────────────────────────────────────────
+  const [sourceConnectionId, setSourceConnectionId] = useState(null)
+  const [savedSourceConnections, setSavedSourceConnections] = useState([])
+  const [loadingSavedSourceConnections, setLoadingSavedSourceConnections] = useState(false)
   const [domain, setDomain] = useState('')
   const [accessTokenV2, setAccessTokenV2] = useState('')
   const [showTokenV2, setShowTokenV2] = useState(false)
@@ -27,6 +30,9 @@ export default function useWizardState() {
 
   // ── Backup config ─────────────────────────────────────────────────────
   const [backupType, setBackupType] = useState(null)
+  const [destinationProfileId, setDestinationProfileId] = useState(null)
+  const [savedDestinationProfiles, setSavedDestinationProfiles] = useState([])
+  const [loadingSavedDestinationProfiles, setLoadingSavedDestinationProfiles] = useState(false)
   const [storageDestination, setStorageDestination] = useState(null)
 
   // ── Google auth ───────────────────────────────────────────────────────
@@ -182,10 +188,58 @@ export default function useWizardState() {
     }
   }, [])
 
+  const loadSavedSourceConnections = useCallback(async (appId = selectedApp) => {
+    if (!appId) {
+      setSavedSourceConnections([])
+      return
+    }
+    setLoadingSavedSourceConnections(true)
+    try {
+      const res = await api.get('/api/sources', { params: { app_id: appId } })
+      setSavedSourceConnections(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setSavedSourceConnections([])
+    } finally {
+      setLoadingSavedSourceConnections(false)
+    }
+  }, [selectedApp])
+
+  const loadSavedDestinationProfiles = useCallback(async (destinationType = storageDestination) => {
+    if (!destinationType) {
+      setSavedDestinationProfiles([])
+      return
+    }
+    setLoadingSavedDestinationProfiles(true)
+    try {
+      const res = await api.get('/api/destinations', { params: { destination_type: destinationType } })
+      setSavedDestinationProfiles(Array.isArray(res.data) ? res.data : [])
+    } catch {
+      setSavedDestinationProfiles([])
+    } finally {
+      setLoadingSavedDestinationProfiles(false)
+    }
+  }, [storageDestination])
+
   useEffect(() => {
     void loadPlatformServiceAccount()
     void loadSavedGoogleConnections()
   }, [loadPlatformServiceAccount, loadSavedGoogleConnections])
+
+  useEffect(() => {
+    if (!selectedApp) {
+      setSavedSourceConnections([])
+      return
+    }
+    void loadSavedSourceConnections(selectedApp)
+  }, [selectedApp, loadSavedSourceConnections])
+
+  useEffect(() => {
+    if (!storageDestination) {
+      setSavedDestinationProfiles([])
+      return
+    }
+    void loadSavedDestinationProfiles(storageDestination)
+  }, [storageDestination, loadSavedDestinationProfiles])
 
   useEffect(() => {
     if (googleAuthMethod !== 'service_account') return
@@ -198,9 +252,13 @@ export default function useWizardState() {
   const resetAll = useCallback(() => {
     setCurrentStep(0)
     setSelectedApp(null)
+    setSourceConnectionId(null)
+    setSavedSourceConnections([])
     setDomain('')
     setAccessTokenV2('')
     setBackupType(null)
+    setDestinationProfileId(null)
+    setSavedDestinationProfiles([])
     setStorageDestination(null)
     setGoogleAuthMethod('oauth')
     setGoogleAuth(null)
@@ -236,11 +294,13 @@ export default function useWizardState() {
   // ── App selection ─────────────────────────────────────────────────────
   const handleAppSelection = useCallback((appId) => {
     setSelectedApp(appId)
+    setSourceConnectionId(null)
     setSelectedObjects([])
     setAccessToken('')
     setAccessTokenV2('')
     setDomain('')
     setBackupType(null)
+    setDestinationProfileId(null)
     setStorageDestination(null)
     setGoogleAuthMethod('oauth')
     setGoogleAuth(null)
@@ -266,6 +326,14 @@ export default function useWizardState() {
     setServiceAccountAnalysis(null)
     setServiceAccountFileName('')
     setServiceAccountError('')
+  }, [])
+
+  const clearAppliedSourceConnection = useCallback(() => {
+    setSourceConnectionId(null)
+  }, [])
+
+  const clearAppliedDestinationProfile = useCallback(() => {
+    setDestinationProfileId(null)
   }, [])
 
   // ── Object selection ──────────────────────────────────────────────────
@@ -301,6 +369,7 @@ export default function useWizardState() {
 
   // ── Destination ───────────────────────────────────────────────────────
   const selectDestination = useCallback((dest) => {
+    setDestinationProfileId(null)
     setStorageDestination(dest)
     setGoogleAuth(null)
     setGoogleAuthMethod('oauth')
@@ -313,10 +382,62 @@ export default function useWizardState() {
     setShowDestinationModal(false)
   }, [])
 
+  const applySourceConnection = useCallback(async (sourceId) => {
+    if (!sourceId) return
+    try {
+      const res = await api.get(`/api/sources/${sourceId}/apply`)
+      const nextSource = res.data?.source || {}
+      const nextAppId = nextSource.app || selectedApp
+      if (!nextAppId) {
+        message.error('Saved source is missing the app type')
+        return
+      }
+
+      if (nextAppId !== selectedApp) {
+        handleAppSelection(nextAppId)
+      }
+
+      setSelectedApp(nextAppId)
+      setSourceConnectionId(String(res.data?.id || nextSource.source_connection_id || sourceId))
+      setDomain(nextSource.domain || '')
+
+      if (nextAppId === 'request') {
+        setAccessTokenV2(nextSource.access_token || '')
+        setAccessToken('')
+      } else {
+        setAccessToken(nextSource.access_token || '')
+        setAccessTokenV2('')
+      }
+
+      setRequestPreview(null)
+      setSelectedGroupIds([])
+      setDraftSelectedGroupIds([])
+      setServicePreview(null)
+      setSelectedServiceIds([])
+      setDraftSelectedServiceIds([])
+      setServiceSourceSetupSaved(false)
+      setWorkflowPreview(null)
+      setSelectedWorkflowIds([])
+      setDraftSelectedWorkflowIds([])
+      setWeworkPreview(null)
+      setSelectedProjectIds([])
+      setDraftSelectedProjectIds([])
+
+      if (draftFlowId) {
+        await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, { source: nextSource }).catch(() => {})
+      }
+
+      message.success('Saved source applied to this backup flow')
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to apply saved source')
+    }
+  }, [draftFlowId, handleAppSelection, selectedApp])
+
   const selectSavedGoogleConnection = useCallback((connection) => {
     if (!connection) return
     const connectionId = String(connection.id)
     setGoogleAuthMethod('oauth')
+    setDestinationProfileId(null)
     setServiceBackupSetupSaved(false)
     setGoogleAuth({
       auth_mode: 'google_oauth',
@@ -334,6 +455,80 @@ export default function useWizardState() {
     })
     message.success(`Using saved Google connection: ${connection.email}`)
   }, [])
+
+  const applyDestinationProfile = useCallback(async (profileId) => {
+    if (!profileId) return
+    try {
+      const res = await api.get(`/api/destinations/${profileId}/apply`)
+      const nextDestination = res.data?.destination || {}
+      const auth = nextDestination.auth || {}
+      const resolvedProfileId = String(res.data?.id || nextDestination.destination_profile_id || profileId)
+
+      setDestinationProfileId(resolvedProfileId)
+      setStorageDestination(nextDestination.type || storageDestination)
+      setServiceBackupSetupSaved(false)
+      setDrives([])
+      setFolders([])
+      setFolderPath([])
+      setSharedFolders([])
+      setSharedFolderQuery('')
+      setSharedFolderReference('')
+
+      if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
+        setGoogleAuthMethod('service_account')
+        setGoogleAuth({
+          auth_mode: 'service_account',
+          auth_method: 'service_account',
+          uses_platform_service_account: !!auth.uses_platform_service_account,
+          service_account_email: auth.service_account_email || auth.client_email || '',
+          email: auth.service_account_email || auth.client_email || '',
+          display_name: auth.service_account_email || auth.client_email || 'Service Account',
+          picture_url: '',
+          folder_id: auth.folder_id || null,
+          folder_name: auth.folder_name || null,
+          drive_id: auth.drive_id || null,
+          drive_name: auth.drive_name || null,
+          project_id: auth.project_id || null,
+          service_account_json_encrypted: auth.service_account_json_encrypted || null,
+        })
+        setServiceAccountAnalysis({
+          auth_method: 'service_account',
+          client_email: auth.service_account_email || auth.client_email || '',
+          project_id: auth.project_id || '',
+          drives: [],
+        })
+        setServiceAccountFileName(auth.service_account_json_encrypted ? (auth.service_account_file_name || 'saved-service-account.json') : '')
+        setServiceAccountError('')
+      } else {
+        setGoogleAuthMethod('oauth')
+        setGoogleAuth({
+          auth_mode: 'google_oauth',
+          auth_method: 'oauth',
+          connection_id: auth.connection_id,
+          google_oauth_connection_id: auth.google_oauth_connection_id || auth.connection_id,
+          email: auth.email || auth.google_oauth_email || '',
+          google_oauth_email: auth.google_oauth_email || auth.email || '',
+          display_name: auth.display_name || auth.email || auth.google_oauth_email || '',
+          picture_url: auth.picture_url || '',
+          folder_id: auth.folder_id || null,
+          folder_name: auth.folder_name || null,
+          drive_id: auth.drive_id || null,
+          drive_name: auth.drive_name || null,
+        })
+        setServiceAccountAnalysis(null)
+        setServiceAccountFileName('')
+        setServiceAccountError('')
+      }
+
+      if (draftFlowId) {
+        await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, { destination: nextDestination }).catch(() => {})
+      }
+
+      message.success('Saved destination applied to this backup flow')
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to apply saved destination')
+    }
+  }, [draftFlowId, storageDestination])
 
   // ── Google auth helpers ───────────────────────────────────────────────
   const buildGoogleDestinationAuth = useCallback((
@@ -440,6 +635,7 @@ export default function useWizardState() {
         return {
           name: flowName.trim() || undefined,
           source: selectedApp ? {
+            source_connection_id: sourceConnectionId || undefined,
             app: selectedApp,
             app_name: currentApp?.name,
             domain: connectionConfig?.requiresDomain ? domain : selectedApp,
@@ -458,6 +654,7 @@ export default function useWizardState() {
         return {
           backup_type: backupType,
           destination: {
+            destination_profile_id: destinationProfileId || undefined,
             type: storageDestination,
             name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
             auth: buildGoogleDestinationAuth(),
@@ -473,11 +670,12 @@ export default function useWizardState() {
       }
     }
     if (isRequestApp) {
-      if (step === 1) return { source: { app: 'request', app_name: 'Request', domain, access_token: accessTokenV2 } }
+      if (step === 1) return { source: { source_connection_id: sourceConnectionId || undefined, app: 'request', app_name: 'Request', domain, access_token: accessTokenV2 } }
       if (step === 2) {
         return {
           backup_type: backupType,
           destination: {
+            destination_profile_id: destinationProfileId || undefined,
             type: storageDestination,
             name: storageDestination === 'gdrive' ? 'Google Drive' : 'Google Sheets',
             auth: buildGoogleDestinationAuth(),
@@ -492,6 +690,7 @@ export default function useWizardState() {
             source: { app: selectedApp, app_name: currentApp?.name, domain, access_token: accessToken },
             backup_type: backupType,
             destination: {
+              destination_profile_id: destinationProfileId || undefined,
               type: storageDestination,
               name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
               auth: buildGoogleDestinationAuth(),
@@ -499,12 +698,12 @@ export default function useWizardState() {
           }
         }
         return {
-          source: { app: selectedApp, app_name: currentApp?.name, domain: isServiceApp ? domain : selectedApp, access_token: accessToken },
+          source: { source_connection_id: sourceConnectionId || undefined, app: selectedApp, app_name: currentApp?.name, domain: isServiceApp ? domain : selectedApp, access_token: accessToken },
         }
       }
     }
     return {}
-  }, [usesCondensedServiceWizard, totalSteps, flowName, selectedApp, currentApp, connectionConfig, domain, accessToken, selectedObjects, selectedGroupIds, selectedProjectIds, selectedServiceIds, selectedWorkflowIds, isServiceApp, isWorkflowApp, isWeworkApp, backupType, storageDestination, buildGoogleDestinationAuth, isRequestApp, accessTokenV2])
+  }, [usesCondensedServiceWizard, totalSteps, flowName, selectedApp, sourceConnectionId, currentApp, connectionConfig, domain, accessToken, selectedObjects, selectedGroupIds, selectedProjectIds, selectedServiceIds, selectedWorkflowIds, isServiceApp, isWorkflowApp, isWeworkApp, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, isRequestApp, accessTokenV2])
 
   // ── Navigation ────────────────────────────────────────────────────────
   const next = useCallback(async () => {
@@ -641,9 +840,10 @@ export default function useWizardState() {
 
     const savePayload = isRequestApp ? {
       name: flowName.trim() || undefined,
-      source: { app: 'request', app_name: 'Request', domain, access_token: accessTokenV2 },
+      source: { source_connection_id: sourceConnectionId || undefined, app: 'request', app_name: 'Request', domain, access_token: accessTokenV2 },
       backup_type: backupType,
       destination: {
+        destination_profile_id: destinationProfileId || undefined,
         type: storageDestination,
         name: storageDestination === 'gdrive' ? 'Google Drive' : 'Google Sheets',
         auth: buildGoogleDestinationAuth(),
@@ -656,6 +856,7 @@ export default function useWizardState() {
     } : {
       name: flowName.trim() || undefined,
       source: {
+        source_connection_id: sourceConnectionId || undefined,
         app: selectedApp,
         app_name: currentApp.name,
         domain: connectionConfig?.requiresDomain ? domain : selectedApp,
@@ -663,6 +864,7 @@ export default function useWizardState() {
       },
       backup_type: usesCondensedServiceWizard ? backupType : 'all',
       destination: usesCondensedServiceWizard ? {
+        destination_profile_id: destinationProfileId || undefined,
         type: storageDestination,
         name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
         auth: buildGoogleDestinationAuth(),
@@ -719,7 +921,7 @@ export default function useWizardState() {
 
     resetAll()
     return true
-  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, domain, accessTokenV2, backupType, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, resetAll, hasReadyServiceAccountAuth, platformServiceAccount])
+  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, resetAll, hasReadyServiceAccountAuth, platformServiceAccount])
 
   // ── Load flow for editing ─────────────────────────────────────────────
   const loadFlowForEdit = useCallback(async (flowId) => {
@@ -735,6 +937,8 @@ export default function useWizardState() {
 
       if (f.name) setFlowName(f.name)
       if (src.app) setSelectedApp(src.app)
+  if (src.source_connection_id) setSourceConnectionId(src.source_connection_id)
+  if (dest.destination_profile_id) setDestinationProfileId(dest.destination_profile_id)
 
       if (src.app === 'request') {
         if (src.domain) setDomain(src.domain)
@@ -1020,6 +1224,7 @@ export default function useWizardState() {
       const res = await api.get('/api/google/auth-url')
       const data = await startGoogleOAuthPopup(res.data.url)
       setGoogleAuthMethod('oauth')
+      setDestinationProfileId(null)
       setServiceBackupSetupSaved(false)
       setGoogleAuth({
         auth_mode: 'google_oauth',
@@ -1048,6 +1253,7 @@ export default function useWizardState() {
     const nextGoogleAuth = googleAuthMethod === 'service_account' && platformServiceAccount?.available
       ? buildPlatformServiceAccountState()
       : null
+    setDestinationProfileId(null)
     setGoogleAuth(nextGoogleAuth)
     setServiceBackupSetupSaved(false)
     if (isServiceAccountDestinationAuth) {
@@ -1068,6 +1274,7 @@ export default function useWizardState() {
   const handleServiceAccountFileUpload = useCallback(async (event) => {
     const file = event.target.files?.[0]
     if (!file) return
+    setDestinationProfileId(null)
     setServiceBackupSetupSaved(false)
     setGoogleAuthMethod('service_account')
     setServiceAccountAnalysisLoading(true)
@@ -1176,6 +1383,7 @@ export default function useWizardState() {
       drive_id: folder.drive_id || null,
       drive_name: resolveDriveName(folder.drive_id, folder.drive_name || null),
     }
+    setDestinationProfileId(null)
     setGoogleAuth(nextAuth)
     await autosaveDestinationAuth(nextAuth)
     if (options.closeModal !== false) setGoogleFolderModal(false)
@@ -1196,6 +1404,7 @@ export default function useWizardState() {
       drive_id: current.driveId || null,
       drive_name: resolveDriveName(current.driveId, current.isDriveRoot ? current.name : null),
     }
+    setDestinationProfileId(null)
     setGoogleAuth(nextAuth)
     await autosaveDestinationAuth(nextAuth)
     setGoogleFolderModal(false)
@@ -1239,6 +1448,7 @@ export default function useWizardState() {
       const authRes = await api.get('/api/google/auth-url')
       const data = await startGoogleOAuthPopup(authRes.data.url)
       setGoogleAuthMethod('oauth')
+      setDestinationProfileId(null)
       setGoogleAuth({
         auth_mode: 'google_oauth', auth_method: 'oauth', connection_id: data.connection_id,
         google_oauth_connection_id: data.connection_id, email: data.email,
@@ -1411,10 +1621,12 @@ export default function useWizardState() {
     selectedApp, setSelectedApp, currentApp, isRequestApp, isServiceApp, isWorkflowApp, connectionConfig,
     isWeworkApp,
     // Source
+    sourceConnectionId, savedSourceConnections, loadingSavedSourceConnections,
     domain, setDomain, accessTokenV2, setAccessTokenV2, showTokenV2, setShowTokenV2,
     accessToken, setAccessToken, showToken, setShowToken, selectedObjects, setSelectedObjects,
     // Backup config
-    backupType, setBackupType, storageDestination, setStorageDestination,
+    backupType, setBackupType, destinationProfileId, savedDestinationProfiles, loadingSavedDestinationProfiles,
+    storageDestination, setStorageDestination,
     // Google auth
     googleAuthMethod, setGoogleAuthMethod, googleAuth, setGoogleAuth,
     platformServiceAccount, savedGoogleConnections, loadingSavedGoogleConnections,
@@ -1464,6 +1676,8 @@ export default function useWizardState() {
     selectDestination, buildGoogleDestinationAuth, resolveDriveName,
     getGoogleDriveRunBlockedReason, getGoogleDriveFolderSummary,
     autosaveDestinationAuth,
+    loadSavedSourceConnections, clearAppliedSourceConnection, applySourceConnection,
+    loadSavedDestinationProfiles, clearAppliedDestinationProfile, applyDestinationProfile,
     loadSavedGoogleConnections, selectSavedGoogleConnection,
     next, prev, handleFinish, loadFlowForEdit,
     loadServicePreview, handleServiceAccountFileUpload,

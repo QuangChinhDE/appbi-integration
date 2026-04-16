@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import {
   CloudUpload,
+  Database,
+  Folder,
   Zap,
   Settings,
   ChevronLeft,
@@ -14,6 +16,8 @@ import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
 const NAV_ITEMS = [
   { key: '/backup',     icon: CloudUpload, label: 'Backup' },
+  { key: '/sources',    icon: Database,    label: 'Sources' },
+  { key: '/destinations', icon: Folder,    label: 'Destinations' },
   { key: '/automation', icon: Zap,         label: 'Automation' },
   { key: '/settings',   icon: Settings,    label: 'Settings' },
 ]
@@ -46,7 +50,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
 
   return (
     <aside
-      className={`fixed left-0 top-0 bottom-0 z-30 flex flex-col bg-white border-r border-gray-200 transition-all duration-300 ${
+      className={`fixed left-0 top-0 bottom-0 z-30 flex flex-col border-r border-gray-200 bg-gradient-to-b from-white to-slate-50 transition-all duration-300 ${
         collapsed ? 'w-16' : 'w-64'
       }`}
     >
@@ -56,11 +60,11 @@ const Sidebar = ({ collapsed, onToggle }) => {
           collapsed ? 'justify-center' : 'gap-3'
         }`}
       >
-        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 shrink-0">
+        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-cyan-500 shrink-0 shadow-sm shadow-blue-200">
           <Workflow className="w-4 h-4 text-white" />
         </div>
         {!collapsed && (
-          <span className="text-sm font-semibold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent whitespace-nowrap">
+          <span className="text-sm font-semibold bg-gradient-to-r from-blue-700 to-cyan-500 bg-clip-text text-transparent whitespace-nowrap">
             IntegrationHub
           </span>
         )}
@@ -77,10 +81,10 @@ const Sidebar = ({ collapsed, onToggle }) => {
                 <button
                   onClick={() => navigate(key)}
                   title={collapsed ? label : undefined}
-                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
                     isActive
-                      ? 'bg-blue-50 text-blue-700'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
+                      ? 'bg-blue-50 text-blue-700 shadow-sm'
+                      : 'text-gray-600 hover:bg-white hover:text-gray-900'
                   } ${collapsed ? 'justify-center' : ''}`}
                 >
                   <Icon
@@ -126,7 +130,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
             collapsed ? 'justify-center' : ''
           }`}
         >
-          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-xs font-bold text-white shrink-0">
+          <div className="h-8 w-8 rounded-full bg-gradient-to-br from-blue-600 to-cyan-500 flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm shadow-blue-200">
             {initials}
           </div>
           {!collapsed && (

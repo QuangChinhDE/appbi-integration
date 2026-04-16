@@ -34,6 +34,43 @@ class GoogleConnection(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
+class SourceConnection(Base):
+    __tablename__ = "source_connections"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    description = Column(String(500), nullable=True)
+    app_id = Column(String(50), nullable=False)
+    app_name = Column(String(100), nullable=False)
+    domain = Column(String(255), nullable=True)
+    access_token_encrypted = Column(Text, nullable=False)
+    config = Column(JSONB, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("app_id IN ('request', 'workflow', 'wework', 'service')", name='check_source_connection_app_id'),
+    )
+
+
+class DestinationProfile(Base):
+    __tablename__ = "destination_profiles"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    description = Column(String(500), nullable=True)
+    destination_type = Column(String(50), nullable=False)
+    auth_mode = Column(String(50), nullable=False)
+    auth = Column(JSONB, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("destination_type IN ('gdrive', 'gsheets')", name='check_destination_profile_type'),
+        CheckConstraint("auth_mode IN ('google_oauth', 'service_account')", name='check_destination_profile_auth_mode'),
+    )
+
+
 class BackupSourceApp(Base):
     __tablename__ = "backup_source_apps"
 

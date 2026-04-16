@@ -6,6 +6,7 @@ import { Globe, Eye, EyeOff, Info } from 'lucide-react'
  */
 const StepConnection = ({ wizard }) => {
   const {
+    clearAppliedSourceConnection,
     domain, setDomain,
     accessTokenV2, setAccessTokenV2,
     showTokenV2, setShowTokenV2,
@@ -28,7 +29,7 @@ const StepConnection = ({ wizard }) => {
             className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
             placeholder="e.g. company.base.com.vn"
             value={domain}
-            onChange={e => setDomain(e.target.value)}
+            onChange={e => { clearAppliedSourceConnection(); setDomain(e.target.value) }}
           />
         </div>
 
@@ -41,7 +42,7 @@ const StepConnection = ({ wizard }) => {
               className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               placeholder="Paste your access token here…"
               value={accessTokenV2}
-              onChange={e => setAccessTokenV2(e.target.value)}
+              onChange={e => { clearAppliedSourceConnection(); setAccessTokenV2(e.target.value) }}
             />
             <button type="button" onClick={() => setShowTokenV2(v => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"

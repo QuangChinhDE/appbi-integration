@@ -84,6 +84,7 @@ const StepDataSelection = ({ wizard }) => {
 export const StepGenericConnection = ({ wizard }) => {
   const {
     currentApp, connectionConfig, isServiceApp,
+    clearAppliedSourceConnection,
     domain, setDomain,
     accessToken, setAccessToken, showToken, setShowToken,
     setServicePreview,
@@ -109,7 +110,7 @@ export const StepGenericConnection = ({ wizard }) => {
               className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               placeholder={connectionConfig.domainPlaceholder}
               value={domain}
-              onChange={e => { setDomain(e.target.value); if (isServiceApp) setServicePreview(null) }}
+              onChange={e => { clearAppliedSourceConnection(); setDomain(e.target.value); if (isServiceApp) setServicePreview(null) }}
             />
           </div>
         )}
@@ -127,7 +128,7 @@ export const StepGenericConnection = ({ wizard }) => {
               className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
               placeholder="Paste your access token here…"
               value={accessToken}
-              onChange={e => { setAccessToken(e.target.value); if (isServiceApp) setServicePreview(null) }}
+              onChange={e => { clearAppliedSourceConnection(); setAccessToken(e.target.value); if (isServiceApp) setServicePreview(null) }}
             />
             <button type="button" onClick={() => setShowToken(v => !v)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1">

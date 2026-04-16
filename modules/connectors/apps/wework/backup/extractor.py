@@ -17,6 +17,7 @@ from modules.connectors.apps.request.backup.extractor import (
     build_excel_bytes,
     gdrive_create_folder,
     gdrive_recreate_folder,
+    gdrive_upload_tabular_bytes,
     gdrive_upload_bytes,
     sanitize_name,
     truncate_name,
@@ -386,14 +387,16 @@ async def _upload_excel_rows(
     parent_id: str,
     filename: str,
     rows: list[dict[str, Any]],
+    *,
+    destination_type: str = "gdrive",
 ) -> str:
     dataframe = pd.DataFrame(rows)
-    return await gdrive_upload_bytes(
+    return await gdrive_upload_tabular_bytes(
         token,
         filename,
         build_excel_bytes(dataframe),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         parent_id,
+        destination_type=destination_type,
     )
 
 
@@ -403,12 +406,15 @@ async def _upload_excel_rows_or_note(
     filename: str,
     rows: list[dict[str, Any]],
     empty_message: str,
+    *,
+    destination_type: str = "gdrive",
 ) -> str:
     return await _upload_excel_rows(
         token,
         parent_id,
         filename,
         rows if rows else _note_rows(empty_message),
+        destination_type=destination_type,
     )
 
 
@@ -418,6 +424,7 @@ async def _persist_custom_field_folder(
     project_or_task_folder_id: str,
     payload: Mapping[str, Any],
     fallback_prefix: str,
+    destination_type: str,
 ) -> int:
     summary_rows, table_exports = _build_custom_field_exports(payload, fallback_prefix=fallback_prefix)
     if not summary_rows and not table_exports:
@@ -430,10 +437,17 @@ async def _persist_custom_field_folder(
         "Thông tin trường tùy chỉnh.xlsx",
         summary_rows,
         "Không có trường tùy chỉnh nào được Wework API trả về.",
+        destination_type=destination_type,
     )
 
     for filename, rows in table_exports:
-        await _upload_excel_rows(gdrive_token, custom_folder_id, filename, rows)
+        await _upload_excel_rows(
+            gdrive_token,
+            custom_folder_id,
+            filename,
+            rows,
+            destination_type=destination_type,
+        )
 
     return len(table_exports)
 
@@ -446,6 +460,7 @@ async def _persist_task_folder_tree(
     children_by_parent: dict[str, list[dict[str, Any]]],
     log_lines: list[str],
     active_ids: set[str] | None = None,
+    destination_type: str,
 ) -> tuple[int, int]:
     task_folder_id = await gdrive_create_folder(gdrive_token, _task_folder_name(task), parent_folder_id)
     info_folder_id = await gdrive_create_folder(gdrive_token, "1. Thông tin", task_folder_id)
@@ -455,6 +470,7 @@ async def _persist_task_folder_tree(
         info_folder_id,
         "Thông tin task.xlsx",
         [_build_task_detail_row(task)],
+        destination_type=destination_type,
     )
     await _upload_json_artifact(gdrive_token, info_folder_id, "task.json", task)
 
@@ -463,6 +479,7 @@ async def _persist_task_folder_tree(
         project_or_task_folder_id=task_folder_id,
         payload=task,
         fallback_prefix="task_custom",
+        destination_type=destination_type,
     )
 
     task_id = _task_id(task)
@@ -492,6 +509,7 @@ async def _persist_task_folder_tree(
                 children_by_parent=children_by_parent,
                 log_lines=log_lines,
                 active_ids=next_active_ids,
+                destination_type=destination_type,
             )
             processed_count += child_count
             custom_tables_exported += child_custom_tables
@@ -602,6 +620,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
         credentials = WeworkCredentials(domain=wework_domain, access_token=wework_access_token)
 
         destination = flow.destination or {}
+        destination_type = str(destination.get("type") or "gdrive").strip().lower()
         auth = destination.get("auth") or {}
         validate_service_account_drive_destination(auth)
         google_auth_service = GoogleAuthService(db)
@@ -666,12 +685,14 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                 catalog_folder_id,
                 "Danh sách phòng ban.xlsx",
                 [_flatten_department_catalog_row(department) for department in departments],
+                destination_type=destination_type,
             )
             await _upload_excel_rows(
                 get_gdrive_token,
                 catalog_folder_id,
                 "Danh sách project.xlsx",
                 [_flatten_project_catalog_row(project) for project in projects],
+                destination_type=destination_type,
             )
 
             departments_folder_id = await gdrive_create_folder(get_gdrive_token, "1. Departments", wework_root_folder_id)
@@ -755,6 +776,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                             department_folder_id,
                             "Thông tin phòng ban.xlsx",
                             [_build_department_detail_row(department_detail)],
+                            destination_type=destination_type,
                         )
 
                     completed_department_keys.add(department_key)
@@ -793,6 +815,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                         info_folder_id,
                         "Thông tin project.xlsx",
                         [_build_project_detail_row(project_detail, task_count=len(merged_tasks), tasklist_count=len(tasklists))],
+                        destination_type=destination_type,
                     )
 
                     detailed_tasklists: list[dict[str, Any]] = []
@@ -817,6 +840,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                         "Danh sách tasklist.xlsx",
                         [_build_tasklist_row(tasklist) for tasklist in detailed_tasklists],
                         "Không có tasklist nào được Wework API trả về cho project này.",
+                        destination_type=destination_type,
                     )
                     await _upload_excel_rows_or_note(
                         get_gdrive_token,
@@ -824,6 +848,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                         "Danh sách milestone.xlsx",
                         [_build_milestone_row(milestone) for milestone in milestones],
                         "Không có milestone nào được Wework API trả về cho project này.",
+                        destination_type=destination_type,
                     )
 
                     custom_tables_exported += await _persist_custom_field_folder(
@@ -831,6 +856,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                         project_or_task_folder_id=project_folder_id,
                         payload=project_detail,
                         fallback_prefix="project_custom",
+                        destination_type=destination_type,
                     )
 
                 if include_task_details:
@@ -854,6 +880,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                         "Danh sách task.xlsx",
                         [_build_task_detail_row(task) for task in detailed_tasks],
                         "Không có task nào được Wework API trả về cho project này.",
+                        destination_type=destination_type,
                     )
 
                     roots, children_by_parent = _build_task_tree(detailed_tasks)
@@ -876,6 +903,7 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
                             task=root_task,
                             children_by_parent=children_by_parent,
                             log_lines=log_lines,
+                            destination_type=destination_type,
                         )
                         completed_tasks += exported_tasks
                         custom_tables_exported += task_custom_tables

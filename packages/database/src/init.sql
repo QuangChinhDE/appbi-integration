@@ -142,6 +142,53 @@ CREATE TRIGGER update_google_connections_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
+-- source_connections: reusable source connection definitions
+-- ============================================================
+CREATE TABLE IF NOT EXISTS source_connections (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(500),
+  app_id VARCHAR(50) NOT NULL CHECK (app_id IN ('request', 'workflow', 'wework', 'service')),
+  app_name VARCHAR(100) NOT NULL,
+  domain VARCHAR(255),
+  access_token_encrypted TEXT NOT NULL,
+  config JSONB,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_source_connections_app_id ON source_connections (app_id);
+CREATE INDEX idx_source_connections_created_at ON source_connections (created_at DESC);
+
+CREATE TRIGGER update_source_connections_updated_at
+  BEFORE UPDATE ON source_connections
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
+-- destination_profiles: reusable destination definitions
+-- ============================================================
+CREATE TABLE IF NOT EXISTS destination_profiles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name VARCHAR(255) NOT NULL,
+  description VARCHAR(500),
+  destination_type VARCHAR(50) NOT NULL CHECK (destination_type IN ('gdrive', 'gsheets')),
+  auth_mode VARCHAR(50) NOT NULL CHECK (auth_mode IN ('google_oauth', 'service_account')),
+  auth JSONB NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_destination_profiles_type ON destination_profiles (destination_type);
+CREATE INDEX idx_destination_profiles_auth_mode ON destination_profiles (auth_mode);
+CREATE INDEX idx_destination_profiles_created_at ON destination_profiles (created_at DESC);
+
+CREATE TRIGGER update_destination_profiles_updated_at
+  BEFORE UPDATE ON destination_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================================
 -- Create backup_flows table
 CREATE TABLE IF NOT EXISTS backup_flows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

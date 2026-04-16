@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 import {
   Globe, Eye, EyeOff, Check, CheckCircle, Lock,
-  Folder, FileSpreadsheet, ChevronRight,
+  Folder, FileSpreadsheet, ChevronRight, Link2, RefreshCw,
 } from 'lucide-react'
 import { Tag, Alert, Spinner, SpinCenter } from '@packages/ui/src/components/common/ui'
 import { BACKUP_TYPE_OPTIONS, DESTINATION_OPTIONS } from '../../constants'
@@ -16,6 +16,9 @@ const BackupSetupSection = ({ wizard }) => {
     isWorkflowApp,
     backupType, setBackupType,
     storageDestination, selectDestination,
+    destinationProfileId,
+    savedDestinationProfiles, loadingSavedDestinationProfiles,
+    loadSavedDestinationProfiles, applyDestinationProfile, clearAppliedDestinationProfile,
     googleAuthMethod, setGoogleAuthMethod, googleAuth, setGoogleAuth,
     platformServiceAccount,
     savedGoogleConnections, loadingSavedGoogleConnections,
@@ -140,6 +143,79 @@ const BackupSetupSection = ({ wizard }) => {
         </div>
       </div>
 
+      {storageDestination && (
+        <div>
+          <label className="block text-sm font-semibold text-gray-800 mb-1">Reuse a saved destination</label>
+          <p className="text-xs text-gray-400 mb-3">Apply a reusable Google Drive or Google Sheets destination profile, then tweak the account or folder below if this flow needs a small override.</p>
+
+          <div className="rounded-2xl border border-gray-200 bg-white p-4 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex items-start gap-2">
+                <Link2 className="w-4 h-4 text-blue-600 mt-0.5" />
+                <div>
+                  <div className="text-sm font-semibold text-gray-800">Saved destination profiles</div>
+                  <div className="text-xs text-gray-400 mt-1">Only profiles matching the selected destination type are shown here.</div>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => loadSavedDestinationProfiles(storageDestination)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                Refresh
+              </button>
+            </div>
+
+            {destinationProfileId && (
+              <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
+                This flow is currently using a saved destination profile. Changing auth mode, account, or folder below will detach it from that profile.
+              </div>
+            )}
+
+            {loadingSavedDestinationProfiles ? (
+              <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-500">
+                <Spinner />
+                <span>Loading saved destinations…</span>
+              </div>
+            ) : savedDestinationProfiles.length > 0 ? (
+              <div className="grid gap-2 md:grid-cols-2">
+                {savedDestinationProfiles.map(profile => {
+                  const isActive = destinationProfileId === String(profile.id)
+                  return (
+                    <button
+                      key={profile.id}
+                      type="button"
+                      onClick={() => applyDestinationProfile(profile.id)}
+                      className={`rounded-2xl border px-4 py-3 text-left transition-all ${
+                        isActive
+                          ? 'border-blue-300 bg-blue-50 shadow-sm'
+                          : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className={`text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{profile.name}</span>
+                        {isActive && <CheckCircle className="w-4 h-4 text-blue-600 shrink-0" />}
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">{profile.connection_label || (profile.auth_mode === 'service_account' ? 'Platform service account' : 'Google OAuth')}</div>
+                      <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-gray-400">
+                        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{profile.destination_name}</span>
+                        {profile.folder_name && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{profile.folder_name}</span>}
+                        {profile.drive_name && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{profile.drive_name}</span>}
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded-xl border border-dashed border-gray-200 px-4 py-4 text-sm text-gray-500">
+                No saved destination profiles yet for {storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Google Account ─────────────────────────────────────────────── */}
       {storageDestination && (
         <div>
@@ -147,7 +223,7 @@ const BackupSetupSection = ({ wizard }) => {
             Connect Google Account <span className="text-red-500">*</span>
           </label>
           <p className="text-xs text-gray-400 mb-3">
-            A Google connection is needed so backup data can be written to {storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}
+            Sign in once with the Google email that should write backup data to {storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}.
           </p>
 
           <div className="space-y-2.5">
@@ -157,7 +233,7 @@ const BackupSetupSection = ({ wizard }) => {
             ].map(method => (
               <div
                 key={method.id}
-                onClick={() => { setGoogleAuthMethod(method.id); setGoogleAuth(null); setServiceAccountAnalysis(null); setServiceAccountFileName(''); setServiceAccountError(''); setServiceBackupSetupSaved(false) }}
+                onClick={() => { clearAppliedDestinationProfile(); setGoogleAuthMethod(method.id); setGoogleAuth(null); setServiceAccountAnalysis(null); setServiceAccountFileName(''); setServiceAccountError(''); setServiceBackupSetupSaved(false) }}
                 className="flex items-center gap-4 p-3.5 rounded-2xl border-2 cursor-pointer transition-all hover:shadow-sm"
                 style={{
                   borderColor: googleAuthMethod === method.id ? method.color : '#e5e7eb',
@@ -251,10 +327,10 @@ const BackupSetupSection = ({ wizard }) => {
                     Like appbi-ai, this shared service account can be reused for both Google Drive and Google Sheets.
                     Share the destination with <span className="font-semibold">{platformServiceAccount.email}</span>.
                   </p>
-                  <p className="text-xs text-violet-600">You can still upload another service account JSON below to override this flow only.</p>
+                  <p className="text-xs text-violet-600">You can still upload another service account JSON below to override this flow only, or manage the shared credential from `.env` with `GCP_SERVICE_ACCOUNT_*` fields.</p>
                 </div>
               ) : (
-                <Alert type="warning" message="Shared platform credential is not configured" description="Upload a Google service account JSON key to continue with service account mode." />
+                <Alert type="warning" message="Shared platform credential is not configured" description="Set `GCP_SERVICE_ACCOUNT_*` in `.env` or upload a Google service account JSON key to continue with service account mode." />
               )}
 
               <div className="border-2 border-dashed border-gray-200 rounded-2xl p-5 hover:border-purple-300 transition-colors">
@@ -303,12 +379,12 @@ const BackupSetupSection = ({ wizard }) => {
       )}
 
       {/* ── Folder picker trigger ──────────────────────────────────────── */}
-      {storageDestination === 'gdrive' && googleAuth && (
+      {storageDestination && googleAuth && (
         <div>
           <label className="block text-sm font-semibold text-gray-800 mb-1">
             Storage Folder <span className="text-xs text-gray-400 font-normal">(optional)</span>
           </label>
-          <p className="text-xs text-gray-400 mb-2">Pick a specific Google Drive folder for storing backups. Defaults to My Drive root if not selected.</p>
+          <p className="text-xs text-gray-400 mb-2">Pick a Google Drive folder where backup files or new spreadsheets should be created. Defaults to My Drive root if not selected.</p>
           <button onClick={handleOpenFolderPicker}
             className="w-full border-2 border-dashed border-gray-200 rounded-xl px-4 py-3.5 text-sm flex items-center gap-3 hover:border-blue-400 hover:bg-blue-50/30 transition-all text-left">
             <Folder className={`w-5 h-5 shrink-0 ${googleAuth.folder_name ? 'text-amber-500' : 'text-gray-400'}`} />

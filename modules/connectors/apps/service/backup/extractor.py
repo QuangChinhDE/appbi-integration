@@ -18,6 +18,7 @@ from modules.connectors.apps.request.backup.extractor import (
     build_excel_bytes,
     gdrive_create_folder,
     gdrive_recreate_folder,
+    gdrive_upload_tabular_bytes,
     gdrive_upload_bytes,
     sanitize_name,
     truncate_name,
@@ -401,14 +402,16 @@ async def _upload_excel_rows(
     parent_id: str,
     filename: str,
     rows: list[dict[str, Any]],
+    *,
+    destination_type: str = "gdrive",
 ) -> str:
     dataframe = pd.DataFrame(rows)
-    return await gdrive_upload_bytes(
+    return await gdrive_upload_tabular_bytes(
         token,
         filename,
         build_excel_bytes(dataframe),
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         parent_id,
+        destination_type=destination_type,
     )
 
 
@@ -417,6 +420,7 @@ async def _persist_catalog(
     gdrive_token: GoogleDriveTokenProvider,
     root_folder_id: str,
     catalog: Mapping[str, Any],
+    destination_type: str,
 ) -> None:
     catalog_folder_id = await gdrive_create_folder(gdrive_token, "01. Danh mục", root_folder_id)
     await _upload_excel_rows(
@@ -424,18 +428,21 @@ async def _persist_catalog(
         catalog_folder_id,
         "Danh sách service.xlsx",
         [_flatten_service_row(service) for service in catalog.get("services", []) if isinstance(service, Mapping)],
+        destination_type=destination_type,
     )
     await _upload_excel_rows(
         gdrive_token,
         catalog_folder_id,
         "Danh sách compound.xlsx",
         [dict(item) for item in catalog.get("compounds", []) if isinstance(item, Mapping)],
+        destination_type=destination_type,
     )
     await _upload_excel_rows(
         gdrive_token,
         catalog_folder_id,
         "Danh sách group.xlsx",
         [dict(item) for item in catalog.get("groups", []) if isinstance(item, Mapping)],
+        destination_type=destination_type,
     )
 
 
@@ -451,6 +458,7 @@ async def _persist_ticket_artifacts(
     include_activity_logs: bool,
     activity_log_filters: Mapping[str, Any] | None,
     log_lines: list[str],
+    destination_type: str,
 ) -> tuple[int, int]:
     ticket_id = _ticket_id(ticket)
     if not ticket_id:
@@ -477,6 +485,7 @@ async def _persist_ticket_artifacts(
         ticket_folder_id,
         "Thông tin ticket.xlsx",
         [_flatten_ticket_row(merged_ticket)],
+        destination_type=destination_type,
     )
     await _upload_json_artifact(gdrive_token, ticket_folder_id, "ticket.json", merged_ticket)
 
@@ -492,6 +501,7 @@ async def _persist_ticket_artifacts(
                     ticket_folder_id,
                     _safe_filename(item_name, "custom_table", ".xlsx"),
                     rows,
+                    destination_type=destination_type,
                 )
         elif item_type == "filebox":
             continue
@@ -511,6 +521,7 @@ async def _persist_ticket_artifacts(
             ticket_folder_id,
             "Thông tin trường tùy chỉnh.xlsx",
             form_rows,
+            destination_type=destination_type,
         )
 
     activity_logs = detail_bundle.get("activity_logs") if isinstance(detail_bundle.get("activity_logs"), list) else []
@@ -520,6 +531,7 @@ async def _persist_ticket_artifacts(
             ticket_folder_id,
             "Nhật ký hoạt động.xlsx",
             [dict(item) for item in activity_logs if isinstance(item, Mapping)],
+            destination_type=destination_type,
         )
 
     attachment_downloaded = 0
@@ -637,6 +649,7 @@ async def _execute_service_backup(flow_id: str, run_id: str, db: AsyncSession) -
         credentials = ServiceCredentials(domain=service_domain, access_token=service_access_token)
 
         destination = flow.destination or {}
+        destination_type = str(destination.get("type") or "gdrive").strip().lower()
         auth = destination.get("auth") or {}
         validate_service_account_drive_destination(auth)
         google_auth_service = GoogleAuthService(db)
@@ -696,6 +709,7 @@ async def _execute_service_backup(flow_id: str, run_id: str, db: AsyncSession) -
                     gdrive_token=get_gdrive_token,
                     root_folder_id=service_root_folder_id,
                     catalog=catalog,
+                    destination_type=destination_type,
                 )
                 log_lines.append("[INFO] Catalog artifacts uploaded")
 
@@ -745,6 +759,7 @@ async def _execute_service_backup(flow_id: str, run_id: str, db: AsyncSession) -
                     service_folder_id,
                     "Thông tin service.xlsx",
                     [_flatten_service_row(service_meta)],
+                    destination_type=destination_type,
                 )
 
                 tickets = [ticket for ticket in inventory.get("tickets", []) if isinstance(ticket, Mapping)]
@@ -754,6 +769,7 @@ async def _execute_service_backup(flow_id: str, run_id: str, db: AsyncSession) -
                     service_folder_id,
                     "Danh sách ticket.xlsx",
                     [_flatten_ticket_row(ticket) for ticket in tickets],
+                    destination_type=destination_type,
                 )
 
                 if include_stages:
@@ -762,6 +778,7 @@ async def _execute_service_backup(flow_id: str, run_id: str, db: AsyncSession) -
                         service_folder_id,
                         "Danh sách stage.xlsx",
                         [_flatten_stage_row(stage) for stage in inventory.get("stages", []) if isinstance(stage, Mapping)],
+                        destination_type=destination_type,
                     )
 
                 if flow.backup_type in {"unstructured", "all"}:
@@ -787,6 +804,7 @@ async def _execute_service_backup(flow_id: str, run_id: str, db: AsyncSession) -
                             include_activity_logs=include_activity_logs,
                             activity_log_filters=activity_log_filters,
                             log_lines=log_lines,
+                            destination_type=destination_type,
                         )
                         attachments_downloaded += downloaded
                         attachments_metadata_only += metadata_only
