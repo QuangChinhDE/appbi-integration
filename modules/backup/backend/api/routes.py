@@ -14,16 +14,18 @@ from modules.backup.shared.types import (
     BackupFlowSave,
     BackupFlowUpdate,
 )
+from packages.auth.src import require_permission
 from packages.database.src import get_db
 
 
-router = APIRouter(tags=["backup"])
+router = APIRouter(tags=["backup"], dependencies=[Depends(require_permission('backup', 'view'))])
 
 
 @router.post("/api/backup-flows/draft", response_model=BackupFlowResponse, status_code=201)
 async def create_backup_flow_draft(
     draft: BackupFlowDraftCreate = BackupFlowDraftCreate(),
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """
     Create an empty draft backup flow.
@@ -42,6 +44,7 @@ async def save_backup_flow(
     flow_id: str,
     save_data: BackupFlowSave,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """
     Save (publish) a draft backup flow with all required details.
@@ -65,6 +68,7 @@ async def save_backup_flow(
 async def create_backup_flow(
     flow: BackupFlowCreate,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """
     Create a new backup flow
@@ -134,6 +138,7 @@ async def update_backup_flow(
     flow_id: str,
     flow_update: BackupFlowUpdate,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """Update a backup flow"""
     service = BackupFlowService(db)
@@ -151,6 +156,7 @@ async def autosave_backup_flow(
     flow_id: str,
     data: BackupFlowAutosave,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """Auto-save partial wizard step data to the backup flow."""
     service = BackupFlowService(db)
@@ -164,6 +170,7 @@ async def autosave_backup_flow(
 async def delete_backup_flow(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """Delete a backup flow"""
     service = BackupFlowService(db)
@@ -177,6 +184,7 @@ async def delete_backup_flow(
 async def publish_backup_flow(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """Publish a flow: set is_draft=0, is_published=1"""
     service = BackupFlowService(db)
@@ -191,6 +199,7 @@ async def run_backup_flow(
     flow_id: str,
     triggered_by: str = "manual",
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """
     Trigger a backup flow execution
@@ -214,7 +223,10 @@ async def run_backup_flow(
 
 
 @router.post("/api/backup-flows/runs/interrupt-all", status_code=200)
-async def interrupt_all_backup_flow_runs(db: AsyncSession = Depends(get_db)):
+async def interrupt_all_backup_flow_runs(
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
+):
     """Force stop all running backup tasks and mark their runs as interrupted."""
     service = BackupFlowService(db)
     result = await service.interrupt_all_running_tasks()
@@ -228,6 +240,7 @@ async def interrupt_all_backup_flow_runs(db: AsyncSession = Depends(get_db)):
 async def stop_backup_flow_run(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('backup', 'edit')),
 ):
     """Stop the active backup run(s) for a single flow."""
     service = BackupFlowService(db)

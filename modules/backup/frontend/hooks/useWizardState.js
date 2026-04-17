@@ -1,6 +1,8 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import api from '@shared/api/client'
 import { message } from '@packages/ui/src/components/common/ui'
+import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import { APPS, APP_CONNECTION_CONFIG, MOCK_FIELDS, DEFAULT_GOOGLE_REDIRECT, SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE } from '../constants'
 
 const GOOGLE_OAUTH_REQUEST_PARAMS = { post_message_origin: window.location.origin }
@@ -11,6 +13,10 @@ const CONNECTOR_PREVIEW_TIMEOUT_MS = 60000
  * Keeps the same API contract so backend works untouched.
  */
 export default function useWizardState() {
+  const permissions = useAuthStore((state) => state.permissions)
+  const canEditBackup = hasPermission(permissions, 'backup', 'edit')
+  const canManageSettings = hasPermission(permissions, 'settings', 'full')
+
   // ── Core ────────────────────────────────────────────────────────────────
   const [currentStep, setCurrentStep] = useState(0)
   const [draftFlowId, setDraftFlowId] = useState(null)
@@ -91,7 +97,6 @@ export default function useWizardState() {
 
   // ── Modals ────────────────────────────────────────────────────────────
   const [showAppSelectionModal, setShowAppSelectionModal] = useState(false)
-  const [showDestinationModal, setShowDestinationModal] = useState(false)
   const [requestSelectorModalOpen, setRequestSelectorModalOpen] = useState(false)
   const [serviceSelectorModalOpen, setServiceSelectorModalOpen] = useState(false)
   const [workflowSelectorModalOpen, setWorkflowSelectorModalOpen] = useState(false)
@@ -167,6 +172,11 @@ export default function useWizardState() {
   const totalSteps = usesCondensedServiceWizard ? 3 : (hasServiceAccountStep ? 5 : 4)
 
   const loadPlatformServiceAccount = useCallback(async () => {
+    if (!canEditBackup) {
+      setPlatformServiceAccount(null)
+      return
+    }
+
     try {
       const res = await api.get('/api/google/platform-service-account')
       setPlatformServiceAccount({
@@ -177,9 +187,15 @@ export default function useWizardState() {
     } catch {
       setPlatformServiceAccount({ available: false, email: null, service_account_email: null })
     }
-  }, [])
+  }, [canEditBackup])
 
   const loadSavedGoogleConnections = useCallback(async () => {
+    if (!canEditBackup) {
+      setSavedGoogleConnections([])
+      setLoadingSavedGoogleConnections(false)
+      return
+    }
+
     setLoadingSavedGoogleConnections(true)
     try {
       const res = await api.get('/api/google/connections')
@@ -189,13 +205,19 @@ export default function useWizardState() {
     } finally {
       setLoadingSavedGoogleConnections(false)
     }
-  }, [])
+  }, [canEditBackup])
 
   const loadSavedSourceConnections = useCallback(async (appId = null) => {
+    if (!canEditBackup) {
+      setSavedSourceConnections([])
+      setLoadingSavedSourceConnections(false)
+      return
+    }
+
     const normalizedAppId = typeof appId === 'string' && appId.trim() ? appId : null
     setLoadingSavedSourceConnections(true)
     try {
-      const res = await api.get('/api/sources', {
+      const res = await api.get('/api/apps/connections', {
         params: normalizedAppId ? { app_id: normalizedAppId } : undefined,
       })
       setSavedSourceConnections(Array.isArray(res.data) ? res.data : [])
@@ -204,13 +226,19 @@ export default function useWizardState() {
     } finally {
       setLoadingSavedSourceConnections(false)
     }
-  }, [])
+  }, [canEditBackup])
 
   const loadSavedDestinationProfiles = useCallback(async (destinationType = null) => {
+    if (!canEditBackup) {
+      setSavedDestinationProfiles([])
+      setLoadingSavedDestinationProfiles(false)
+      return
+    }
+
     const normalizedDestinationType = typeof destinationType === 'string' && destinationType.trim() ? destinationType : null
     setLoadingSavedDestinationProfiles(true)
     try {
-      const res = await api.get('/api/destinations', {
+      const res = await api.get('/api/apps/storage', {
         params: normalizedDestinationType ? { destination_type: normalizedDestinationType } : undefined,
       })
       setSavedDestinationProfiles(Array.isArray(res.data) ? res.data : [])
@@ -219,12 +247,18 @@ export default function useWizardState() {
     } finally {
       setLoadingSavedDestinationProfiles(false)
     }
-  }, [])
+  }, [canEditBackup])
 
   useEffect(() => {
+    if (!canEditBackup) {
+      setPlatformServiceAccount(null)
+      setSavedGoogleConnections([])
+      return
+    }
+
     void loadPlatformServiceAccount()
     void loadSavedGoogleConnections()
-  }, [loadPlatformServiceAccount, loadSavedGoogleConnections])
+  }, [canEditBackup, loadPlatformServiceAccount, loadSavedGoogleConnections])
 
   useEffect(() => {
     void loadSavedSourceConnections(null)
@@ -246,12 +280,10 @@ export default function useWizardState() {
     setCurrentStep(0)
     setSelectedApp(null)
     setSourceConnectionId(null)
-    setSavedSourceConnections([])
     setDomain('')
     setAccessTokenV2('')
     setBackupType(null)
     setDestinationProfileId(null)
-    setSavedDestinationProfiles([])
     setStorageDestination(null)
     setGoogleAuthMethod('oauth')
     setGoogleAuth(null)
@@ -360,25 +392,10 @@ export default function useWizardState() {
     )
   }, [getAvailableFields])
 
-  // ── Destination ───────────────────────────────────────────────────────
-  const selectDestination = useCallback((dest) => {
-    setDestinationProfileId(null)
-    setStorageDestination(dest)
-    setGoogleAuth(null)
-    setGoogleAuthMethod('oauth')
-    setServiceAccountAnalysis(null)
-    setServiceAccountFileName('')
-    setServiceAccountError('')
-    setSharedFolders([])
-    setSharedFolderQuery('')
-    setSharedFolderReference('')
-    setShowDestinationModal(false)
-  }, [])
-
   const applySourceConnection = useCallback(async (sourceId) => {
     if (!sourceId) return
     try {
-      const res = await api.get(`/api/sources/${sourceId}/apply`)
+      const res = await api.get(`/api/apps/connections/${sourceId}/apply`)
       const nextSource = res.data?.source || {}
       const nextAppId = nextSource.app || selectedApp
       if (!nextAppId) {
@@ -452,7 +469,7 @@ export default function useWizardState() {
   const applyDestinationProfile = useCallback(async (profileId) => {
     if (!profileId) return
     try {
-      const res = await api.get(`/api/destinations/${profileId}/apply`)
+      const res = await api.get(`/api/apps/storage/${profileId}/apply`)
       const nextDestination = res.data?.destination || {}
       const auth = nextDestination.auth || {}
       const resolvedProfileId = String(res.data?.id || nextDestination.destination_profile_id || profileId)
@@ -703,17 +720,17 @@ export default function useWizardState() {
     // Step 0 validation
     if (currentStep === 0) {
       if (!flowName.trim()) { message.warning('Please enter a name for this backup flow'); return }
-      if (!sourceConnectionId) { message.warning('Please select a saved source from the Sources module'); return }
-      if (!selectedApp) { message.warning('The selected source is missing its application type. Update it in the Sources module first.'); return }
+      if (!sourceConnectionId) { message.warning('Please select a saved source from the Apps module'); return }
+      if (!selectedApp) { message.warning('The selected source is missing its application type. Update it in the Apps module first.'); return }
     }
 
     // Condensed source wizard (Service / Workflow)
     if (usesCondensedServiceWizard && totalSteps === 3) {
       if (currentStep === 0) {
-        if (!sourceConnectionId) { message.warning(`Please select a saved ${currentApp?.name || 'source'} connection from the Sources module`); return }
-        if (connectionConfig?.requiresDomain && !domain) { message.warning('The selected source is missing its domain. Update it in the Sources module first.'); return }
-        if (isRequestApp && !accessTokenV2) { message.warning('The selected source is missing its access token. Update it in the Sources module first.'); return }
-        if (!isRequestApp && !accessToken) { message.warning('The selected source is missing its access token. Update it in the Sources module first.'); return }
+        if (!sourceConnectionId) { message.warning(`Please select a saved ${currentApp?.name || 'source'} connection from the Apps module`); return }
+        if (connectionConfig?.requiresDomain && !domain) { message.warning('The selected source is missing its domain. Update it in the Apps module first.'); return }
+        if (isRequestApp && !accessTokenV2) { message.warning('The selected source is missing its access token. Update it in the Apps module first.'); return }
+        if (!isRequestApp && !accessToken) { message.warning('The selected source is missing its access token. Update it in the Apps module first.'); return }
         if (selectedObjects.length === 0) { message.warning('Please select at least one object'); return }
         if (isRequestApp && !requestPreview) { message.warning('Please load Request preview and choose the groups for this flow'); return }
         if (isRequestApp && Array.isArray(requestPreview?.groups) && requestPreview.groups.length > 0 && selectedGroupIds.length === 0) {
@@ -741,9 +758,9 @@ export default function useWizardState() {
       if (currentStep === 1) {
         if (isWorkflowApp && backupType === 'unstructured') { message.warning('Workflow currently supports Structured and Complete backup only'); return }
         if (!backupType || !storageDestination) { message.warning('Please choose backup type and destination type'); return }
-        if (!destinationProfileId) { message.warning('Please select a saved destination profile from the Destinations module'); return }
-        if (!googleAuth) { message.warning('The selected destination profile is missing authentication details. Update it in the Destinations module first.'); return }
-        if (googleAuthMethod === 'service_account' && !hasReadyServiceAccountAuth()) { message.warning('The selected destination profile does not have a valid service account configuration. Update it in the Destinations module first.'); return }
+        if (!destinationProfileId) { message.warning('Please select a saved destination profile from the Apps module'); return }
+        if (!googleAuth) { message.warning('The selected destination profile is missing authentication details. Update it in the Apps module first.'); return }
+        if (googleAuthMethod === 'service_account' && !hasReadyServiceAccountAuth()) { message.warning('The selected destination profile does not have a valid service account configuration. Update it in the Apps module first.'); return }
       }
     } else if (isRequestApp) {
       if (currentStep === 1 && (!domain || !accessTokenV2)) { message.warning('Please provide domain and access token'); return }
@@ -1220,6 +1237,7 @@ export default function useWizardState() {
 
   // ── Google connect / disconnect ───────────────────────────────────────
   const openGoogleConfigModal = useCallback(async () => {
+    if (!canManageSettings) return
     setGoogleConfigModalOpen(true)
     setGoogleConfigError('')
     setGoogleConfigLoading(true)
@@ -1241,7 +1259,7 @@ export default function useWizardState() {
     } finally {
       setGoogleConfigLoading(false)
     }
-  }, [])
+  }, [canManageSettings])
 
   const handleGoogleConnect = useCallback(async () => {
     try {
@@ -1265,13 +1283,17 @@ export default function useWizardState() {
       message.success(`Connected as ${data.email}`)
     } catch (err) {
       if (err.response?.status === 503) {
-        await openGoogleConfigModal()
+        if (canManageSettings) {
+          await openGoogleConfigModal()
+        } else {
+          message.error('Google OAuth has not been configured yet. Ask an administrator to finish the workspace setup in Settings.')
+        }
       } else {
         message.error(err.response?.data?.detail || err.message || 'Failed to start Google authentication')
       }
       console.error(err)
     }
-  }, [startGoogleOAuthPopup, openGoogleConfigModal, loadSavedGoogleConnections])
+  }, [canManageSettings, startGoogleOAuthPopup, openGoogleConfigModal, loadSavedGoogleConnections])
 
   const handleGoogleDisconnect = useCallback(() => {
     const nextGoogleAuth = googleAuthMethod === 'service_account' && platformServiceAccount?.available
@@ -1622,21 +1644,21 @@ export default function useWizardState() {
     if (usesCondensedServiceWizard) {
       if (!selectedApp) {
         return [
-          'Choose a saved source from the Sources module and name the backup flow',
-          'Choose a saved destination profile from the Destinations module',
+          'Choose a saved source from the Apps module and name the backup flow',
+          'Choose a saved destination profile from the Apps module',
           'Confirm and create your flow',
         ]
       }
       if (isRequestApp) {
-        return ['Choose a saved Request source, name the flow, and set the backup scope', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
+        return ['Choose a saved Request source, name the flow, and set the backup scope', 'Choose a saved destination profile from the Apps module', 'Confirm and create your flow']
       }
       if (isServiceApp) {
-        return ['Choose a saved Service source, name the flow, and choose services', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
+        return ['Choose a saved Service source, name the flow, and choose services', 'Choose a saved destination profile from the Apps module', 'Confirm and create your flow']
       }
       if (isWeworkApp) {
-        return ['Choose a saved WeWork source, name the flow, and choose projects', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
+        return ['Choose a saved WeWork source, name the flow, and choose projects', 'Choose a saved destination profile from the Apps module', 'Confirm and create your flow']
       }
-      return ['Choose a saved Workflow source, name the flow, and choose workflows', 'Choose a saved destination profile from the Destinations module', 'Confirm and create your flow']
+      return ['Choose a saved Workflow source, name the flow, and choose workflows', 'Choose a saved destination profile from the Apps module', 'Confirm and create your flow']
     }
     if (isRequestApp) {
       return ['Name & choose application', 'Connection information', 'Backup type & storage', ...(hasServiceAccountStep ? ['Google authentication'] : []), 'Review & create']
@@ -1683,7 +1705,6 @@ export default function useWizardState() {
     weworkPreviewListRef, shouldResetWeworkPreviewScrollRef,
     // Modals
     showAppSelectionModal, setShowAppSelectionModal,
-    showDestinationModal, setShowDestinationModal,
     requestSelectorModalOpen, setRequestSelectorModalOpen,
     serviceSelectorModalOpen, setServiceSelectorModalOpen,
     workflowSelectorModalOpen, setWorkflowSelectorModalOpen,
@@ -1703,7 +1724,7 @@ export default function useWizardState() {
     // Actions
     resetAll, handleAppSelection, handleObjectToggle, handleSelectAllObjects,
     getAvailableFields, handleFieldToggle, handleSelectAllFields,
-    selectDestination, buildGoogleDestinationAuth, resolveDriveName,
+    buildGoogleDestinationAuth, resolveDriveName,
     getGoogleDriveRunBlockedReason, getGoogleDriveFolderSummary,
     autosaveDestinationAuth,
     loadSavedSourceConnections, clearAppliedSourceConnection, applySourceConnection,

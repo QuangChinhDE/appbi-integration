@@ -75,7 +75,7 @@ export default function useBackupFlows() {
 
   // ── Delete ────────────────────────────────────────────────────────────────
   const deleteFlow = useCallback(async (record, options = {}) => {
-    if (!window.confirm(`Delete "${record.name || 'Draft'}"?\n\nThis action cannot be undone.`)) return false
+    if (!record?.id) return false
     try {
       await api.delete(`/api/backup-flows/${record.id}`)
       message.success('Backup flow deleted')
@@ -125,7 +125,6 @@ export default function useBackupFlows() {
 
   const stopFlow = useCallback(async (record, options = {}) => {
     if (!record?.id) return false
-    if (!window.confirm(`Stop the running backup for "${record.name || 'this flow'}"?`)) return false
 
     setStoppingFlowId(record.id)
     try {

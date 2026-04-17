@@ -11,10 +11,11 @@ from modules.destinations.shared.types import (
     DestinationProfileListItem,
     DestinationProfileUpdate,
 )
+from packages.auth.src import require_permission
 from packages.database.src import get_db
 
 
-router = APIRouter(tags=["destinations"])
+router = APIRouter(tags=["apps"], dependencies=[Depends(require_permission('apps', 'view'))])
 
 
 @router.get("/api/destinations", response_model=List[DestinationProfileListItem])
@@ -33,6 +34,7 @@ async def list_destinations(
 async def create_destination(
     payload: DestinationProfileCreate,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('apps', 'edit')),
 ):
     service = DestinationProfileService(db)
     try:
@@ -76,6 +78,7 @@ async def update_destination(
     destination_id: str,
     payload: DestinationProfileUpdate,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('apps', 'edit')),
 ):
     service = DestinationProfileService(db)
     try:
@@ -91,6 +94,7 @@ async def update_destination(
 async def delete_destination(
     destination_id: str,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('apps', 'edit')),
 ):
     service = DestinationProfileService(db)
     try:

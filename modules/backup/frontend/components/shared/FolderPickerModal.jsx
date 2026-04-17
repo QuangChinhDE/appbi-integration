@@ -1,6 +1,7 @@
 import React from 'react'
 import { Globe, Folder, ChevronRight, Loader2 } from 'lucide-react'
-import { Modal, SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
+import { SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
 
 const FolderPickerModal = ({ wizard }) => {
   const {
@@ -19,15 +20,17 @@ const FolderPickerModal = ({ wizard }) => {
   } = wizard
 
   return (
-    <Modal
-      title={<span className="flex items-center gap-2"><Globe className="w-4 h-4 text-blue-500" /> Select Google Drive Folder</span>}
-      open={googleFolderModal}
-      onCancel={() => setGoogleFolderModal(false)}
-      width={540}
+    googleFolderModal ? (
+    <AppModalShell
+      title="Select Google Drive folder"
+      description="Choose the storage location used by this flow. Shared Drive folders are preferred when the flow runs with a service account."
+      icon={<Globe className="h-5 w-5" />}
+      onClose={() => setGoogleFolderModal(false)}
+      maxWidthClass="max-w-2xl"
       footer={
         <>
-          <button onClick={() => setGoogleFolderModal(false)} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
-          <button onClick={handleSelectCurrentFolder} className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center gap-2">
+          <button onClick={() => setGoogleFolderModal(false)} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancel</button>
+          <button onClick={handleSelectCurrentFolder} className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700">
             <Folder className="w-3.5 h-3.5" /> Select Current Location
           </button>
         </>
@@ -120,7 +123,8 @@ const FolderPickerModal = ({ wizard }) => {
           </div>
         </div>
       )}
-    </Modal>
+    </AppModalShell>
+    ) : null
   )
 }
 

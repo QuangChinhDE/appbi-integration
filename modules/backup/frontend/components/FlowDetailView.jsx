@@ -3,6 +3,7 @@ import {
   ArrowLeft, Globe, Cloud, Clock, FolderKanban, Pencil, RefreshCw, Play, Square, Trash2,
   Inbox, Building2, Headphones, CheckCircle, Info, Loader2,
 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
 import { Tag, Alert, SpinCenter, Empty } from '@packages/ui/src/components/common/ui'
 import { APPS, APP_META, formatDateTime } from '../constants'
 
@@ -78,6 +79,7 @@ const FlowDetailView = ({
   onStop,
   onDelete,
   stoppingFlowId,
+  canEdit,
 }) => {
   const source = detailsFlow?.source || {}
   const destination = detailsFlow?.destination || {}
@@ -97,26 +99,95 @@ const FlowDetailView = ({
     || ['pending', 'running'].includes(detailsFlow?.last_run_status || detailsFlowRecord?.last_run_status)
   const runDisabled = !supportsRun || !isPublished || Boolean(runBlockedReason) || hasActiveRun
   const isStopping = stoppingFlowId === (detailsFlowId || detailsFlowRecord?.id)
+  const footer = (
+    <div className="flex w-full items-center justify-between gap-3">
+      <div>
+        {canEdit && (
+          <button
+            onClick={onDelete}
+            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
+          >
+            <Trash2 className="h-4 w-4" /> Delete flow
+          </button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center justify-end gap-2">
+        <button
+          onClick={onRefresh}
+          disabled={loadingFlowDetails}
+          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {loadingFlowDetails ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Refresh
+        </button>
+        {canEdit && (
+          <button
+            onClick={onEdit}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <Pencil className="h-4 w-4" /> Edit
+          </button>
+        )}
+        {canEdit && hasActiveRun && (
+          <button
+            onClick={onStop}
+            disabled={isStopping}
+            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Square className="h-4 w-4" /> {isStopping ? 'Stopping…' : 'Stop current run'}
+          </button>
+        )}
+        {canEdit && (
+          <button
+            disabled={runDisabled}
+            onClick={onRun}
+            title={runBlockedReason || (hasActiveRun ? 'A backup is already running for this flow' : !supportsRun ? 'This app type does not support running' : !isPublished ? 'Must publish flow first' : undefined)}
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Play className="h-4 w-4" /> Run backup now
+          </button>
+        )}
+      </div>
+    </div>
+  )
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-gray-50 overflow-y-auto">
-      <div className="w-full px-6 py-6 flex flex-col gap-5 lg:px-8 xl:px-10">
-        <button onClick={onBack}
-          className="flex items-center gap-1.5 text-sm text-gray-400 hover:text-gray-700 transition-colors self-start">
-          <ArrowLeft className="w-3.5 h-3.5" />
+    <AppModalShell
+      variant="page"
+      onClose={onBack}
+      leadingAction={(
+        <button
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+        >
+          <ArrowLeft className="h-4 w-4" />
           <span>Back to list</span>
         </button>
-
-        {loadingFlowDetails ? (
-          <div className="flex items-center justify-center py-20"><SpinCenter text="Loading…" /></div>
-        ) : (
-          <>
+      )}
+      title={detailsFlow?.name || detailsFlowRecord?.name || 'Backup flow detail'}
+      description={(
+        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+          <span>{source.app_name || source.app || 'Unknown source'}</span>
+          {(destination.name || destination.type) && <span>• {destination.name || destination.type}</span>}
+          {detailsFlow?.last_run_at && <span>• Last run {formatDateTime(detailsFlow.last_run_at)}</span>}
+        </div>
+      )}
+      icon={React.cloneElement(icon, { className: 'h-5 w-5' })}
+      iconClassName="bg-gray-50 text-gray-700"
+      bodyClassName="px-6 py-6 lg:px-8 xl:px-10"
+      footer={footer}
+    >
+      {loadingFlowDetails ? (
+        <div className="flex items-center justify-center py-20"><SpinCenter text="Loading…" /></div>
+      ) : (
+        <div className="flex flex-col gap-5">
             {/* Overview card */}
             <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
               {/* Hero header */}
               <div className="px-6 pt-5 pb-4 border-b border-gray-100"
                 style={{ background: `linear-gradient(135deg, ${meta.color}08 0%, white 70%)` }}>
-                <div className="flex items-start justify-between gap-4 flex-wrap">
+                <div className="flex items-start gap-4 flex-wrap">
                   <div className="flex items-center gap-4">
                     <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
                       style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}>
@@ -144,29 +215,6 @@ const FlowDetailView = ({
                         {source.domain && <span className="ml-2 text-gray-400 font-mono text-xs">· {source.domain}</span>}
                       </p>
                     </div>
-                  </div>
-
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button onClick={onEdit}
-                      className="flex items-center gap-1.5 px-4 py-2 text-sm font-medium border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors">
-                      <Pencil className="w-3.5 h-3.5" /> Edit
-                    </button>
-                    <button onClick={onRefresh} disabled={loadingFlowDetails}
-                      className="px-3 py-2 border border-gray-300 text-gray-500 rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-colors"
-                      title="Refresh">
-                      {loadingFlowDetails ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                    </button>
-                    {hasActiveRun && (
-                      <button onClick={onStop} disabled={isStopping}
-                        className="flex items-center gap-2 px-4 py-2 text-sm font-semibold bg-red-600 text-white rounded-xl hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
-                        <Square className="w-4 h-4" /> {isStopping ? 'Stopping…' : 'Stop Current Run'}
-                      </button>
-                    )}
-                    <button disabled={runDisabled} onClick={onRun}
-                      title={runBlockedReason || (hasActiveRun ? 'A backup is already running for this flow' : !supportsRun ? 'This app type does not support running' : !isPublished ? 'Must publish flow first' : undefined)}
-                      className="flex items-center gap-2 px-5 py-2 text-sm font-semibold bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm">
-                      <Play className="w-4 h-4" /> Run Backup Now
-                    </button>
                   </div>
                 </div>
 
@@ -250,10 +298,6 @@ const FlowDetailView = ({
                     {detailsFlow?.last_run_at && (
                       <div><div className="text-[10px] text-gray-400 mb-0.5">Last Run</div><div className="text-xs text-gray-700">{formatDateTime(detailsFlow.last_run_at)}</div></div>
                     )}
-                    <button onClick={onDelete}
-                      className="flex items-center gap-1 text-xs text-red-400 hover:text-red-600 transition-colors mt-1">
-                      <Trash2 className="w-3 h-3" /> Delete flow
-                    </button>
                   </div>
                 </div>
               </div>
@@ -333,10 +377,9 @@ const FlowDetailView = ({
                 </div>
               )}
             </div>
-          </>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </AppModalShell>
   )
 }
 

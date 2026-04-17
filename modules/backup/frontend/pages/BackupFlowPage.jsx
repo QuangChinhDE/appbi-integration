@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
-import { Loader2, RefreshCw, Globe, Folder, ChevronRight, FileSpreadsheet, Cloud } from 'lucide-react'
-import { Modal, Alert, SpinCenter, Tag, Empty, message } from '@packages/ui/src/components/common/ui'
+import { Cloud } from 'lucide-react'
+import { Alert } from '@packages/ui/src/components/common/ui'
+import ConfirmDialog from '@packages/ui/src/components/common/ConfirmDialog'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
+import ModuleOverview from '@packages/ui/src/components/common/ModuleOverview'
+import PageListLayout from '@packages/ui/src/components/common/PageListLayout'
+import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
 import useBackupFlows from '../hooks/useBackupFlows'
 import useWizardState from '../hooks/useWizardState'
-import { APPS, DEFAULT_GOOGLE_REDIRECT } from '../constants'
+import { DEFAULT_GOOGLE_REDIRECT } from '../constants'
 
 import FlowListView from '../components/FlowListView'
 import FlowDetailView from '../components/FlowDetailView'
@@ -28,10 +33,11 @@ const BackupFlowPage = () => {
   const [detailsFlowRecord, setDetailsFlowRecord] = useState(null)
   const [detailsActiveTab, setDetailsActiveTab] = useState('overview')
 
-  // ── Destination modal local state ─────────────────────────────────────
-  const [showDestinationModal, setShowDestinationModal] = useState(false)
-  const [destinationSearch, setDestinationSearch] = useState('')
+  const [confirmDialog, setConfirmDialog] = useState(null)
+  const [confirmLoading, setConfirmLoading] = useState(false)
   const location = useLocation()
+  const permissions = useAuthStore((state) => state.permissions)
+  const canEditBackup = hasPermission(permissions, 'backup', 'edit')
 
   // ── Hooks ─────────────────────────────────────────────────────────────
   const backupFlows = useBackupFlows()
@@ -44,8 +50,6 @@ const BackupFlowPage = () => {
     setDetailsFlowId(null)
     setDetailsFlowRecord(null)
     setDetailsActiveTab('overview')
-    setShowDestinationModal(false)
-    setDestinationSearch('')
     setDetailsFlow(null)
     setDetailsRuns([])
     resetAll()
@@ -103,17 +107,20 @@ const BackupFlowPage = () => {
   }, [wizard.weworkPreview]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Derived ───────────────────────────────────────────────────────────
-  const servicePreviewRows = Array.isArray(wizard.servicePreview?.services)
-    ? wizard.servicePreview.services
-    : []
+  const totalFlows = backupFlows.flows.length
+  const publishedFlows = backupFlows.flows.filter((item) => item.is_published === 1).length
+  const activeRunFlows = backupFlows.flows.filter((item) => ['pending', 'running'].includes(item.last_run_status)).length
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
   const handleCreateDraft = async () => {
+    if (!canEditBackup) return
     resetAll()
     const id = await backupFlows.createDraft()
     if (!id) return
     wizard.setDraftFlowId(id)
+    void wizard.loadSavedSourceConnections(null)
+    void wizard.loadSavedDestinationProfiles(null)
     setViewMode('create')
   }
 
@@ -133,10 +140,15 @@ const BackupFlowPage = () => {
   }
 
   const handleEditFromDetail = async () => {
+    if (!canEditBackup) return
     const id = detailsFlowId || detailsFlowRecord?.id
     if (!id) return
     const loaded = await wizard.loadFlowForEdit(id)
-    if (loaded) setViewMode('edit')
+    if (loaded) {
+      void wizard.loadSavedSourceConnections(null)
+      void wizard.loadSavedDestinationProfiles(null)
+      setViewMode('edit')
+    }
   }
 
   const handleRunFromDetail = () => {
@@ -149,14 +161,14 @@ const BackupFlowPage = () => {
 
   const handleStopFromDetail = () => {
     const source = backupFlows.detailsFlow?.source || {}
-    backupFlows.stopFlow(
+    requestStopFlow(
       detailsFlowRecord || { id: detailsFlowId, name: backupFlows.detailsFlow?.name, app: source.app },
-      { onStopped: () => backupFlows.fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id) }
+      { onStopped: () => backupFlows.fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id) },
     )
   }
 
   const handleDeleteFromDetail = () => {
-    backupFlows.deleteFlow(
+    requestDeleteFlow(
       detailsFlowRecord || { id: detailsFlowId, name: backupFlows.detailsFlow?.name },
       {
         onDeleted: resetToBackupList,
@@ -176,14 +188,6 @@ const BackupFlowPage = () => {
     resetToBackupList()
   }
 
-  const handleSelectDestination = (opt) => {
-    wizard.setStorageDestination(opt.id)
-    wizard.setGoogleAuth(null)
-    wizard.setServiceBackupSetupSaved(false)
-    setShowDestinationModal(false)
-    setDestinationSearch('')
-  }
-
   const handleWizardSaved = async (result) => {
     const nextFlowId = result?.flowId || result?.flow?.id
 
@@ -200,27 +204,130 @@ const BackupFlowPage = () => {
     resetToBackupList()
   }
 
+  const openConfirmDialog = useCallback((config) => {
+    setConfirmDialog(config)
+  }, [])
+
+  const closeConfirmDialog = useCallback(() => {
+    if (confirmLoading) return
+    setConfirmDialog(null)
+  }, [confirmLoading])
+
+  const handleConfirmDialog = useCallback(async () => {
+    if (!confirmDialog?.onConfirm) return
+    setConfirmLoading(true)
+    try {
+      await confirmDialog.onConfirm()
+      setConfirmDialog(null)
+    } finally {
+      setConfirmLoading(false)
+    }
+  }, [confirmDialog])
+
+  const requestDeleteFlow = useCallback((record, options = {}) => {
+    openConfirmDialog({
+      title: 'Delete backup flow?',
+      description: `Delete "${record.name || 'Draft'}". This action cannot be undone and the flow configuration will be removed from the workspace.`,
+      confirmLabel: 'Delete flow',
+      variant: 'danger',
+      onConfirm: async () => {
+        await backupFlows.deleteFlow(record, options)
+      },
+    })
+  }, [backupFlows, openConfirmDialog])
+
+  const requestStopFlow = useCallback((record, options = {}) => {
+    openConfirmDialog({
+      title: 'Stop running backup?',
+      description: `Stop the running backup for "${record.name || 'this flow'}". The current execution will be interrupted and may produce incomplete output.`,
+      confirmLabel: 'Stop backup',
+      variant: 'warning',
+      onConfirm: async () => {
+        await backupFlows.stopFlow(record, options)
+      },
+    })
+  }, [backupFlows, openConfirmDialog])
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <AppLayout>
       {viewMode === 'list' ? (
-        <div className="p-8">
-          <FlowListView
-            flows={backupFlows.flows}
-            loadingFlows={backupFlows.loadingFlows}
-            stoppingFlowId={backupFlows.stoppingFlowId}
-            onCreateDraft={handleCreateDraft}
-            onOpenDetails={handleOpenDetails}
-            onPublish={(record) => backupFlows.publishFlow(record)}
-            onEdit={async (record) => {
-              const loaded = await wizard.loadFlowForEdit(record.id)
-              if (loaded) setViewMode('edit')
-            }}
-            onRun={(record) => backupFlows.runFlow(record)}
-            onStop={(record) => backupFlows.stopFlow(record)}
-            onDelete={(record) => backupFlows.deleteFlow(record)}
-          />
-        </div>
+        <PageListLayout
+          title="Backup Flows"
+          description="Build, publish, and operate backup flows with the same list-page structure used across AppBI AI modules."
+          overview={(
+            <ModuleOverview
+              icon={Cloud}
+              title="Backup operations hub"
+              description="Draft a flow, connect a reusable source and destination, then publish and monitor executions from one standardized page shell."
+              badges={['Draft-first flow', 'Reusable sources', 'Execution tracking']}
+              stats={[
+                {
+                  label: 'Flows',
+                  value: totalFlows,
+                  helper: 'Total backup flows currently configured.',
+                },
+                {
+                  label: 'Published',
+                  value: publishedFlows,
+                  helper: 'Flows ready for scheduled or manual runs.',
+                },
+                {
+                  label: 'Running now',
+                  value: activeRunFlows,
+                  helper: 'Flows with an active or queued execution.',
+                },
+              ]}
+            />
+          )}
+          action={canEditBackup ? (
+            <button
+              onClick={handleCreateDraft}
+              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+            >
+              <Cloud className="h-4 w-4" />
+              New Backup Flow
+            </button>
+          ) : null}
+          isLoading={backupFlows.loadingFlows}
+          loadingText="Loading backup flows…"
+          searchPlaceholder="Search flows, apps, destinations, or status"
+          defaultView="list"
+        >
+          {({ viewMode: pageViewMode, filterText }) => (
+            <div className="space-y-6">
+              <Alert
+                type="info"
+                message="Draft first, publish when the flow is ready"
+                description={canEditBackup
+                  ? 'The landing page now follows the same overview, toolbar, and collection states used in AppBI AI while keeping the existing create, detail, and run flows intact.'
+                  : 'Your account currently has read-only access in Backup. You can inspect flow details and run history, but cannot change configurations.'}
+              />
+
+              <FlowListView
+                flows={backupFlows.flows}
+                filterText={filterText}
+                viewMode={pageViewMode}
+                canEdit={canEditBackup}
+                stoppingFlowId={backupFlows.stoppingFlowId}
+                onCreateDraft={handleCreateDraft}
+                onOpenDetails={handleOpenDetails}
+                onPublish={(record) => backupFlows.publishFlow(record)}
+                onEdit={async (record) => {
+                  const loaded = await wizard.loadFlowForEdit(record.id)
+                  if (loaded) {
+                    void wizard.loadSavedSourceConnections(null)
+                    void wizard.loadSavedDestinationProfiles(null)
+                    setViewMode('edit')
+                  }
+                }}
+                onRun={(record) => backupFlows.runFlow(record)}
+                onStop={(record) => requestStopFlow(record)}
+                onDelete={(record) => requestDeleteFlow(record)}
+              />
+            </div>
+          )}
+        </PageListLayout>
       ) : viewMode === 'detail' ? (
         <FlowDetailView
           detailsFlow={backupFlows.detailsFlow}
@@ -235,8 +342,9 @@ const BackupFlowPage = () => {
           onRun={handleRunFromDetail}
           onStop={handleStopFromDetail}
           onDelete={handleDeleteFromDetail}
+          canEdit={canEditBackup}
         />
-      ) : (
+      ) : canEditBackup ? (
         <FlowWizard
           wizard={wizard}
           viewMode={viewMode}
@@ -244,6 +352,23 @@ const BackupFlowPage = () => {
           onSaved={handleWizardSaved}
           backLabel={viewMode === 'edit' && detailsFlowId ? 'Back to details' : 'Back to list'}
         />
+      ) : (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5">
+          <Alert
+            type="warning"
+            message="Backup edit access is required"
+            description="This account can view backup data but cannot create or edit backup flows."
+          />
+          <div className="mt-4">
+            <button
+              type="button"
+              onClick={resetToBackupList}
+              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100"
+            >
+              Back to backup list
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── App Selection Modal ── */}
@@ -272,42 +397,17 @@ const BackupFlowPage = () => {
       {/* ── WeWork Selector Modal ── */}
       <WeworkSelectorModal wizard={wizard} />
 
-      {/* ── Destination Selection Modal ── */}
-      <Modal
-        title="Select Destination"
-        open={showDestinationModal || wizard.showDestinationModal}
-        onCancel={() => { setShowDestinationModal(false); wizard.setShowDestinationModal(false); setDestinationSearch('') }}
-        width={640}
-      >
-        <p className="text-sm text-gray-500 mb-4">Choose where to store your backup data.</p>
-        <div className="relative mb-4">
-          <Cloud className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            value={destinationSearch}
-            onChange={e => setDestinationSearch(e.target.value)}
-            placeholder="Search destinations…"
-            className="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          {[
-            { id: 'gsheets', name: 'Google Sheets', icon: <FileSpreadsheet className="w-8 h-8" />, color: '#10b981', types: ['structured'] },
-            { id: 'gdrive', name: 'Google Drive', icon: <Globe className="w-8 h-8" />, color: '#4285f4', types: ['unstructured', 'all'] },
-          ]
-            .filter(opt => !wizard.backupType || opt.types.includes(wizard.backupType))
-            .filter(opt => opt.name.toLowerCase().includes(destinationSearch.toLowerCase()))
-            .map(opt => (
-              <button
-                key={opt.id}
-                onClick={() => handleSelectDestination(opt)}
-                className="flex flex-col items-center gap-2 p-5 border-2 border-gray-200 rounded-xl hover:border-gray-300 hover:shadow-sm transition-all cursor-pointer bg-white"
-              >
-                <span style={{ color: opt.color }}>{opt.icon}</span>
-                <span className="text-sm font-semibold text-gray-900">{opt.name}</span>
-              </button>
-            ))}
-        </div>
-      </Modal>
+      <ConfirmDialog
+        isOpen={Boolean(confirmDialog)}
+        onClose={closeConfirmDialog}
+        onConfirm={() => { void handleConfirmDialog() }}
+        title={confirmDialog?.title || ''}
+        description={confirmDialog?.description || ''}
+        confirmLabel={confirmLoading ? 'Working…' : (confirmDialog?.confirmLabel || 'Confirm')}
+        cancelLabel="Cancel"
+        variant={confirmDialog?.variant || 'danger'}
+        isLoading={confirmLoading}
+      />
 
     </AppLayout>
   )

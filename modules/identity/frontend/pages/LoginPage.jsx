@@ -1,6 +1,8 @@
 import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Workflow, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react'
+import api from '@shared/api/client'
+import { getFirstAccessibleRoute } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
 const LoginPage = () => {
@@ -12,9 +14,14 @@ const LoginPage = () => {
 
   const navigate = useNavigate()
   const login = useAuthStore((state) => state.login)
+  const passwordLoginEnabled = String(import.meta.env.VITE_AUTH_PASSWORD_ENABLED ?? 'true').toLowerCase() !== 'false'
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    if (!passwordLoginEnabled) {
+      setError('Password login is currently disabled for this workspace.')
+      return
+    }
     if (!email || !password) {
       setError('Please enter your email and password.')
       return
@@ -22,12 +29,15 @@ const LoginPage = () => {
     setError('')
     setLoading(true)
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800))
-      const token = 'mock-jwt-token-' + Date.now()
-      login(email, token)
-      navigate('/backup')
-    } catch {
-      setError('Login failed. Please try again.')
+      const res = await api.post('/api/auth/login', { email, password })
+      login({
+        token: res.data.access_token,
+        user: res.data.user,
+        permissions: res.data.permissions,
+      })
+      navigate(getFirstAccessibleRoute(res.data.permissions) || '/', { replace: true })
+    } catch (err) {
+      setError(err.response?.data?.detail || 'Login failed. Please try again.')
     } finally {
       setLoading(false)
     }
@@ -57,6 +67,12 @@ const LoginPage = () => {
               </div>
             )}
 
+            {!passwordLoginEnabled && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                Password sign-in is disabled. Ask an administrator to enable it or provision another sign-in method.
+              </div>
+            )}
+
             {/* Email */}
             <div className="space-y-1.5">
               <label className="block text-sm font-medium text-gray-700">
@@ -69,6 +85,7 @@ const LoginPage = () => {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="you@company.com"
+                  disabled={!passwordLoginEnabled || loading}
                   className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 />
               </div>
@@ -86,11 +103,13 @@ const LoginPage = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  disabled={!passwordLoginEnabled || loading}
                   className="w-full pl-9 pr-10 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
+                  disabled={!passwordLoginEnabled || loading}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
                 >
                   {showPassword ? (
@@ -105,7 +124,7 @@ const LoginPage = () => {
             {/* Submit */}
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || !passwordLoginEnabled}
               className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors"
             >
               {loading ? (

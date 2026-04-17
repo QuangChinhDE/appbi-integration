@@ -11,10 +11,11 @@ from modules.sources.shared.types import (
     SourceConnectionListItem,
     SourceConnectionUpdate,
 )
+from packages.auth.src import require_permission
 from packages.database.src import get_db
 
 
-router = APIRouter(tags=["sources"])
+router = APIRouter(tags=["apps"], dependencies=[Depends(require_permission('apps', 'view'))])
 
 
 @router.get("/api/sources", response_model=List[SourceConnectionListItem])
@@ -33,6 +34,7 @@ async def list_sources(
 async def create_source(
     payload: SourceConnectionCreate,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('apps', 'edit')),
 ):
     service = SourceConnectionService(db)
     try:
@@ -76,6 +78,7 @@ async def update_source(
     source_id: str,
     payload: SourceConnectionUpdate,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('apps', 'edit')),
 ):
     service = SourceConnectionService(db)
     try:
@@ -91,6 +94,7 @@ async def update_source(
 async def delete_source(
     source_id: str,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('apps', 'edit')),
 ):
     service = SourceConnectionService(db)
     try:

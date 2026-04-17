@@ -3,6 +3,7 @@ import {
   ArrowLeft, Cloud, Globe, Check, CheckCircle,
   ChevronRight, Pencil, Play, Rocket, FileSpreadsheet, Folder,
 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
 import BackupSetupSection from './shared/BackupSetupSection'
 import StepNameAndApp from './wizard/StepNameAndApp'
 import StepConnection from './wizard/StepConnection'
@@ -40,8 +41,55 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
   // Dynamic max-width for step content
   const isReviewStep = currentStep === totalSteps - 1
   const stepContentShellClass = isReviewStep
-    ? 'mx-auto w-full max-w-[1180px] h-full'
-    : 'mx-auto w-full max-w-[1180px]'
+    ? 'flex h-full min-w-0 w-full'
+    : 'min-w-0 w-full'
+
+  const footer = (
+    <div className="flex w-full items-center justify-between gap-3">
+      <button
+        type="button"
+        disabled={currentStep === 0}
+        onClick={prev}
+        className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <ArrowLeft className="h-4 w-4" /> Back
+      </button>
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        {currentStep < totalSteps - 1 && (
+          <button
+            type="button"
+            onClick={next}
+            className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
+          >
+            Next <ChevronRight className="h-4 w-4" />
+          </button>
+        )}
+        {currentStep === totalSteps - 1 && (
+          <>
+            <button
+              type="button"
+              onClick={() => { void handleSubmit(false) }}
+              className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
+            >
+              {isEdit
+                ? <><Pencil className="h-4 w-4" /> Save Changes</>
+                : <><Rocket className="h-4 w-4" /> Create Backup Flow</>}
+            </button>
+            {['request', 'service', 'workflow', 'wework'].includes(currentApp?.id || '') && (
+              <button
+                type="button"
+                onClick={() => { void handleSubmit(true) }}
+                className="inline-flex items-center gap-2 rounded-2xl border border-green-300 bg-green-50 px-5 py-2.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
+              >
+                <Play className="h-4 w-4" />
+                {isEdit ? 'Save & Run Now' : 'Create & Run Now'}
+              </button>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
 
   // ── Render step content ──────────────────────────────────────────────
 
@@ -82,36 +130,40 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
   }
 
   return (
-    <div className="p-8">
-      <div className="flex min-h-[calc(100vh-10rem)] flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm lg:h-[calc(100vh-10rem)] lg:flex-row">
-        {/* ── Left sidebar ── */}
-        <div className="flex w-full shrink-0 flex-col border-b border-gray-200 bg-gradient-to-b from-white via-blue-50/30 to-cyan-50/50 lg:h-full lg:min-h-0 lg:w-80 lg:border-b-0 lg:border-r lg:overflow-hidden xl:w-96">
-          {/* Header */}
+    <AppModalShell
+      variant="page"
+      onClose={onBack}
+      leadingAction={(
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          <span>{backLabel}</span>
+        </button>
+      )}
+      title={isEdit ? 'Edit backup flow' : 'Create backup flow'}
+      description="Configure source scope, storage, and execution settings with the same structured page shell used across AppBI AI workflows."
+      icon={<Cloud className="h-5 w-5" />}
+      bodyClassName="px-4 py-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12"
+      footer={footer}
+    >
+      <div className="grid min-h-[calc(100vh-13rem)] gap-6 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
+        <div className="flex min-h-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-gradient-to-b from-white via-blue-50/30 to-cyan-50/50 shadow-sm">
           <div className="border-b border-gray-100 px-5 py-5">
-            <button
-              type="button"
-              onClick={onBack}
-              className="mb-4 inline-flex items-center gap-1.5 text-sm text-gray-400 transition-colors hover:text-gray-700"
-            >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              <span>{backLabel}</span>
-            </button>
-
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold text-blue-700">
               <Cloud className="h-3.5 w-3.5" />
-              {isEdit ? 'Edit backup flow' : 'Create backup flow'}
+              {isEdit ? 'Editing flow' : 'New flow'}
             </div>
 
-            <div className="mt-4 flex items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-sm shadow-blue-200">
-                <Cloud className="h-5 w-5" />
-              </div>
-              <div>
-                <h2 className="text-lg font-semibold text-gray-900">Backup wizard</h2>
-                <p className="mt-1 text-sm leading-6 text-gray-500">
-                  Configure source scope, storage, and execution settings with the same reusable building blocks used across the platform.
-                </p>
-              </div>
+            <div className="mt-4">
+              <h3 className="text-lg font-semibold text-gray-900">
+                {flowName || (isEdit ? 'Editing backup configuration' : 'Draft your backup configuration')}
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-gray-500">
+                Follow the step navigator to confirm app scope, source data, storage, and run behavior before saving the flow.
+              </p>
             </div>
 
             {flowName && (
@@ -122,7 +174,6 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
             )}
           </div>
 
-          {/* Progress bar */}
           <div className="border-b border-gray-100 px-5 py-4">
             <div className="mb-1.5 flex items-center justify-between">
               <span className="text-xs font-medium uppercase tracking-wide text-gray-400">Progress</span>
@@ -133,7 +184,6 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
             </div>
           </div>
 
-          {/* Steps nav */}
           <nav className="flex-1 space-y-2 overflow-y-auto px-3 py-4">
             {steps.map((step, idx) => {
               const isDone = idx < currentStep
@@ -170,7 +220,6 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
             })}
           </nav>
 
-          {/* Sidebar summary card */}
           {currentStep > 0 && (selectedApp || googleAuth) && (
             <div className="mx-3 mb-4 shrink-0 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm backdrop-blur">
               <p className="text-xs font-medium uppercase tracking-wide text-gray-400">Configured</p>
@@ -219,11 +268,9 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
           )}
         </div>
 
-        {/* ── Right: step content ── */}
-        <div className="flex min-w-0 flex-1 flex-col lg:h-full lg:min-h-0 lg:overflow-hidden">
-          {/* Step header */}
+        <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-3xl border border-gray-200 bg-white shadow-sm">
           <div className="shrink-0 border-b border-gray-200 bg-white px-5 py-4 lg:px-8 xl:px-10">
-            <div className="mx-auto w-full max-w-[1180px]">
+            <div className="w-full min-w-0">
               <div className="mb-1 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-gray-400">
                 <span>Step {currentStep + 1} / {totalSteps}</span>
               </div>
@@ -236,63 +283,14 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
             </div>
           </div>
 
-          {/* Content area */}
           <div className="flex-1 bg-gray-50/80 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:px-8 xl:px-10">
             <div className={stepContentShellClass}>
               {renderStepContent()}
             </div>
           </div>
-
-          {/* Bottom nav bar */}
-          <div className="shrink-0 border-t border-gray-200 bg-white px-5 py-3 lg:px-8 xl:px-10">
-            <div className="mx-auto flex w-full max-w-[1180px] items-center justify-between gap-3">
-              <button
-                type="button"
-                disabled={currentStep === 0}
-                onClick={prev}
-                className="inline-flex items-center gap-2 rounded-2xl border border-gray-200 px-5 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <ArrowLeft className="h-4 w-4" /> Back
-              </button>
-              <div className="flex flex-wrap items-center justify-end gap-3">
-                {currentStep < totalSteps - 1 && (
-                  <button
-                    type="button"
-                    onClick={next}
-                    className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
-                  >
-                    Next <ChevronRight className="h-4 w-4" />
-                  </button>
-                )}
-                {currentStep === totalSteps - 1 && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => { void handleSubmit(false) }}
-                      className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
-                    >
-                      {isEdit
-                        ? <><Pencil className="h-4 w-4" /> Save Changes</>
-                        : <><Rocket className="h-4 w-4" /> Create Backup Flow</>}
-                    </button>
-                    {['request', 'service', 'workflow', 'wework'].includes(currentApp?.id || '') && (
-                      <button
-                        type="button"
-                        onClick={() => { void handleSubmit(true) }}
-                        className="inline-flex items-center gap-2 rounded-2xl border border-green-300 bg-green-50 px-5 py-2.5 text-sm font-medium text-green-700 transition-colors hover:bg-green-100"
-                      >
-                        <Play className="h-4 w-4" />
-                        {isEdit ? 'Save & Run Now' : 'Create & Run Now'}
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
         </div>
       </div>
-    </div>
+    </AppModalShell>
   )
 }
 

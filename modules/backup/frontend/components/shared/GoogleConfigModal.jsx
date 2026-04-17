@@ -1,6 +1,7 @@
 import React from 'react'
-import { Loader2 } from 'lucide-react'
-import { Modal, SpinCenter, Alert } from '@packages/ui/src/components/common/ui'
+import { Globe, Loader2 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
+import { SpinCenter, Alert } from '@packages/ui/src/components/common/ui'
 import { DEFAULT_GOOGLE_REDIRECT } from '../../constants'
 
 const GoogleConfigModal = ({ wizard }) => {
@@ -16,24 +17,26 @@ const GoogleConfigModal = ({ wizard }) => {
   } = wizard
 
   return (
-    <Modal
+    googleConfigModalOpen ? (
+    <AppModalShell
       title="Configure Google OAuth"
-      open={googleConfigModalOpen}
-      onCancel={() => { if (googleConfigSaving) return; setGoogleConfigModalOpen(false); setGoogleConfigError('') }}
-      width={600}
+      description="Enter the OAuth client details used by the integration workspace, then connect the Google account directly from this flow."
+      icon={<Globe className="h-5 w-5" />}
+      iconClassName="bg-blue-50 text-blue-600"
+      onClose={() => { if (googleConfigSaving) return; setGoogleConfigModalOpen(false); setGoogleConfigError('') }}
+      maxWidthClass="max-w-xl"
       footer={
         <>
           <button onClick={() => { setGoogleConfigModalOpen(false); setGoogleConfigError('') }} disabled={googleConfigSaving}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">Cancel</button>
           <button onClick={handleSaveGoogleConfigAndConnect} disabled={googleConfigSaving}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
             {googleConfigSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             Save & Connect Google
           </button>
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-4">Enter <strong>Client ID</strong>, <strong>Client Secret</strong> and <strong>Redirect URI</strong> then connect. If these values are already set in `.env`, this step is optional.</p>
       {googleConfigError && <Alert type="error" message={googleConfigError} className="mb-4" />}
       {googleConfigLoading ? <SpinCenter /> : (
         <div className="space-y-4">
@@ -57,7 +60,8 @@ const GoogleConfigModal = ({ wizard }) => {
           <Alert type="info" message="Google Cloud Console reminder" description={`Authorized redirect URI must include ${googleRedirectUri || DEFAULT_GOOGLE_REDIRECT}`} />
         </div>
       )}
-    </Modal>
+    </AppModalShell>
+    ) : null
   )
 }
 

@@ -39,6 +39,18 @@ services:
     environment:
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-integrationhub}:${POSTGRES_PASSWORD:-integrationhub_password_2026}@postgres:5432/${POSTGRES_DB:-integrationhub}
       SECRET_KEY: ${SECRET_KEY:-change-this-secret-key-in-production-2026}
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:-change-this-jwt-secret-in-production-2026}
+      AUTH_BOOTSTRAP_ENABLED: ${AUTH_BOOTSTRAP_ENABLED:-true}
+      AUTH_BOOTSTRAP_EMAIL: ${AUTH_BOOTSTRAP_EMAIL:-admin@appbi.local}
+      AUTH_BOOTSTRAP_PASSWORD: ${AUTH_BOOTSTRAP_PASSWORD:-Admin123!}
+      AUTH_BOOTSTRAP_NAME: ${AUTH_BOOTSTRAP_NAME:-Platform Admin}
+      AUTH_JWT_EXPIRE_MINUTES: ${AUTH_JWT_EXPIRE_MINUTES:-480}
+      AUTH_PASSWORD_LOGIN_ENABLED: ${AUTH_PASSWORD_LOGIN_ENABLED:-true}
+      AUTH_GOOGLE_LOGIN_ENABLED: ${AUTH_GOOGLE_LOGIN_ENABLED:-true}
+      AUTH_GOOGLE_AUTO_CREATE_USERS: ${AUTH_GOOGLE_AUTO_CREATE_USERS:-true}
+      AUTH_GOOGLE_ALLOWED_DOMAINS: ${AUTH_GOOGLE_ALLOWED_DOMAINS:-}
+      AUTH_GOOGLE_CLIENT_ID: ${AUTH_GOOGLE_CLIENT_ID:-}
+      AUTH_GOOGLE_OWNER_EMAILS: ${AUTH_GOOGLE_OWNER_EMAILS:-}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3002,http://frontend:80}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -69,6 +81,11 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-}
+        VITE_AUTH_PASSWORD_ENABLED: ${VITE_AUTH_PASSWORD_ENABLED:-true}
+        VITE_AUTH_GOOGLE_ENABLED: ${VITE_AUTH_GOOGLE_ENABLED:-true}
+        VITE_GOOGLE_CLIENT_ID: ${VITE_GOOGLE_CLIENT_ID:-}
     container_name: integrationhub-frontend
     restart: unless-stopped
     ports:

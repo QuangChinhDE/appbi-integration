@@ -1,6 +1,7 @@
 import React from 'react'
-import { RefreshCw, Loader2 } from 'lucide-react'
-import { Modal, SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
+import { Building2, RefreshCw, Loader2 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
+import { SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
 
 const WeworkSelectorModal = ({ wizard }) => {
   const {
@@ -17,24 +18,26 @@ const WeworkSelectorModal = ({ wizard }) => {
   const rows = Array.isArray(weworkPreview?.projects) ? weworkPreview.projects : []
 
   return (
-    <Modal
-      title="Select Projects for This Flow"
-      open={weworkSelectorModalOpen}
-      onCancel={closeWeworkSelectorModal}
-      width={980}
+    weworkSelectorModalOpen ? (
+    <AppModalShell
+      title="Select WeWork projects"
+      description="Choose the projects included in this flow and review department, task, and subtask counts before applying the selection."
+      icon={<Building2 className="h-5 w-5" />}
+      iconClassName="bg-sky-50 text-sky-600"
+      onClose={closeWeworkSelectorModal}
+      maxWidthClass="max-w-[980px]"
       footer={
         <>
           <button onClick={() => loadWeworkPreview(draftSelectedProjectIds)} disabled={loadingWeworkPreview}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2">
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">
             {loadingWeworkPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeWeworkSelectorModal} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+          <button onClick={closeWeworkSelectorModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancel</button>
           <button onClick={applyWeworkSelectorModal} disabled={!weworkPreview}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-4">Select the WeWork projects to include in this backup flow.</p>
       {loadingWeworkPreview ? <SpinCenter /> : !weworkPreview ? <Empty description="Load WeWork source preview first to choose projects" /> : (
         <div className="space-y-3">
           <div className="flex gap-2 flex-wrap">
@@ -97,7 +100,8 @@ const WeworkSelectorModal = ({ wizard }) => {
           </div>
         </div>
       )}
-    </Modal>
+    </AppModalShell>
+    ) : null
   )
 }
 

@@ -1,6 +1,7 @@
 import React from 'react'
-import { RefreshCw, Loader2 } from 'lucide-react'
-import { Modal, SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
+import { FolderKanban, RefreshCw, Loader2 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
+import { SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
 
 const WorkflowSelectorModal = ({ wizard }) => {
   const {
@@ -17,24 +18,26 @@ const WorkflowSelectorModal = ({ wizard }) => {
   const rows = Array.isArray(workflowPreview?.workflows) ? workflowPreview.workflows : []
 
   return (
-    <Modal
-      title="Select Workflows for This Flow"
-      open={workflowSelectorModalOpen}
-      onCancel={closeWorkflowSelectorModal}
-      width={960}
+    workflowSelectorModalOpen ? (
+    <AppModalShell
+      title="Select workflows"
+      description="Choose the workflow spaces included in this flow and refresh the preview when you need updated job counts or samples."
+      icon={<FolderKanban className="h-5 w-5" />}
+      iconClassName="bg-violet-50 text-violet-600"
+      onClose={closeWorkflowSelectorModal}
+      maxWidthClass="max-w-[960px]"
       footer={
         <>
           <button onClick={() => loadWorkflowPreview(draftSelectedWorkflowIds)} disabled={loadingWorkflowPreview}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2">
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">
             {loadingWorkflowPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeWorkflowSelectorModal} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+          <button onClick={closeWorkflowSelectorModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancel</button>
           <button onClick={applyWorkflowSelectorModal} disabled={!workflowPreview}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-4">Select workflows to include in this backup flow.</p>
       {loadingWorkflowPreview ? <SpinCenter /> : !workflowPreview ? <Empty description="Load Workflow source preview first to choose workflows" /> : (
         <div className="space-y-3">
           <div className="flex gap-2 flex-wrap">
@@ -90,7 +93,8 @@ const WorkflowSelectorModal = ({ wizard }) => {
           </div>
         </div>
       )}
-    </Modal>
+    </AppModalShell>
+    ) : null
   )
 }
 

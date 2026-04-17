@@ -6,12 +6,26 @@ export const useAuthStore = create(
     (set) => ({
       user: null,
       token: null,
+      permissions: {},
       isAuthenticated: false,
-      login: (email, token) => {
-        set({ user: { email }, token, isAuthenticated: true })
+      hasHydrated: false,
+      login: ({ user, token, permissions }) => {
+        set({ user, token, permissions: permissions || {}, isAuthenticated: true, hasHydrated: true })
+      },
+      setSession: ({ user, token, permissions }) => {
+        set((state) => ({
+          user,
+          token: token || state.token,
+          permissions: permissions || {},
+          isAuthenticated: Boolean(token || state.token),
+          hasHydrated: true,
+        }))
+      },
+      markHydrated: () => {
+        set({ hasHydrated: true })
       },
       logout: () => {
-        set({ user: null, token: null, isAuthenticated: false })
+        set({ user: null, token: null, permissions: {}, isAuthenticated: false, hasHydrated: true })
       },
     }),
     { name: 'auth-storage' }

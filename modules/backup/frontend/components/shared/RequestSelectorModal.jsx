@@ -1,6 +1,7 @@
 import React from 'react'
-import { RefreshCw, Loader2 } from 'lucide-react'
-import { Modal, SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
+import { Inbox, RefreshCw, Loader2 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
+import { SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
 
 const RequestSelectorModal = ({ wizard }) => {
   const {
@@ -17,24 +18,26 @@ const RequestSelectorModal = ({ wizard }) => {
   const rows = Array.isArray(requestPreview?.groups) ? requestPreview.groups : []
 
   return (
-    <Modal
-      title="Select Request Groups for This Flow"
-      open={requestSelectorModalOpen}
-      onCancel={closeRequestSelectorModal}
-      width={960}
+    requestSelectorModalOpen ? (
+    <AppModalShell
+      title="Select Request groups"
+      description="Choose the Request groups and direct-request bucket included in this flow. Refresh the preview any time you need to reload counts or samples."
+      icon={<Inbox className="h-5 w-5" />}
+      iconClassName="bg-orange-50 text-orange-600"
+      onClose={closeRequestSelectorModal}
+      maxWidthClass="max-w-[960px]"
       footer={
         <>
           <button onClick={() => loadRequestPreview(draftSelectedGroupIds)} disabled={loadingRequestPreview}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2">
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">
             {loadingRequestPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeRequestSelectorModal} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+          <button onClick={closeRequestSelectorModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancel</button>
           <button onClick={applyRequestSelectorModal} disabled={!requestPreview}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-4">Select Request groups to include in this backup flow. Direct requests appear as the <strong>[direct]</strong> source.</p>
       {loadingRequestPreview ? <SpinCenter /> : !requestPreview ? <Empty description="Load Request source preview first to choose groups" /> : (
         <div className="space-y-3">
           <div className="flex gap-2 flex-wrap">
@@ -91,7 +94,8 @@ const RequestSelectorModal = ({ wizard }) => {
           </div>
         </div>
       )}
-    </Modal>
+    </AppModalShell>
+    ) : null
   )
 }
 

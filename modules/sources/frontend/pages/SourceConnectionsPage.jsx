@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle,
+  Database,
   Globe,
   Headphones,
   Inbox,
@@ -8,6 +9,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Shield,
   Trash2,
   Workflow,
@@ -15,8 +17,14 @@ import {
   Eye,
   EyeOff,
 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import api from '@shared/api/client'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
+import ConfirmDialog from '@packages/ui/src/components/common/ConfirmDialog'
+import ModuleOverview from '@packages/ui/src/components/common/ModuleOverview'
+import PageListLayout from '@packages/ui/src/components/common/PageListLayout'
+import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import { Alert, Modal, SpinCenter, Tag, message } from '@packages/ui/src/components/common/ui'
 import { APPS, APP_CONNECTION_CONFIG, formatDateTime } from '@modules/backup/frontend/constants'
 
@@ -36,6 +44,8 @@ const EMPTY_FORM = {
 }
 
 function SourceConnectionsPage() {
+  const [searchParams] = useSearchParams()
+  const handledIntentRef = useRef('')
   const [sources, setSources] = useState([])
   const [loadingSources, setLoadingSources] = useState(true)
   const [activeAppFilter, setActiveAppFilter] = useState('all')
@@ -45,16 +55,18 @@ function SourceConnectionsPage() {
   const [saving, setSaving] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
   const [showToken, setShowToken] = useState(false)
+  const [sourceToDelete, setSourceToDelete] = useState(null)
+  const [deletingSource, setDeletingSource] = useState(false)
+  const permissions = useAuthStore((state) => state.permissions)
+  const canEditSources = hasPermission(permissions, 'apps', 'edit')
 
-  const fetchSources = async (appId = activeAppFilter) => {
+  const fetchSources = async () => {
     setLoadingSources(true)
     try {
-      const res = await api.get('/api/sources', {
-        params: appId && appId !== 'all' ? { app_id: appId } : undefined,
-      })
+      const res = await api.get('/api/apps/connections')
       setSources(Array.isArray(res.data) ? res.data : [])
     } catch {
-      message.error('Failed to load saved sources')
+      message.error('Failed to load app connections')
       setSources([])
     } finally {
       setLoadingSources(false)
@@ -62,10 +74,14 @@ function SourceConnectionsPage() {
   }
 
   useEffect(() => {
-    void fetchSources(activeAppFilter)
-  }, [activeAppFilter])
+    void fetchSources()
+  }, [])
 
   const totalApps = useMemo(() => new Set(sources.map(item => item.app_id)).size, [sources])
+  const documentedSources = useMemo(
+    () => sources.filter((item) => Boolean(item.description?.trim())).length,
+    [sources],
+  )
 
   const resetModal = () => {
     setModalOpen(false)
@@ -74,20 +90,44 @@ function SourceConnectionsPage() {
     setShowToken(false)
   }
 
-  const openCreateModal = () => {
+  const openCreateModal = (initialAppId = null) => {
+    const resolvedAppId = initialAppId && APPS[initialAppId]
+      ? initialAppId
+      : activeAppFilter !== 'all' ? activeAppFilter : 'request'
+
     setEditingId(null)
     setForm({
       ...EMPTY_FORM,
-      app_id: activeAppFilter !== 'all' ? activeAppFilter : 'request',
+      app_id: resolvedAppId,
     })
     setShowToken(false)
     setModalOpen(true)
   }
 
+  useEffect(() => {
+    const requestedAppId = searchParams.get('app')
+    const normalizedAppId = requestedAppId && APPS[requestedAppId] ? requestedAppId : null
+    const shouldCreate = searchParams.get('create') === '1'
+    const signature = `${normalizedAppId || 'all'}|${shouldCreate ? 'create' : 'view'}`
+
+    if (!normalizedAppId && !shouldCreate) return
+    if (handledIntentRef.current === signature) return
+
+    if (normalizedAppId) {
+      setActiveAppFilter(normalizedAppId)
+    }
+
+    if (shouldCreate && canEditSources) {
+      openCreateModal(normalizedAppId)
+    }
+
+    handledIntentRef.current = signature
+  }, [searchParams, canEditSources])
+
   const openEditModal = async (sourceId) => {
     setLoadingDetail(true)
     try {
-      const res = await api.get(`/api/sources/${sourceId}`)
+      const res = await api.get(`/api/apps/connections/${sourceId}`)
       const detail = res.data || {}
       setEditingId(String(detail.id || sourceId))
       setForm({
@@ -106,14 +146,22 @@ function SourceConnectionsPage() {
     }
   }
 
-  const handleDelete = async (source) => {
-    if (!window.confirm(`Delete saved source "${source.name}"?`)) return
+  const handleDelete = (source) => {
+    setSourceToDelete(source)
+  }
+
+  const confirmDelete = async () => {
+    if (!sourceToDelete) return
+    setDeletingSource(true)
     try {
-      await api.delete(`/api/sources/${source.id}`)
-      message.success('Saved source deleted')
-      await fetchSources(activeAppFilter)
+      await api.delete(`/api/apps/connections/${sourceToDelete.id}`)
+      message.success('App connection deleted')
+      await fetchSources()
+      setSourceToDelete(null)
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to delete saved source')
+      message.error(err.response?.data?.detail || 'Failed to delete app connection')
+    } finally {
+      setDeletingSource(false)
     }
   }
 
@@ -147,15 +195,15 @@ function SourceConnectionsPage() {
       }
 
       if (editingId) {
-        await api.put(`/api/sources/${editingId}`, payload)
-        message.success('Saved source updated')
+        await api.put(`/api/apps/connections/${editingId}`, payload)
+        message.success('App connection updated')
       } else {
-        await api.post('/api/sources', payload)
-        message.success('Saved source created')
+        await api.post('/api/apps/connections', payload)
+        message.success('App connection created')
       }
 
       resetModal()
-      await fetchSources(activeAppFilter)
+      await fetchSources()
     } catch (err) {
       message.error(err.response?.data?.detail || 'Failed to save source')
     } finally {
@@ -164,116 +212,151 @@ function SourceConnectionsPage() {
   }
 
   const selectedConfig = APP_CONNECTION_CONFIG[form.app_id] || APP_CONNECTION_CONFIG.request
+  const visibleSources = useMemo(() => {
+    return sources.filter((item) => activeAppFilter === 'all' || item.app_id === activeAppFilter)
+  }, [activeAppFilter, sources])
 
   return (
     <AppLayout>
-      <div className="p-8 space-y-6">
-        <section className="rounded-3xl border border-blue-100 bg-gradient-to-br from-white via-blue-50 to-cyan-50 p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold text-blue-700">
-                <Shield className="w-3.5 h-3.5" />
-                Reusable connection layer
-              </div>
-              <h1 className="mt-4 text-2xl font-bold text-gray-900">Sources</h1>
-              <p className="mt-2 text-sm leading-6 text-gray-600">
-                Save source credentials once, then apply them into many backup flows without re-entering the same domain and token.
-              </p>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <StatCard label="Saved sources" value={String(sources.length)} />
-              <StatCard label="Connected apps" value={String(totalApps)} />
-              <button
-                type="button"
-                onClick={openCreateModal}
-                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-4 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
-              >
-                <Plus className="w-4 h-4" />
-                New Source
-              </button>
-            </div>
-          </div>
-        </section>
+      <PageListLayout
+        title="App Connections"
+        description="Reusable app connections managed inside Apps so the other modules can decide later what data they read from each connected app."
+        overview={(
+          <ModuleOverview
+            icon={Database}
+            title="Connected app catalog"
+            description="Connect Request, Service, Workflow, or WeWork once here, then let Backup or Automation decide later how that app is consumed."
+            badges={['Connect once', 'App-scoped', 'Reuse later']}
+            stats={[
+              {
+                label: 'Saved connections',
+                value: sources.length,
+                helper: 'Reusable connection profiles available for flows.',
+              },
+              {
+                label: 'Connected apps',
+                value: totalApps,
+                helper: 'Different source applications represented here.',
+              },
+              {
+                label: 'Documented',
+                value: documentedSources,
+                helper: 'Sources already carrying team-facing notes.',
+              },
+            ]}
+          />
+        )}
+        action={canEditSources ? (
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4" />
+            New App
+          </button>
+        ) : null}
+        isLoading={loadingSources}
+        loadingText="Loading app connections…"
+        searchPlaceholder="Search app connections, domains, descriptions, or apps"
+        defaultView="grid"
+      >
+        {({ viewMode, filterText }) => {
+          const normalizedFilter = filterText.trim().toLowerCase()
+          const filteredSources = visibleSources.filter((source) => {
+            if (!normalizedFilter) return true
+            return [
+              source.name,
+              source.description,
+              source.domain,
+              source.app_name,
+              APPS[source.app_id]?.name,
+            ]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedFilter))
+          })
 
-        <Alert
-          type="info"
-          message="Source templates only store connection details"
-          description="Objects, filters, and per-flow scope still belong to each backup flow, so you can reuse one source across many different backups."
-        />
-
-        <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Saved source connections</h2>
-              <p className="mt-1 text-sm text-gray-500">Filter by application, then edit or remove existing reusable connections.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => fetchSources(activeAppFilter)}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={openCreateModal}
-                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
-              >
-                <Plus className="w-4 h-4" />
-                Add Source
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <FilterButton
-              active={activeAppFilter === 'all'}
-              label="All apps"
-              onClick={() => setActiveAppFilter('all')}
-            />
-            {Object.values(APPS).map(app => (
-              <FilterButton
-                key={app.id}
-                active={activeAppFilter === app.id}
-                label={app.name}
-                color={app.color}
-                onClick={() => setActiveAppFilter(app.id)}
+          return (
+            <div className="space-y-6">
+              <Alert
+                type="info"
+                message="This page only saves reusable app credentials"
+                description={canEditSources
+                  ? 'Data selection, filters, and execution logic still belong to Backup or Automation, so you can connect an app here once and reuse it later in many flows.'
+                  : 'Your account currently has read-only access in Apps. You can inspect saved app connections but cannot create or edit them.'}
               />
-            ))}
-          </div>
 
-          <div className="mt-6">
-            {loadingSources ? (
-              <SpinCenter text="Loading saved sources…" />
-            ) : sources.length === 0 ? (
-              <EmptyPanel
-                title="No saved sources yet"
-                description="Create your first reusable connection here, then apply it directly inside the backup wizard."
-                actionLabel="Create source"
-                onAction={openCreateModal}
-              />
-            ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
-                {sources.map(source => (
-                  <SourceCard
-                    key={source.id}
-                    source={source}
-                    onEdit={() => openEditModal(source.id)}
-                    onDelete={() => handleDelete(source)}
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap gap-2">
+                  <FilterButton
+                    active={activeAppFilter === 'all'}
+                    label="All apps"
+                    onClick={() => setActiveAppFilter('all')}
                   />
-                ))}
+                  {Object.values(APPS).map(app => (
+                    <FilterButton
+                      key={app.id}
+                      active={activeAppFilter === app.id}
+                      label={app.name}
+                      color={app.color}
+                      onClick={() => setActiveAppFilter(app.id)}
+                    />
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => fetchSources()}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
+                </button>
               </div>
-            )}
-          </div>
-        </section>
-      </div>
+
+              {sources.length === 0 ? (
+                <EmptyPanel
+                  title="No app connections yet"
+                  description="Connect your first reusable app here, then let Backup or the other modules decide later how they use it."
+                  actionLabel={canEditSources ? 'Connect app' : null}
+                  onAction={canEditSources ? openCreateModal : null}
+                />
+              ) : filteredSources.length === 0 ? (
+                <SearchEmptyState query={filterText} label="sources" />
+              ) : viewMode === 'grid' ? (
+                <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                  {filteredSources.map(source => (
+                    <SourceCard
+                      key={source.id}
+                      source={source}
+                      canEdit={canEditSources}
+                      onEdit={canEditSources ? () => openEditModal(source.id) : null}
+                      onDelete={canEditSources ? () => handleDelete(source) : null}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                  {filteredSources.map(source => (
+                    <SourceListRow
+                      key={source.id}
+                      source={source}
+                      canEdit={canEditSources}
+                      onEdit={canEditSources ? () => openEditModal(source.id) : null}
+                      onDelete={canEditSources ? () => handleDelete(source) : null}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        }}
+      </PageListLayout>
 
       <Modal
         open={modalOpen}
         onCancel={resetModal}
-        title={editingId ? 'Edit Source' : 'Create Source'}
+        title={editingId ? 'Edit App Connection' : 'Create App Connection'}
         width={760}
         footer={(
           <>
@@ -291,7 +374,7 @@ function SourceConnectionsPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {editingId ? 'Save Changes' : 'Create Source'}
+              {editingId ? 'Save Changes' : 'Create App'}
             </button>
           </>
         )}
@@ -376,20 +459,32 @@ function SourceConnectionsPage() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(sourceToDelete)}
+        onClose={() => { if (!deletingSource) setSourceToDelete(null) }}
+        onConfirm={() => { void confirmDelete() }}
+        title="Delete app connection?"
+        description={sourceToDelete ? `Delete the app connection "${sourceToDelete.name}". Backup flows using it will need to reconnect or choose another saved app.` : ''}
+        confirmLabel={deletingSource ? 'Deleting…' : 'Delete app'}
+        cancelLabel="Cancel"
+        variant="danger"
+        isLoading={deletingSource}
+      />
     </AppLayout>
   )
 }
 
-function SourceCard({ source, onEdit, onDelete }) {
+function SourceCard({ source, onEdit, onDelete, canEdit }) {
   const app = APPS[source.app_id]
   const Icon = APP_ICONS[source.app_id] || Globe
 
   return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-gray-300">
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-blue-300 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <div
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
             style={{ backgroundColor: app?.bg || '#eff6ff', color: app?.color || '#2563eb' }}
           >
             <Icon className="w-5 h-5" />
@@ -403,22 +498,24 @@ function SourceCard({ source, onEdit, onDelete }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-xl border border-gray-200 p-2 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded-xl border border-red-200 p-2 text-red-500 transition-colors hover:bg-red-50"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-xl border border-gray-200 p-2 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded-xl border border-red-200 p-2 text-red-500 transition-colors hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       {source.description && <p className="mt-4 text-sm leading-6 text-gray-600">{source.description}</p>}
@@ -427,6 +524,54 @@ function SourceCard({ source, onEdit, onDelete }) {
         <span className="rounded-full bg-gray-100 px-2 py-1">Updated {formatDateTime(source.updated_at)}</span>
         <span className="rounded-full bg-green-50 px-2 py-1 text-green-700">Ready to reuse</span>
       </div>
+    </div>
+  )
+}
+
+function SourceListRow({ source, onEdit, onDelete, canEdit }) {
+  const app = APPS[source.app_id]
+  const Icon = APP_ICONS[source.app_id] || Globe
+
+  return (
+    <div className="flex items-center gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 hover:bg-gray-50">
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+        style={{ backgroundColor: app?.bg || '#eff6ff', color: app?.color || '#2563eb' }}
+      >
+        <Icon className="h-4 w-4" />
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold text-gray-900">{source.name}</div>
+          <Tag color="blue">{source.app_name}</Tag>
+        </div>
+        <div className="mt-1 text-xs text-gray-500">
+          {source.domain || 'No domain configured'}
+          {source.description && <span className="ml-2 hidden text-gray-400 md:inline">• {source.description}</span>}
+        </div>
+      </div>
+
+      <div className="hidden text-xs text-gray-400 lg:block">Updated {formatDateTime(source.updated_at)}</div>
+
+      {canEdit && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -457,20 +602,36 @@ function StatCard({ label, value }) {
 
 function EmptyPanel({ title, description, actionLabel, onAction }) {
   return (
-    <div className="rounded-3xl border-2 border-dashed border-gray-200 px-6 py-12 text-center">
+    <div className="rounded-xl border-2 border-dashed border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
         <CheckCircle className="w-6 h-6" />
       </div>
       <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
       <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">{description}</p>
-      <button
-        type="button"
-        onClick={onAction}
-        className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
-      >
-        <Plus className="w-4 h-4" />
-        {actionLabel}
-      </button>
+      {onAction && actionLabel && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+        >
+          <Plus className="w-4 h-4" />
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SearchEmptyState({ query, label }) {
+  return (
+    <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+        <Search className="h-5 w-5" />
+      </div>
+      <h3 className="mt-4 text-base font-semibold text-gray-900">No {label} match your filters</h3>
+      <p className="mt-2 text-sm text-gray-500">
+        No results for <span className="font-medium text-gray-700">"{query}"</span>. Try another keyword or switch the app filter.
+      </p>
     </div>
   )
 }

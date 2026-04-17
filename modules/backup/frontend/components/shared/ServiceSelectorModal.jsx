@@ -1,6 +1,7 @@
 import React from 'react'
-import { RefreshCw, Loader2 } from 'lucide-react'
-import { Modal, SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
+import { Headphones, RefreshCw, Loader2 } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
+import { SpinCenter, Empty, Alert, Tag } from '@packages/ui/src/components/common/ui'
 
 const ServiceSelectorModal = ({ wizard }) => {
   const {
@@ -17,24 +18,26 @@ const ServiceSelectorModal = ({ wizard }) => {
   const rows = Array.isArray(servicePreview?.services) ? servicePreview.services : []
 
   return (
-    <Modal
-      title="Select Services for This Flow"
-      open={serviceSelectorModalOpen}
-      onCancel={closeServiceSelectorModal}
-      width={960}
+    serviceSelectorModalOpen ? (
+    <AppModalShell
+      title="Select services"
+      description="Choose the Service workspaces included in this flow. Refresh the preview whenever the upstream source selection changes."
+      icon={<Headphones className="h-5 w-5" />}
+      iconClassName="bg-green-50 text-green-600"
+      onClose={closeServiceSelectorModal}
+      maxWidthClass="max-w-[960px]"
       footer={
         <>
           <button onClick={() => loadServicePreview(draftSelectedServiceIds)} disabled={loadingServicePreview}
-            className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 flex items-center gap-2">
+            className="flex items-center gap-2 rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">
             {loadingServicePreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeServiceSelectorModal} className="px-4 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50">Cancel</button>
+          <button onClick={closeServiceSelectorModal} className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50">Cancel</button>
           <button onClick={applyServiceSelectorModal} disabled={!servicePreview}
-            className="px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
+            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
-      <p className="text-sm text-gray-500 mb-4">Select services to include in this backup flow.</p>
       {loadingServicePreview ? <SpinCenter /> : !servicePreview ? <Empty description="Load Service source preview first to choose services" /> : (
         <div className="space-y-3">
           <div className="flex gap-2 flex-wrap">
@@ -90,7 +93,8 @@ const ServiceSelectorModal = ({ wizard }) => {
           </div>
         </div>
       )}
-    </Modal>
+    </AppModalShell>
+    ) : null
   )
 }
 

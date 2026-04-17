@@ -25,7 +25,7 @@ const StepServiceAccount = ({ wizard }) => {
   const blockedReason = getGoogleDriveRunBlockedReason()
 
   return (
-    <div className="max-w-xl space-y-6">
+    <div className="w-full max-w-none space-y-6">
       {/* Upload area */}
       {platformServiceAccount?.available ? (
         <div className="bg-violet-50 border border-violet-200 rounded-2xl p-5 space-y-2">

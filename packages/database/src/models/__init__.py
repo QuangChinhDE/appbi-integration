@@ -1,9 +1,42 @@
-from sqlalchemy import Column, String, DateTime, Text, Integer, Boolean, ForeignKey, CheckConstraint
+from sqlalchemy import Column, String, DateTime, Text, Integer, Boolean, ForeignKey, CheckConstraint, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
 
 from packages.database.src.base import Base
+
+
+class UserStatus:
+    ACTIVE = 'active'
+    DEACTIVATED = 'deactivated'
+
+
+class AuthProvider:
+    PASSWORD = 'password'
+    GOOGLE = 'google'
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    full_name = Column(String(255), nullable=False)
+    password_hash = Column(String(255), nullable=True)
+    auth_provider = Column(String(32), nullable=False, server_default=AuthProvider.PASSWORD)
+    google_sub = Column(String(255), nullable=True, unique=True, index=True)
+    avatar_url = Column(String(1024), nullable=True)
+    status = Column(String(32), nullable=False, server_default=UserStatus.ACTIVE)
+    permissions = Column(
+        JSONB,
+        nullable=False,
+        server_default=text(
+            '\'{"backup":"none","apps":"none","automation":"none","settings":"none"}\'::jsonb'
+        ),
+    )
+    last_login_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class AppConfig(Base):

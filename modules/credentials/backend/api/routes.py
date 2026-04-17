@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.backup.shared.types import GoogleConnectionResponse
 from modules.credentials.backend.services.google_auth_service import AppConfigService, GoogleAuthService
+from packages.auth.src import require_any_permission, require_permission
 from packages.database.src import get_db
 
 
@@ -46,7 +47,10 @@ class GoogleServiceAccountFolderInfoPayload(BaseModel):
 
 
 @router.get("/api/settings/google")
-async def get_google_settings(db: AsyncSession = Depends(get_db)):
+async def get_google_settings(
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('settings', 'full')),
+):
     """Return current Google OAuth config (client_secret is masked)."""
     cfg = await AppConfigService(db).get_google_config()
     return {
@@ -58,7 +62,10 @@ async def get_google_settings(db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/api/google/platform-service-account")
-async def get_platform_service_account_info(db: AsyncSession = Depends(get_db)):
+async def get_platform_service_account_info(
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
+):
     """Return whether a shared Google service account is configured for Drive/Sheets."""
     cfg = await AppConfigService(db).get_platform_service_account_config()
     return {
@@ -71,6 +78,7 @@ async def get_platform_service_account_info(db: AsyncSession = Depends(get_db)):
 async def save_google_settings(
     body: GoogleOAuthConfig,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('settings', 'full')),
 ):
     """Save Google OAuth credentials to the database (encrypted)."""
     config_service = AppConfigService(db)
@@ -97,7 +105,10 @@ async def save_google_settings(
 
 
 @router.get("/api/google/auth-url")
-async def google_auth_url(db: AsyncSession = Depends(get_db)):
+async def google_auth_url(
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
+):
     """
     Return a Google OAuth consent URL.
     The frontend should open this URL in a popup window.
@@ -189,7 +200,10 @@ def _oauth_result_html(
 
 
 @router.get("/api/google/connections", response_model=List[GoogleConnectionResponse])
-async def list_google_connections(db: AsyncSession = Depends(get_db)):
+async def list_google_connections(
+    db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
+):
     """List all saved Google connections (tokens not exposed). Kept for Backup wizard."""
     service = GoogleAuthService(db)
     return await service.list_connections()
@@ -199,6 +213,7 @@ async def list_google_connections(db: AsyncSession = Depends(get_db)):
 async def delete_google_connection(
     connection_id: str,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('settings', 'full')),
 ):
     """Remove a saved Google connection. Kept for Backup wizard."""
     service = GoogleAuthService(db)
@@ -211,6 +226,7 @@ async def delete_google_connection(
 async def list_credentials(
     type: Optional[str] = Query(None, description="Filter by provider type (e.g. 'google')"),
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('settings', 'full')),
 ):
     """
     List all saved credentials across all providers.
@@ -235,6 +251,7 @@ async def delete_credential(
     credential_id: str,
     type: str = Query(..., description="Provider type, e.g. 'google'"),
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_permission('settings', 'full')),
 ):
     """Delete a credential by ID for the given provider type."""
     if type not in SUPPORTED_TYPES:
@@ -251,6 +268,7 @@ async def delete_credential(
 async def list_google_drives(
     connection_id: str = Query(..., description="GoogleConnection UUID"),
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     """List My Drive + Shared Drives for the given connection."""
     service = GoogleAuthService(db)
@@ -266,6 +284,7 @@ async def list_google_drives(
 async def analyze_google_service_account(
     body: GoogleServiceAccountPayload,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     service = GoogleAuthService(db)
     try:
@@ -280,6 +299,7 @@ async def analyze_google_service_account(
 async def list_service_account_drives(
     body: GoogleServiceAccountDrivesPayload,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     service = GoogleAuthService(db)
     try:
@@ -296,6 +316,7 @@ async def list_google_folders(
     parent_id: str = Query("root"),
     drive_id: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     """List sub-folders inside a folder. Defaults to the root of My Drive."""
     service = GoogleAuthService(db)
@@ -311,6 +332,7 @@ async def list_google_folders(
 async def list_service_account_folders(
     body: GoogleServiceAccountFoldersPayload,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     service = GoogleAuthService(db)
     try:
@@ -329,6 +351,7 @@ async def list_service_account_folders(
 async def list_service_account_shared_folders(
     body: GoogleServiceAccountSharedFoldersPayload,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     service = GoogleAuthService(db)
     try:
@@ -343,6 +366,7 @@ async def list_service_account_shared_folders(
 async def get_service_account_folder_info(
     body: GoogleServiceAccountFolderInfoPayload,
     db: AsyncSession = Depends(get_db),
+    _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
     service = GoogleAuthService(db)
     try:

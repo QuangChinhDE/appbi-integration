@@ -4,6 +4,7 @@ import {
   Eye, EyeOff, Loader2, Link2, RefreshCw,
 } from 'lucide-react'
 import { APPS } from '../../constants'
+import SearchablePickerCard from '../shared/SearchablePickerCard'
 
 /**
  * Wizard Step 1 — Flow name + app selection.
@@ -13,6 +14,7 @@ const StepNameAndApp = ({ wizard }) => {
   const {
     flowName, setFlowName,
     selectedApp, currentApp,
+    handleAppSelection,
     usesCondensedServiceWizard,
     connectionConfig,
     sourceConnectionId,
@@ -20,12 +22,9 @@ const StepNameAndApp = ({ wizard }) => {
     loadingSavedSourceConnections,
     loadSavedSourceConnections,
     applySourceConnection,
-    clearAppliedSourceConnection,
     // Condensed extras
     domain, setDomain, accessToken, setAccessToken,
-    showToken, setShowToken,
     accessTokenV2, setAccessTokenV2,
-    showTokenV2, setShowTokenV2,
     selectedObjects, handleObjectToggle, handleSelectAllObjects,
     requestPreview, loadingRequestPreview, selectedGroupIds,
     openRequestSelectorModal,
@@ -35,11 +34,6 @@ const StepNameAndApp = ({ wizard }) => {
     openWorkflowSelectorModal,
     weworkPreview, loadingWeworkPreview, selectedProjectIds,
     openWeworkSelectorModal,
-    setRequestPreview, setSelectedGroupIds, setDraftSelectedGroupIds,
-    setServiceSourceSetupSaved, setServicePreview,
-    setSelectedServiceIds, setDraftSelectedServiceIds,
-    setWorkflowPreview, setSelectedWorkflowIds, setDraftSelectedWorkflowIds,
-    setWeworkPreview, setSelectedProjectIds, setDraftSelectedProjectIds,
   } = wizard
   const isRequestSelected = selectedApp === 'request'
   const isServiceSelected = selectedApp === 'service'
@@ -53,130 +47,188 @@ const StepNameAndApp = ({ wizard }) => {
     && (!requiresDomain || domain.trim())
     && currentTokenValue.trim()
   )
+  const [sourceSearch, setSourceSearch] = React.useState('')
+
+  const filteredSourceConnections = React.useMemo(() => {
+    const normalizedQuery = sourceSearch.trim().toLowerCase()
+    const filtered = savedSourceConnections.filter((source) => {
+      if (!normalizedQuery) return true
+      return [
+        source.name,
+        source.app_name,
+        source.app_id,
+        source.app,
+        source.domain,
+        source.owner_email,
+      ]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalizedQuery))
+    })
+
+    return [...filtered].sort((left, right) => {
+      const leftActive = String(left.id) === String(sourceConnectionId)
+      const rightActive = String(right.id) === String(sourceConnectionId)
+      if (leftActive !== rightActive) return leftActive ? -1 : 1
+
+      const leftMatchesSelected = selectedApp && (left.app_id || left.app) === selectedApp
+      const rightMatchesSelected = selectedApp && (right.app_id || right.app) === selectedApp
+      if (leftMatchesSelected !== rightMatchesSelected) return leftMatchesSelected ? -1 : 1
+
+      return String(left.name || '').localeCompare(String(right.name || ''))
+    })
+  }, [savedSourceConnections, sourceSearch, sourceConnectionId, selectedApp])
+
+  const handleSourceSearchFocus = React.useCallback(() => {
+    if (!loadingSavedSourceConnections) {
+      void loadSavedSourceConnections(null)
+    }
+  }, [loadingSavedSourceConnections, loadSavedSourceConnections])
+
+  const sourceSummaryText = savedSourceConnections.length > 0
+    ? `${filteredSourceConnections.length}/${savedSourceConnections.length} source${savedSourceConnections.length > 1 ? 's' : ''}`
+    : 'No saved sources'
 
   // ── Condensed Request / Service / Workflow wizard ────────────────────
   if (usesCondensedServiceWizard) {
     return (
-      <div className="w-full max-w-4xl space-y-8">
-        <div className="border border-gray-200 rounded-2xl bg-white p-5 space-y-3">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 text-sm font-semibold text-gray-800">
-                <Link2 className="w-4 h-4 text-blue-600" />
-                <span>Select a saved source</span>
+      <div className="w-full min-w-0 space-y-8">
+        <div className="grid gap-6 2xl:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-gray-400">Flow identity</p>
+                  <h3 className="mt-2 text-sm font-semibold text-gray-900">Name this backup flow before choosing the saved source</h3>
+                  <p className="mt-1 text-xs leading-6 text-gray-500">The saved source decides the app and credentials. The flow name should explain why this backup exists.</p>
+                </div>
+                <div className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium ${sourceConnectionId ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {sourceConnectionId ? 'Source selected' : 'Waiting for source'}
+                </div>
               </div>
-              <p className="text-xs text-gray-400 mt-1">
-                Start by choosing a source that was already configured in the Sources module. The wizard will apply the correct app automatically.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => loadSavedSourceConnections(null)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              <div className="mt-4">
+                <label className="block text-sm font-semibold text-gray-800 mb-1">
+                  Backup Flow Name <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-400 mb-2">Give it a descriptive name, e.g. "Daily Backup — Service IT"</p>
+                <input
+                  className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
+                  placeholder='e.g. "Daily Backup — Service IT"'
+                  value={flowName}
+                  onChange={e => setFlowName(e.target.value)}
+                  maxLength={120}
+                />
+              </div>
+            </section>
+
+            <SearchablePickerCard
+              icon={<Link2 className="h-5 w-5" />}
+              title="Pick a saved source"
+              description="Search by source name, app, domain, or owner. Focusing the search box will sync the latest saved sources automatically, so you should not need a manual refresh before choosing."
+              searchValue={sourceSearch}
+              onSearchChange={setSourceSearch}
+              onSearchFocus={handleSourceSearchFocus}
+              searchPlaceholder="Search saved sources…"
+              summary={sourceSummaryText}
+              loading={loadingSavedSourceConnections}
+              loadingText="Loading saved sources…"
+              isEmpty={filteredSourceConnections.length === 0}
+              action={(
+                <button
+                  type="button"
+                  onClick={() => loadSavedSourceConnections(null)}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  Sync now
+                </button>
+              )}
+              emptyState={(
+                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                  {savedSourceConnections.length === 0
+                    ? 'No saved sources yet. Create one in the Apps module, then come back here to reuse it.'
+                    : 'No saved source matches your search. Try another keyword.'}
+                </div>
+              )}
             >
-              <RefreshCw className="w-3.5 h-3.5" />
-              Refresh
-            </button>
-          </div>
-
-          {loadingSavedSourceConnections ? (
-            <div className="flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-3 text-sm text-gray-500">
-              <Loader2 className="w-4 h-4 animate-spin text-blue-500" />
-              <span>Loading saved sources…</span>
-            </div>
-          ) : savedSourceConnections.length > 0 ? (
-            <div className="grid gap-2 md:grid-cols-2">
-              {savedSourceConnections.map(source => {
-                const isActive = sourceConnectionId === String(source.id)
-                const sourceAppId = source.app_id || source.app
-                const sourceApp = APPS[sourceAppId]
-                return (
-                  <button
-                    key={source.id}
-                    type="button"
-                    onClick={() => applySourceConnection(source.id)}
-                    className={`rounded-2xl border px-4 py-3 text-left transition-all ${
-                      isActive
-                        ? 'border-blue-300 bg-blue-50 shadow-sm'
-                        : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={`text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{source.name}</span>
-                      {isActive && <CheckCircle className="w-4 h-4 text-blue-600 shrink-0" />}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-gray-400">
-                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{source.app_name || sourceApp?.name || sourceAppId || 'Source'}</span>
-                      {source.domain && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{source.domain}</span>}
-                    </div>
-                    {source.owner_email && <div className="mt-2 text-xs text-gray-400">Owner: {source.owner_email}</div>}
-                  </button>
-                )
-              })}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-gray-200 px-4 py-4 text-sm text-gray-500">
-              No saved sources yet. Create one in the Sources module, then come back here to reuse it.
-            </div>
-          )}
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-2">
-          {/* Flow name */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-800 mb-1">
-              Backup Flow Name <span className="text-red-500">*</span>
-            </label>
-            <p className="text-xs text-gray-400 mb-2">Give it a descriptive name, e.g. "Daily Backup — Service IT"</p>
-            <input
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
-              placeholder='e.g. "Daily Backup — Service IT"'
-              value={flowName}
-              onChange={e => setFlowName(e.target.value)}
-              maxLength={120}
-            />
-          </div>
-
-          {/* Applied app */}
-          <div>
-            <label className="block text-sm font-semibold text-gray-800 mb-1">
-              Source Application
-            </label>
-            <p className="text-xs text-gray-400 mb-3">The selected source controls the application and credentials for this backup flow.</p>
-            <div
-              className={`w-full flex items-center gap-4 px-4 py-4 rounded-xl border-2 text-left ${
-                currentApp ? 'border-solid shadow-sm' : 'border-dashed border-gray-200 bg-white'
-              }`}
-              style={currentApp ? { borderColor: currentApp.color, backgroundColor: currentApp.bg } : {}}
-            >
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
-                style={{ backgroundColor: currentApp ? `${currentApp.color}20` : '#f3f4f6', color: currentApp?.color || '#9ca3af' }}>
-                {currentApp?.icon || <Cloud className="w-5 h-5" />}
+              <div className="max-h-[28rem] overflow-y-auto pr-1">
+                <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                  {filteredSourceConnections.map(source => {
+                    const isActive = sourceConnectionId === String(source.id)
+                    const sourceAppId = source.app_id || source.app
+                    const sourceApp = APPS[sourceAppId]
+                    return (
+                      <button
+                        key={source.id}
+                        type="button"
+                        onClick={() => applySourceConnection(source.id)}
+                        className={`rounded-2xl border px-4 py-3 text-left transition-all ${
+                          isActive
+                            ? 'border-blue-300 bg-blue-50 shadow-sm'
+                            : 'border-gray-200 bg-white hover:border-blue-200 hover:bg-blue-50/40'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className={`truncate text-sm font-semibold ${isActive ? 'text-blue-700' : 'text-gray-800'}`}>{source.name}</div>
+                            <div className="mt-1 flex flex-wrap gap-1.5 text-[11px] text-gray-400">
+                              <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{source.app_name || sourceApp?.name || sourceAppId || 'Source'}</span>
+                              {source.domain && <span className="rounded-full bg-gray-100 px-2 py-0.5 text-gray-600">{source.domain}</span>}
+                            </div>
+                          </div>
+                          {isActive && <CheckCircle className="mt-0.5 w-4 h-4 text-blue-600 shrink-0" />}
+                        </div>
+                        {source.owner_email && <div className="mt-2 text-xs text-gray-400">Owner: {source.owner_email}</div>}
+                      </button>
+                    )
+                  })}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className={`text-sm font-semibold ${currentApp ? '' : 'text-gray-400'}`}
-                  style={currentApp ? { color: currentApp.color } : {}}>
-                  {currentApp ? currentApp.name : 'Select a source above to load its application'}
-                </p>
-                {currentApp
-                  ? <p className="text-xs mt-0.5" style={{ color: `${currentApp.color}99` }}>{currentApp.description}</p>
-                  : <p className="text-xs text-gray-400 mt-0.5">Saved sources from the Sources module will determine the app automatically.</p>}
-              </div>
-              {currentApp && <CheckCircle className="w-5 h-5 shrink-0" style={{ color: currentApp.color }} />}
-            </div>
+            </SearchablePickerCard>
           </div>
-        </div>
 
-        {currentApp && (
-          <div className="space-y-4">
-            <div className="border border-blue-100 rounded-2xl p-5 bg-blue-50/50 space-y-5">
+          <div className="space-y-6">
+            <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-gray-400">Resolved application</p>
+                  <h3 className="mt-2 text-sm font-semibold text-gray-900">The app is derived from the saved source</h3>
+                </div>
+                <div className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-medium ${currentApp ? 'bg-blue-50 text-blue-700' : 'bg-gray-100 text-gray-500'}`}>
+                  {currentApp ? 'Ready' : 'Not resolved yet'}
+                </div>
+              </div>
+
+              <div
+                className={`mt-4 w-full flex items-center gap-4 px-4 py-4 rounded-2xl border-2 text-left ${
+                  currentApp ? 'border-solid shadow-sm' : 'border-dashed border-gray-200 bg-white'
+                }`}
+                style={currentApp ? { borderColor: currentApp.color, backgroundColor: currentApp.bg } : {}}
+              >
+                <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+                  style={{ backgroundColor: currentApp ? `${currentApp.color}20` : '#f3f4f6', color: currentApp?.color || '#9ca3af' }}>
+                  {currentApp?.icon || <Cloud className="w-5 h-5" />}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-semibold ${currentApp ? '' : 'text-gray-400'}`}
+                    style={currentApp ? { color: currentApp.color } : {}}>
+                    {currentApp ? currentApp.name : 'Select a saved source to resolve the source application'}
+                  </p>
+                  {currentApp
+                    ? <p className="text-xs mt-0.5" style={{ color: `${currentApp.color}99` }}>{currentApp.description}</p>
+                    : <p className="text-xs text-gray-400 mt-0.5">The saved source controls the app, credentials, and downstream selection experience for this backup flow.</p>}
+                </div>
+                {currentApp && <CheckCircle className="w-5 h-5 shrink-0" style={{ color: currentApp.color }} />}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-blue-100 bg-blue-50/50 p-5 shadow-sm">
               <div className="flex items-center gap-2">
                 <Globe className="w-4 h-4 text-blue-600" />
                 <h4 className="text-sm font-bold text-blue-800">Applied source profile</h4>
               </div>
 
               {appliedSource ? (
-                <div className="grid gap-3 md:grid-cols-2">
+                <div className="mt-4 grid gap-3 md:grid-cols-2 2xl:grid-cols-1">
                   <div className="rounded-2xl border border-blue-200 bg-white p-4">
                     <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Source name</div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">{appliedSource.name}</div>
@@ -185,19 +237,35 @@ const StepNameAndApp = ({ wizard }) => {
                   <div className="rounded-2xl border border-blue-200 bg-white p-4">
                     <div className="text-xs font-medium uppercase tracking-wide text-gray-400">Connection</div>
                     <div className="mt-1 text-sm font-semibold text-gray-900">{appliedSource.domain || 'No domain configured'}</div>
-                    <div className="mt-2 text-xs text-gray-500">Managed from the Sources module</div>
+                    <div className="mt-2 text-xs text-gray-500">Managed from the Apps module</div>
                   </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-dashed border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-700">
-                  Select one saved source above. To create or edit a source connection, use the Sources module first, then come back here.
+                <div className="mt-4 rounded-2xl border border-dashed border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-700">
+                  Select one saved source from the search results. To create or edit a source connection, use the Apps module first, then come back here.
                 </div>
               )}
-            </div>
+            </section>
+          </div>
+        </div>
 
+        {currentApp && (
+          <div className="space-y-4">
             {/* Object selection */}
             {canShowCondensedObjects && (
-              <div>
+              <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium uppercase tracking-[0.18em] text-gray-400">Backup scope</p>
+                    <h3 className="mt-2 text-sm font-semibold text-gray-900">Choose the data this flow will include</h3>
+                    <p className="mt-1 text-xs leading-6 text-gray-500">The saved source handles credentials. This section only decides which data sets should be exported from that source.</p>
+                  </div>
+                  <div className="shrink-0 rounded-full bg-gray-100 px-3 py-1.5 text-xs font-medium text-gray-500">
+                    {selectedObjects.length}/{currentApp.objects.length} selected
+                  </div>
+                </div>
+
+                <div className="mt-5">
                 <label className="block text-sm font-semibold text-gray-800 mb-1">Data to Backup <span className="text-red-500">*</span></label>
                 <p className="text-xs text-gray-400 mb-3">Select the data types to include in this backup</p>
                 <div className="space-y-2">
@@ -209,7 +277,7 @@ const StepNameAndApp = ({ wizard }) => {
                     <span className="font-semibold text-sm text-gray-700">Select all</span>
                     <span className="text-xs text-gray-400 ml-auto">{currentApp.objects.length} data types</span>
                   </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
                     {currentApp.objects.map(obj => (
                       <div key={obj} onClick={() => handleObjectToggle(obj)}
                         className="border-2 rounded-xl px-4 py-3.5 cursor-pointer transition-all flex items-center gap-3"
@@ -227,7 +295,8 @@ const StepNameAndApp = ({ wizard }) => {
                     ))}
                   </div>
                 </div>
-              </div>
+                </div>
+              </section>
             )}
 
             {isRequestSelected && (
@@ -427,7 +496,7 @@ const StepNameAndApp = ({ wizard }) => {
 
   // ── Standard wizard (Request, Workflow, WeWork) ───────────────────────
   return (
-    <div className="w-full max-w-5xl space-y-8">
+    <div className="w-full min-w-0 space-y-8">
       {/* Flow name */}
       <div>
         <label className="block text-sm font-semibold text-gray-800 mb-1">Backup Flow Name <span className="text-red-500">*</span></label>
@@ -441,7 +510,7 @@ const StepNameAndApp = ({ wizard }) => {
       <div>
         <label className="block text-sm font-semibold text-gray-800 mb-1">Source Application <span className="text-red-500">*</span></label>
         <p className="text-xs text-gray-400 mb-4">Which app do you want to back up data from?</p>
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
           {Object.values(APPS).map(app => (
             <div key={app.id} onClick={() => handleAppSelection(app.id)}
               className="relative border-2 rounded-2xl p-5 cursor-pointer transition-all hover:shadow-md"

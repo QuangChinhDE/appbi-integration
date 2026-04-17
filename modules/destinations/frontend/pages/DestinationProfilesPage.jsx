@@ -9,11 +9,18 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Shield,
   Trash2,
 } from 'lucide-react'
+import { useSearchParams } from 'react-router-dom'
 import api from '@shared/api/client'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
+import ConfirmDialog from '@packages/ui/src/components/common/ConfirmDialog'
+import ModuleOverview from '@packages/ui/src/components/common/ModuleOverview'
+import PageListLayout from '@packages/ui/src/components/common/PageListLayout'
+import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import { Alert, Modal, SpinCenter, Tag, message } from '@packages/ui/src/components/common/ui'
 import { DEFAULT_GOOGLE_REDIRECT, DESTINATION_OPTIONS, formatDateTime } from '@modules/backup/frontend/constants'
 
@@ -71,6 +78,8 @@ const EMPTY_FORM = {
 }
 
 function DestinationProfilesPage() {
+  const [searchParams] = useSearchParams()
+  const [handledIntentSignature, setHandledIntentSignature] = useState('')
   const [profiles, setProfiles] = useState([])
   const [loadingProfiles, setLoadingProfiles] = useState(true)
   const [activeTypeFilter, setActiveTypeFilter] = useState('all')
@@ -91,16 +100,19 @@ function DestinationProfilesPage() {
   const [gcClientId, setGcClientId] = useState('')
   const [gcClientSecret, setGcClientSecret] = useState('')
   const [gcRedirectUri, setGcRedirectUri] = useState(DEFAULT_GOOGLE_REDIRECT)
+  const [profileToDelete, setProfileToDelete] = useState(null)
+  const [deletingProfile, setDeletingProfile] = useState(false)
+  const permissions = useAuthStore((state) => state.permissions)
+  const canEditDestinations = hasPermission(permissions, 'apps', 'edit')
+  const canManageSettings = hasPermission(permissions, 'settings', 'full')
 
-  const fetchProfiles = async (destinationType = activeTypeFilter) => {
+  const fetchProfiles = async () => {
     setLoadingProfiles(true)
     try {
-      const res = await api.get('/api/destinations', {
-        params: destinationType && destinationType !== 'all' ? { destination_type: destinationType } : undefined,
-      })
+      const res = await api.get('/api/apps/storage')
       setProfiles(Array.isArray(res.data) ? res.data : [])
     } catch {
-      message.error('Failed to load destination profiles')
+      message.error('Failed to load storage apps')
       setProfiles([])
     } finally {
       setLoadingProfiles(false)
@@ -108,6 +120,12 @@ function DestinationProfilesPage() {
   }
 
   const loadReusableDependencies = async () => {
+    if (!canEditDestinations) {
+      setGoogleConnections([])
+      setPlatformServiceAccount({ available: false, email: '' })
+      return
+    }
+
     try {
       const [connectionsRes, platformRes] = await Promise.all([
         api.get('/api/google/connections').catch(() => ({ data: [] })),
@@ -126,14 +144,15 @@ function DestinationProfilesPage() {
   }
 
   useEffect(() => {
-    void fetchProfiles(activeTypeFilter)
-  }, [activeTypeFilter])
+    void fetchProfiles()
+  }, [])
 
   useEffect(() => {
     void loadReusableDependencies()
-  }, [])
+  }, [canEditDestinations])
 
   const handleConnectedGoogle = async (data) => {
+    if (!canEditDestinations) return
     await loadReusableDependencies()
     setForm(prev => ({
       ...prev,
@@ -144,6 +163,7 @@ function DestinationProfilesPage() {
   }
 
   const openGoogleConfigModal = async () => {
+    if (!canManageSettings) return
     setGoogleConfigModalOpen(true)
     setGoogleConfigError('')
     setGoogleConfigLoading(true)
@@ -168,6 +188,7 @@ function DestinationProfilesPage() {
   }
 
   const handleGoogleConnect = async () => {
+    if (!canEditDestinations) return
     setConnectingGoogle(true)
     try {
       const res = await api.get('/api/google/auth-url')
@@ -185,7 +206,11 @@ function DestinationProfilesPage() {
     } catch (err) {
       setConnectingGoogle(false)
       if (err.response?.status === 503) {
-        await openGoogleConfigModal()
+        if (canManageSettings) {
+          await openGoogleConfigModal()
+          return
+        }
+        message.error('Google OAuth has not been configured yet. Ask an administrator to finish the workspace setup in Settings.')
         return
       }
       message.error(err.response?.data?.detail || 'Failed to start Google authentication')
@@ -247,19 +272,43 @@ function DestinationProfilesPage() {
     setForm(EMPTY_FORM)
   }
 
-  const openCreateModal = () => {
+  const openCreateModal = (initialType = null) => {
+    const resolvedType = DESTINATION_OPTIONS.some((option) => option.id === initialType)
+      ? initialType
+      : activeTypeFilter !== 'all' ? activeTypeFilter : 'gdrive'
+
     setEditingId(null)
     setForm({
       ...EMPTY_FORM,
-      destination_type: activeTypeFilter !== 'all' ? activeTypeFilter : 'gdrive',
+      destination_type: resolvedType,
     })
     setModalOpen(true)
   }
 
+  useEffect(() => {
+    const requestedType = searchParams.get('type')
+    const normalizedType = DESTINATION_OPTIONS.some((option) => option.id === requestedType) ? requestedType : null
+    const shouldCreate = searchParams.get('create') === '1'
+    const signature = `${normalizedType || 'all'}|${shouldCreate ? 'create' : 'view'}`
+
+    if (!normalizedType && !shouldCreate) return
+    if (handledIntentSignature === signature) return
+
+    if (normalizedType) {
+      setActiveTypeFilter(normalizedType)
+    }
+
+    if (shouldCreate && canEditDestinations) {
+      openCreateModal(normalizedType)
+    }
+
+    setHandledIntentSignature(signature)
+  }, [searchParams, canEditDestinations, handledIntentSignature])
+
   const openEditModal = async (profileId) => {
     setLoadingDetail(true)
     try {
-      const res = await api.get(`/api/destinations/${profileId}`)
+      const res = await api.get(`/api/apps/storage/${profileId}`)
       const detail = res.data || {}
       const auth = detail.auth || {}
       const isServiceAccount = detail.auth_mode === 'service_account'
@@ -282,20 +331,28 @@ function DestinationProfilesPage() {
       })
       setModalOpen(true)
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to load destination profile')
+      message.error(err.response?.data?.detail || 'Failed to load storage app')
     } finally {
       setLoadingDetail(false)
     }
   }
 
-  const handleDelete = async (profile) => {
-    if (!window.confirm(`Delete destination profile "${profile.name}"?`)) return
+  const handleDelete = (profile) => {
+    setProfileToDelete(profile)
+  }
+
+  const confirmDelete = async () => {
+    if (!profileToDelete) return
+    setDeletingProfile(true)
     try {
-      await api.delete(`/api/destinations/${profile.id}`)
-      message.success('Destination profile deleted')
-      await fetchProfiles(activeTypeFilter)
+      await api.delete(`/api/apps/storage/${profileToDelete.id}`)
+      message.success('Storage app deleted')
+      await fetchProfiles()
+      setProfileToDelete(null)
     } catch (err) {
-      message.error(err.response?.data?.detail || 'Failed to delete destination profile')
+      message.error(err.response?.data?.detail || 'Failed to delete storage app')
+    } finally {
+      setDeletingProfile(false)
     }
   }
 
@@ -363,134 +420,168 @@ function DestinationProfilesPage() {
       }
 
       if (editingId) {
-        await api.put(`/api/destinations/${editingId}`, payload)
-        message.success('Destination profile updated')
+        await api.put(`/api/apps/storage/${editingId}`, payload)
+        message.success('Storage app updated')
       } else {
-        await api.post('/api/destinations', payload)
-        message.success('Destination profile created')
+        await api.post('/api/apps/storage', payload)
+        message.success('Storage app created')
       }
 
       resetModal()
-      await fetchProfiles(activeTypeFilter)
+      await fetchProfiles()
     } catch (err) {
-      message.error(err.response?.data?.detail || err.message || 'Failed to save destination profile')
+      message.error(err.response?.data?.detail || err.message || 'Failed to save storage app')
     } finally {
       setSaving(false)
     }
   }
 
   const selectedDestinationOption = DESTINATION_OPTIONS.find(item => item.id === form.destination_type) || DESTINATION_OPTIONS[0]
+  const visibleProfiles = useMemo(() => {
+    return profiles.filter((item) => activeTypeFilter === 'all' || item.destination_type === activeTypeFilter)
+  }, [activeTypeFilter, profiles])
 
   return (
     <AppLayout>
-      <div className="p-8 space-y-6">
-        <section className="rounded-3xl border border-blue-100 bg-gradient-to-br from-white via-sky-50 to-emerald-50 p-6 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-            <div className="max-w-2xl">
-              <div className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/80 px-3 py-1 text-xs font-semibold text-blue-700">
-                <Shield className="w-3.5 h-3.5" />
-                Reusable storage layer
-              </div>
-              <h1 className="mt-4 text-2xl font-bold text-gray-900">Destinations</h1>
-              <p className="mt-2 text-sm leading-6 text-gray-600">
-                Reuse Google Drive or Google Sheets destinations across many backup flows, including the connected account and the target folder information.
-              </p>
-            </div>
+      <PageListLayout
+        title="Storage Apps"
+        description="Reusable Google storage apps managed inside Apps so the consuming modules can later decide when and how they write into them."
+        overview={(
+          <ModuleOverview
+            icon={Folder}
+            title="Connected storage catalog"
+            description="Prepare Google Drive and Google Sheets once here, then let Backup or Automation decide later which flows use those storage targets."
+            badges={['Connect once', 'Storage-ready', 'Reuse later']}
+            stats={[
+              {
+                label: 'Profiles',
+                value: profiles.length,
+                helper: 'Reusable storage app profiles available to flows.',
+              },
+              {
+                label: 'OAuth',
+                value: oauthCount,
+                helper: 'Profiles using reusable Google sign-in.',
+              },
+              {
+                label: 'Service account',
+                value: serviceAccountCount,
+                helper: 'Profiles relying on service credentials.',
+              },
+            ]}
+          />
+        )}
+        action={canEditDestinations ? (
+          <button
+            type="button"
+            onClick={openCreateModal}
+            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+          >
+            <Plus className="h-4 w-4" />
+            New App
+          </button>
+        ) : null}
+        isLoading={loadingProfiles}
+        loadingText="Loading storage apps…"
+        searchPlaceholder="Search storage apps, folders, accounts, or descriptions"
+        defaultView="grid"
+      >
+        {({ viewMode, filterText }) => {
+          const normalizedFilter = filterText.trim().toLowerCase()
+          const filteredProfiles = visibleProfiles.filter((profile) => {
+            if (!normalizedFilter) return true
+            return [
+              profile.name,
+              profile.description,
+              profile.destination_name,
+              profile.connection_label,
+              profile.folder_name,
+              profile.drive_name,
+            ]
+              .filter(Boolean)
+              .some((value) => String(value).toLowerCase().includes(normalizedFilter))
+          })
 
-            <div className="grid gap-3 sm:grid-cols-3">
-              <StatCard label="Profiles" value={String(profiles.length)} />
-              <StatCard label="OAuth" value={String(oauthCount)} />
-              <StatCard label="Service account" value={String(serviceAccountCount)} />
-              <button
-                type="button"
-                onClick={openCreateModal}
-                className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-2xl bg-blue-600 px-5 py-4 text-sm font-semibold text-white shadow-sm shadow-blue-200 transition-colors hover:bg-blue-700"
-              >
-                <Plus className="w-4 h-4" />
-                New Destination
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <Alert
-          type="info"
-          message="Destination profiles can still be overridden inside each backup"
-          description="Applying a saved destination inside the wizard pre-fills account and folder settings, but a single flow can still override them later when needed."
-        />
-
-        <section className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div>
-              <h2 className="text-lg font-semibold text-gray-900">Saved destination profiles</h2>
-              <p className="mt-1 text-sm text-gray-500">Keep reusable Google destinations here, then apply them directly from the backup wizard.</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  void fetchProfiles(activeTypeFilter)
-                  void loadReusableDependencies()
-                }}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-              >
-                <RefreshCw className="w-4 h-4" />
-                Refresh
-              </button>
-              <button
-                type="button"
-                onClick={openCreateModal}
-                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors hover:bg-blue-100"
-              >
-                <Plus className="w-4 h-4" />
-                Add Destination
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <FilterButton active={activeTypeFilter === 'all'} label="All" onClick={() => setActiveTypeFilter('all')} />
-            {DESTINATION_OPTIONS.map(option => (
-              <FilterButton
-                key={option.id}
-                active={activeTypeFilter === option.id}
-                label={option.title}
-                color={option.color}
-                onClick={() => setActiveTypeFilter(option.id)}
+          return (
+            <div className="space-y-6">
+              <Alert
+                type="info"
+                message="Storage settings can still be overridden inside each backup"
+                description={canEditDestinations
+                  ? 'Applying a saved storage app pre-fills account and folder settings, but a single flow can still override them later when needed.'
+                  : 'Your account currently has read-only access in Apps. You can inspect saved storage apps but cannot create or edit them.'}
               />
-            ))}
-          </div>
 
-          <div className="mt-6">
-            {loadingProfiles ? (
-              <SpinCenter text="Loading destination profiles…" />
-            ) : profiles.length === 0 ? (
-              <EmptyPanel
-                title="No destination profiles yet"
-                description="Create a reusable Google Drive or Google Sheets destination here, then apply it into new backup flows."
-                actionLabel="Create destination"
-                onAction={openCreateModal}
-              />
-            ) : (
-              <div className="grid gap-4 xl:grid-cols-2">
-                {profiles.map(profile => (
-                  <DestinationCard
-                    key={profile.id}
-                    profile={profile}
-                    onEdit={() => openEditModal(profile.id)}
-                    onDelete={() => handleDelete(profile)}
-                  />
-                ))}
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-wrap gap-2">
+                  <FilterButton active={activeTypeFilter === 'all'} label="All" onClick={() => setActiveTypeFilter('all')} />
+                  {DESTINATION_OPTIONS.map(option => (
+                    <FilterButton
+                      key={option.id}
+                      active={activeTypeFilter === option.id}
+                      label={option.title}
+                      color={option.color}
+                      onClick={() => setActiveTypeFilter(option.id)}
+                    />
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    void fetchProfiles()
+                    void loadReusableDependencies()
+                  }}
+                  className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Refresh
+                </button>
               </div>
-            )}
-          </div>
-        </section>
-      </div>
+
+              {profiles.length === 0 ? (
+                <EmptyPanel
+                  title="No storage apps yet"
+                  description="Connect a reusable Google Drive or Google Sheets target here first, then let the other modules decide later when they use it."
+                  actionLabel={canEditDestinations ? 'Connect app' : null}
+                  onAction={canEditDestinations ? openCreateModal : null}
+                />
+              ) : filteredProfiles.length === 0 ? (
+                <SearchEmptyState query={filterText} label="destinations" />
+              ) : viewMode === 'grid' ? (
+                <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
+                  {filteredProfiles.map(profile => (
+                    <DestinationCard
+                      key={profile.id}
+                      profile={profile}
+                      canEdit={canEditDestinations}
+                      onEdit={canEditDestinations ? () => openEditModal(profile.id) : null}
+                      onDelete={canEditDestinations ? () => handleDelete(profile) : null}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+                  {filteredProfiles.map(profile => (
+                    <DestinationListRow
+                      key={profile.id}
+                      profile={profile}
+                      canEdit={canEditDestinations}
+                      onEdit={canEditDestinations ? () => openEditModal(profile.id) : null}
+                      onDelete={canEditDestinations ? () => handleDelete(profile) : null}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        }}
+      </PageListLayout>
 
       <Modal
         open={modalOpen}
         onCancel={resetModal}
-        title={editingId ? 'Edit Destination' : 'Create Destination'}
+        title={editingId ? 'Edit Storage App' : 'Create Storage App'}
         width={860}
         footer={(
           <>
@@ -508,7 +599,7 @@ function DestinationProfilesPage() {
               className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {editingId ? 'Save Changes' : 'Create Destination'}
+              {editingId ? 'Save Changes' : 'Create App'}
             </button>
           </>
         )}
@@ -629,13 +720,15 @@ function DestinationProfilesPage() {
                           {connectingGoogle ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
                           {connectingGoogle ? 'Waiting for Google…' : 'Sign in with Google'}
                         </button>
-                        <button
-                          type="button"
-                          onClick={openGoogleConfigModal}
-                          className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                        >
-                          Configure OAuth Client
-                        </button>
+                        {canManageSettings && (
+                          <button
+                            type="button"
+                            onClick={openGoogleConfigModal}
+                            className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                          >
+                            Configure OAuth Client
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -864,19 +957,31 @@ function DestinationProfilesPage() {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={Boolean(profileToDelete)}
+        onClose={() => { if (!deletingProfile) setProfileToDelete(null) }}
+        onConfirm={() => { void confirmDelete() }}
+        title="Delete storage app?"
+        description={profileToDelete ? `Delete the storage app "${profileToDelete.name}". Backup flows that reuse it will need another storage target.` : ''}
+        confirmLabel={deletingProfile ? 'Deleting…' : 'Delete app'}
+        cancelLabel="Cancel"
+        variant="danger"
+        isLoading={deletingProfile}
+      />
     </AppLayout>
   )
 }
 
-function DestinationCard({ profile, onEdit, onDelete }) {
+function DestinationCard({ profile, onEdit, onDelete, canEdit }) {
   const option = DESTINATION_OPTIONS.find(item => item.id === profile.destination_type)
 
   return (
-    <div className="rounded-3xl border border-gray-200 bg-white p-5 shadow-sm transition-colors hover:border-gray-300">
+    <div className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm transition-all hover:border-blue-300 hover:shadow-md">
       <div className="flex items-start justify-between gap-4">
         <div className="flex min-w-0 items-start gap-3">
           <div
-            className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
             style={{ backgroundColor: `${option?.color || '#2563eb'}18`, color: option?.color || '#2563eb' }}
           >
             {profile.destination_type === 'gsheets'
@@ -895,22 +1000,24 @@ function DestinationCard({ profile, onEdit, onDelete }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={onEdit}
-            className="rounded-xl border border-gray-200 p-2 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
-          >
-            <Pencil className="w-4 h-4" />
-          </button>
-          <button
-            type="button"
-            onClick={onDelete}
-            className="rounded-xl border border-red-200 p-2 text-red-500 transition-colors hover:bg-red-50"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
+        {canEdit && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="rounded-xl border border-gray-200 p-2 text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="rounded-xl border border-red-200 p-2 text-red-500 transition-colors hover:bg-red-50"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+          </div>
+        )}
       </div>
 
       {profile.description && <p className="mt-4 text-sm leading-6 text-gray-600">{profile.description}</p>}
@@ -920,6 +1027,58 @@ function DestinationCard({ profile, onEdit, onDelete }) {
         {profile.drive_name && <span className="rounded-full bg-gray-100 px-2 py-1">Drive: {profile.drive_name}</span>}
         <span className="rounded-full bg-gray-100 px-2 py-1">Updated {formatDateTime(profile.updated_at)}</span>
       </div>
+    </div>
+  )
+}
+
+function DestinationListRow({ profile, onEdit, onDelete, canEdit }) {
+  const option = DESTINATION_OPTIONS.find(item => item.id === profile.destination_type)
+
+  return (
+    <div className="flex items-center gap-4 border-b border-gray-100 px-5 py-4 last:border-b-0 hover:bg-gray-50">
+      <div
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+        style={{ backgroundColor: `${option?.color || '#2563eb'}18`, color: option?.color || '#2563eb' }}
+      >
+        {profile.destination_type === 'gsheets'
+          ? <FileSpreadsheet className="h-4 w-4" />
+          : <Folder className="h-4 w-4" />}
+      </div>
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="text-sm font-semibold text-gray-900">{profile.name}</div>
+          <Tag color={profile.destination_type === 'gsheets' ? 'green' : 'blue'}>{profile.destination_name}</Tag>
+          <Tag color={profile.auth_mode === 'service_account' ? 'purple' : 'cyan'}>
+            {profile.auth_mode === 'service_account' ? 'Service account' : 'Google OAuth'}
+          </Tag>
+        </div>
+        <div className="mt-1 text-xs text-gray-500">
+          {profile.connection_label || 'No connection label'}
+          {profile.folder_name && <span className="ml-2 hidden text-gray-400 md:inline">• Folder: {profile.folder_name}</span>}
+        </div>
+      </div>
+
+      <div className="hidden text-xs text-gray-400 lg:block">Updated {formatDateTime(profile.updated_at)}</div>
+
+      {canEdit && (
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-blue-50 hover:text-blue-600"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={onDelete}
+            className="rounded-lg p-2 text-gray-400 transition-colors hover:bg-red-50 hover:text-red-600"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }
@@ -950,20 +1109,36 @@ function StatCard({ label, value }) {
 
 function EmptyPanel({ title, description, actionLabel, onAction }) {
   return (
-    <div className="rounded-3xl border-2 border-dashed border-gray-200 px-6 py-12 text-center">
+    <div className="rounded-xl border-2 border-dashed border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
       <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
         <CheckCircle className="w-6 h-6" />
       </div>
       <h3 className="mt-4 text-lg font-semibold text-gray-900">{title}</h3>
       <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-gray-500">{description}</p>
-      <button
-        type="button"
-        onClick={onAction}
-        className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
-      >
-        <Plus className="w-4 h-4" />
-        {actionLabel}
-      </button>
+      {onAction && actionLabel && (
+        <button
+          type="button"
+          onClick={onAction}
+          className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+        >
+          <Plus className="w-4 h-4" />
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  )
+}
+
+function SearchEmptyState({ query, label }) {
+  return (
+    <div className="rounded-xl border border-dashed border-gray-200 bg-white px-6 py-12 text-center shadow-sm">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-gray-100 text-gray-400">
+        <Search className="h-5 w-5" />
+      </div>
+      <h3 className="mt-4 text-base font-semibold text-gray-900">No {label} match your filters</h3>
+      <p className="mt-2 text-sm text-gray-500">
+        No results for <span className="font-medium text-gray-700">"{query}"</span>. Try another keyword or switch the destination type filter.
+      </p>
     </div>
   )
 }

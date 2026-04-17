@@ -10,7 +10,7 @@ import FileTreePreview from '../shared/FileTreePreview'
 const BACKUP_TYPE_LABELS = { structured: 'Structured (Spreadsheet)', unstructured: 'Files & Attachments', all: 'Complete' }
 const BACKUP_TYPE_COLORS = { structured: '#0284c7', unstructured: '#d97706', all: '#7c3aed' }
 
-const reviewSplitLayoutClass = 'grid flex-1 min-h-0 gap-5 xl:grid-cols-[minmax(400px,460px)_minmax(0,1fr)]'
+const reviewSplitLayoutClass = 'grid flex-1 min-h-0 gap-5 xl:grid-cols-[minmax(340px,0.95fr)_minmax(0,1.55fr)] 2xl:grid-cols-[minmax(380px,0.9fr)_minmax(0,1.7fr)]'
 const reviewSummaryColumnClass = 'min-w-0 space-y-4 overflow-y-auto'
 
 /* ═══════════════════════════════════════════════════════════════════════

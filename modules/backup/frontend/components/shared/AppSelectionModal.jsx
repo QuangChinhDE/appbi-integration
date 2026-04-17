@@ -1,12 +1,18 @@
 import React from 'react'
-import { Check } from 'lucide-react'
-import { Modal } from '@packages/ui/src/components/common/ui'
+import { Check, Workflow } from 'lucide-react'
+import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
 import { APPS } from '../../constants'
 
 const AppSelectionModal = ({ open, onCancel, selectedApp, onSelect }) => (
-  <Modal title="Choose Application" open={open} onCancel={onCancel} width={820}>
-    <p className="text-sm text-gray-500 mb-4">Select the app whose data you want to back up.</p>
-    <div className="grid grid-cols-2 gap-4">
+  open ? (
+  <AppModalShell
+    title="Choose application"
+    description="Select the source application that this backup flow should follow. The remaining wizard steps adapt automatically to the app you choose."
+    icon={<Workflow className="h-5 w-5" />}
+    onClose={onCancel}
+    maxWidthClass="max-w-4xl"
+  >
+    <div className="grid gap-4 md:grid-cols-2">
       {Object.values(APPS).map(app => (
         <button
           key={app.id}
@@ -32,7 +38,8 @@ const AppSelectionModal = ({ open, onCancel, selectedApp, onSelect }) => (
         </button>
       ))}
     </div>
-  </Modal>
+  </AppModalShell>
+  ) : null
 )
 
 export default AppSelectionModal
