@@ -38,7 +38,10 @@ from modules.credentials.backend.services.google_auth_service import (
 from packages.database.src.models import AppCredential, GoogleConnection, ResourceType, User
 
 
-APPS_REQUIRING_DOMAIN = {"request", "workflow", "wework", "service"}
+APPS_REQUIRING_DOMAIN = {
+    "request", "workflow", "wework", "service",
+    "crm", "hrm", "table", "goal", "income", "meeting", "payroll", "timeoff",
+}
 
 
 class AppCredentialService:

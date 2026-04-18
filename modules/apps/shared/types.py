@@ -13,11 +13,22 @@ SUPPORTED_APPS: Dict[str, str] = {
     "workflow": "Workflow",
     "wework": "WeWork",
     "service": "Service",
+    "crm": "CRM",
+    "hrm": "HRM",
+    "table": "Table",
+    "goal": "Goal",
+    "income": "Income",
+    "meeting": "Meeting",
+    "payroll": "Payroll",
+    "timeoff": "Timeoff",
     "gdrive": "Google Drive",
     "gsheets": "Google Sheets",
 }
 
-SOURCE_STYLE_APPS = {"request", "workflow", "wework", "service"}
+SOURCE_STYLE_APPS = {
+    "request", "workflow", "wework", "service",
+    "crm", "hrm", "table", "goal", "income", "meeting", "payroll", "timeoff",
+}
 GOOGLE_STYLE_APPS = {"gdrive", "gsheets"}
 
 SUPPORTED_AUTH_MODES = {"access_token", "google_oauth", "service_account"}

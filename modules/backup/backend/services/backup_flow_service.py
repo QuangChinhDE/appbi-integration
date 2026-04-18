@@ -589,16 +589,16 @@ class BackupFlowService:
 
         runner = None
         if source.app_id == 'request':
-            from modules.connectors.apps.request.backup.extractor import run_request_backup
+            from modules.backup.backend.extractors.request_extractor import run_request_backup
             runner = run_request_backup
         elif source.app_id == 'service':
-            from modules.connectors.apps.service.backup.extractor import run_service_backup
+            from modules.backup.backend.extractors.service_extractor import run_service_backup
             runner = run_service_backup
         elif source.app_id == 'wework':
-            from modules.connectors.apps.wework.backup.extractor import run_wework_backup
+            from modules.backup.backend.extractors.wework_extractor import run_wework_backup
             runner = run_wework_backup
         elif source.app_id == 'workflow':
-            from modules.connectors.apps.workflow.backup.extractor import run_workflow_backup
+            from modules.backup.backend.extractors.workflow_extractor import run_workflow_backup
             runner = run_workflow_backup
         else:
             raise ValueError(f"Unsupported backup app: {source.app_id}")

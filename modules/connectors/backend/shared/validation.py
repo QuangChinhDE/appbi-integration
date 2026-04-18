@@ -3,25 +3,39 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from modules.apps.shared.types import GOOGLE_STYLE_APPS, SOURCE_STYLE_APPS
 from packages.database.src.models import AppCredential
 
 
-PIPELINE_APP_DESTINATION_IDS = {'gsheets'}
-PIPELINE_PLANNED_DESTINATION_IDS = {'bigquery'}
-
-
 class ConnectorBindingValidationService:
+
     @staticmethod
     def validate_source_app_id(app_id: str) -> None:
-        if app_id not in SOURCE_STYLE_APPS:
+        from .catalog import get_connector
+        connector = get_connector(app_id)
+        if connector is None or not connector.get_readable_streams():
             raise ValueError(f"App '{app_id}' is not registered as a source reader")
 
     @staticmethod
     def validate_destination_app_id(app_id: str) -> None:
-        if app_id in PIPELINE_APP_DESTINATION_IDS or app_id in PIPELINE_PLANNED_DESTINATION_IDS:
-            return
-        raise ValueError(f"App '{app_id}' is not registered as a pipeline destination")
+        from .catalog import get_connector
+        connector = get_connector(app_id)
+        if connector is None:
+            raise ValueError(f"App '{app_id}' is not registered as a pipeline destination")
+        writable = connector.get_writable_streams()
+        if not writable and connector.status != 'planned':
+            raise ValueError(f"App '{app_id}' is not registered as a pipeline destination")
+
+    @staticmethod
+    def validate_connector_stream(connector_key: str, stream_key: str, capability: str = 'read') -> None:
+        from .catalog import get_connector
+        connector = get_connector(connector_key)
+        if connector is None:
+            raise ValueError(f"Connector '{connector_key}' not found")
+        stream = connector.get_stream(stream_key)
+        if stream is None:
+            raise ValueError(f"Stream '{stream_key}' not found in connector '{connector_key}'")
+        if capability not in stream.capabilities:
+            raise ValueError(f"Stream '{stream_key}' in connector '{connector_key}' does not support '{capability}'")
 
     @classmethod
     def validate_source_credential(cls, credential: AppCredential | None) -> None:
@@ -33,11 +47,17 @@ class ConnectorBindingValidationService:
     def validate_destination_credential(cls, credential: AppCredential | None) -> None:
         if credential is None:
             raise ValueError('Destination credential not found')
-        if credential.app_id in PIPELINE_APP_DESTINATION_IDS and credential.app_id in GOOGLE_STYLE_APPS:
-            return
-        raise ValueError(
-            f"Credential '{credential.name}' is for {credential.app_id}, which is not yet available as a pipeline destination."
-        )
+        from .catalog import get_connector
+        connector = get_connector(credential.app_id)
+        if connector is None:
+            raise ValueError(
+                f"Credential '{credential.name}' is for {credential.app_id}, which is not a registered connector."
+            )
+        writable = connector.get_writable_streams()
+        if not writable and connector.status != 'planned':
+            raise ValueError(
+                f"Credential '{credential.name}' is for {credential.app_id}, which is not yet available as a pipeline destination."
+            )
 
     @staticmethod
     def validate_source_binding_payload(auth: Mapping[str, Any], config: Mapping[str, Any]) -> None:

@@ -722,3 +722,35 @@ async def get_source_app(
     if not app:
         raise HTTPException(status_code=404, detail=f"Source app '{app_id}' not found")
     return app
+
+
+# ── Stream-level connector catalog endpoints ──────────────────────────────────
+
+@router.get("/api/connectors/catalog")
+async def list_connectors(db: AsyncSession = Depends(get_db)):
+    """List all registered connectors with their streams and credential counts."""
+    from modules.connectors.backend.shared.catalog import ConnectorCatalogService
+    service = ConnectorCatalogService(db)
+    return await service.list_connectors()
+
+
+@router.get("/api/connectors/catalog/{connector_key}")
+async def get_connector_detail(connector_key: str, db: AsyncSession = Depends(get_db)):
+    """Get a single connector with its streams, operations, and credential count."""
+    from modules.connectors.backend.shared.catalog import ConnectorCatalogService
+    service = ConnectorCatalogService(db)
+    result = await service.get_connector_detail(connector_key)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Connector '{connector_key}' not found")
+    return result
+
+
+@router.get("/api/connectors/catalog/{connector_key}/streams/{stream_key}")
+async def get_stream_detail(connector_key: str, stream_key: str, db: AsyncSession = Depends(get_db)):
+    """Get a single stream definition from a connector."""
+    from modules.connectors.backend.shared.catalog import ConnectorCatalogService
+    service = ConnectorCatalogService(db)
+    result = await service.get_stream_detail(connector_key, stream_key)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Stream '{stream_key}' not found in connector '{connector_key}'")
+    return result

@@ -12,14 +12,16 @@ import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.connectors.apps.request.backup.extractor import (
+from modules.backup.backend.extractors._gdrive import (
     GoogleDriveTokenProvider,
     build_cached_gdrive_token_provider,
-    build_excel_bytes,
     gdrive_create_folder,
     gdrive_recreate_folder,
     gdrive_upload_tabular_bytes,
     gdrive_upload_bytes,
+)
+from modules.backup.backend.extractors._helpers import (
+    build_excel_bytes,
     sanitize_name,
     truncate_name,
 )

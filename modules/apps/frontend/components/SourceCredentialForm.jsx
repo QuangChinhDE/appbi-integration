@@ -3,6 +3,7 @@ import { Eye, EyeOff, Globe } from 'lucide-react'
 
 import api from '@shared/api/client'
 import { APPS, APP_CONNECTION_CONFIG } from '@modules/backup/frontend/constants'
+import { APP_CATALOG } from '@modules/apps/frontend/constants'
 import { SpinCenter, message } from '@packages/ui/src/components/common/ui'
 
 
@@ -31,8 +32,18 @@ const SourceCredentialForm = forwardRef(function SourceCredentialForm(
   { appId, editingId = null, onSaved, onSavingChange },
   ref,
 ) {
-  const resolvedApp = APPS[appId]
-  const connectionConfig = APP_CONNECTION_CONFIG[appId] || APP_CONNECTION_CONFIG.request
+  const resolvedApp = APPS[appId] || APP_CATALOG.find((a) => a.id === appId) || { id: appId, name: appId }
+  const connectionConfig = APP_CONNECTION_CONFIG[appId] || {
+    stepTitle: `${resolvedApp.name || resolvedApp.title || appId} Connection`,
+    stepDescription: `Provide the domain and access token for ${resolvedApp.name || resolvedApp.title || appId}.`,
+    requiresDomain: true,
+    domainLabel: 'Base Domain',
+    domainPlaceholder: 'company.base.com.vn',
+    domainHelp: 'Enter your Base domain. The backend will normalize it.',
+    tokenLabel: 'Access Token V2',
+    tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
+    tokenHelp: 'Get this value from Settings → API Keys.',
+  }
   const [form, setForm] = useState(EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [loadingDetail, setLoadingDetail] = useState(false)
@@ -67,6 +78,7 @@ const SourceCredentialForm = forwardRef(function SourceCredentialForm(
   useImperativeHandle(ref, () => ({
     save: async () => {
       if (!resolvedApp) return false
+      const appDisplayName = resolvedApp.name || resolvedApp.title || appId
       if (!form.name.trim()) { message.warning('Please enter a credential name'); return false }
       if (!form.domain.trim()) { message.warning('Please enter the source domain'); return false }
       if (!form.access_token.trim()) { message.warning('Please enter the access token'); return false }
@@ -77,7 +89,7 @@ const SourceCredentialForm = forwardRef(function SourceCredentialForm(
           name: form.name.trim(),
           description: form.description.trim() || null,
           app_id: appId,
-          app_name: resolvedApp.name,
+          app_name: appDisplayName,
           auth: { access_token: form.access_token.trim() },
           config: { domain: form.domain.trim() },
         }
@@ -109,7 +121,7 @@ const SourceCredentialForm = forwardRef(function SourceCredentialForm(
         <input
           value={form.name}
           onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
-          placeholder={`e.g. ${resolvedApp.name} HR Production`}
+          placeholder={`e.g. ${resolvedApp.name || resolvedApp.title || appId} HR Production`}
           className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
         />
       </div>

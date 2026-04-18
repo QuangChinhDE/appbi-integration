@@ -1,6 +1,10 @@
 import React from 'react'
 
 import { APPS, DESTINATION_OPTIONS } from '@modules/backup/frontend/constants'
+import {
+  Briefcase, CalendarClock, Clock, DollarSign,
+  LayoutGrid, Target, Users, Wallet,
+} from 'lucide-react'
 
 const GDRIVE = DESTINATION_OPTIONS.find((option) => option.id === 'gdrive')
 const GSHEETS = DESTINATION_OPTIONS.find((option) => option.id === 'gsheets')
@@ -38,6 +42,70 @@ export const APP_CATALOG = [
     description: 'Base WeWork — save multiple token credentials for reuse.',
     icon: APPS.wework.icon,
     color: APPS.wework.color,
+    role: 'source',
+  },
+  {
+    id: 'crm',
+    title: 'CRM',
+    description: 'Base CRM — leads, deals, accounts, contacts and pipelines.',
+    icon: <Briefcase className="w-5 h-5" />,
+    color: '#dc2626',
+    role: 'source',
+  },
+  {
+    id: 'hrm',
+    title: 'HRM',
+    description: 'Base HRM — employees, departments, payroll and checkin data.',
+    icon: <Users className="w-5 h-5" />,
+    color: '#0891b2',
+    role: 'source',
+  },
+  {
+    id: 'table',
+    title: 'Table',
+    description: 'Base Table — read and write records in Table databases.',
+    icon: <LayoutGrid className="w-5 h-5" />,
+    color: '#4f46e5',
+    role: 'source',
+  },
+  {
+    id: 'goal',
+    title: 'Goal',
+    description: 'Base Goal — cycles, goals, key results and targets.',
+    icon: <Target className="w-5 h-5" />,
+    color: '#ca8a04',
+    role: 'source',
+  },
+  {
+    id: 'income',
+    title: 'Income',
+    description: 'Base Income — incomes and inflows.',
+    icon: <DollarSign className="w-5 h-5" />,
+    color: '#16a34a',
+    role: 'source',
+  },
+  {
+    id: 'meeting',
+    title: 'Meeting',
+    description: 'Base Meeting — groups and meeting schedules.',
+    icon: <CalendarClock className="w-5 h-5" />,
+    color: '#9333ea',
+    role: 'source',
+  },
+  {
+    id: 'payroll',
+    title: 'Payroll',
+    description: 'Base Payroll — payroll cycles and records.',
+    icon: <Wallet className="w-5 h-5" />,
+    color: '#0d9488',
+    role: 'source',
+  },
+  {
+    id: 'timeoff',
+    title: 'Timeoff',
+    description: 'Base Timeoff — time-off requests and groups.',
+    icon: <Clock className="w-5 h-5" />,
+    color: '#f59e0b',
     role: 'source',
   },
   {

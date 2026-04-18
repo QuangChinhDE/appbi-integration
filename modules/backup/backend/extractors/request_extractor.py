@@ -1,6 +1,6 @@
 """
-request_runner.py
------------------
+request_extractor.py
+--------------------
 Backup runner for the "Request" app (request.base.com.vn).
 
 Flow:
@@ -24,9 +24,8 @@ import base64
 import json
 import re
 import traceback
-from datetime import datetime, timedelta, timezone
-from io import BytesIO
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
+from datetime import datetime, timezone
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 import pandas as pd
@@ -35,16 +34,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.connectors.apps.request.common import RequestCredentials, RequestManagementClient, normalize_request_domain
 
+from modules.backup.backend.extractors._gdrive import (
+    GoogleDriveTokenSource,
+    build_cached_gdrive_token_provider,
+    gdrive_create_folder,
+    gdrive_recreate_folder,
+    gdrive_upload_bytes,
+    gdrive_upload_tabular_bytes,
+)
+from modules.backup.backend.extractors._helpers import (
+    build_excel_bytes,
+    count_table_fields,
+    extract_usernames,
+    is_google_sheets_destination,
+    normalize_google_sheet_filename,
+    sanitize_name,
+    strip_html,
+    truncate_name,
+    ts_to_str,
+)
+
 from packages.database.src.models import BackupFlow, BackupFlowRun
 from packages.database.src.session import async_session
-
-# ── Google Drive REST endpoints ───────────────────────────────────────────────
-GDRIVE_FILES_API = "https://www.googleapis.com/drive/v3/files"
-GDRIVE_UPLOAD_API = "https://www.googleapis.com/upload/drive/v3/files"
-GoogleDriveTokenProvider = Callable[[bool], Awaitable[str]]
-GoogleDriveTokenSource = Union[str, GoogleDriveTokenProvider]
-GoogleDriveTokenLoader = Callable[[bool], Awaitable[tuple[str, Optional[datetime]]]]
-GDRIVE_TOKEN_PROACTIVE_REFRESH_WINDOW = timedelta(minutes=10)
 
 # ── Excel column definition (mirrors group.py) ────────────────────────────────
 REQUEST_COLUMNS = [
@@ -63,341 +74,6 @@ REQUEST_COLUMNS = [
     "Folder request",
     "Files",
 ]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Utility helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-def sanitize_name(name: str) -> str:
-    """Remove characters that are invalid in folder/file names."""
-    return re.sub(r'[/\\:*?"<>|]', "_", name or "").strip(". ")
-
-
-def truncate_name(name: str, max_length: int = 50) -> str:
-    if len(name) <= max_length:
-        return name
-    return name[:max_length] + "..."
-
-
-def ts_to_str(timestamp: Any) -> str:
-    """Convert Unix timestamp → 'dd/MM/yyyy HH:MM:SS' string."""
-    try:
-        if timestamp:
-            return datetime.fromtimestamp(int(timestamp)).strftime("%d/%m/%Y %H:%M:%S")
-    except Exception:
-        pass
-    return ""
-
-
-def extract_usernames(users: Any) -> str:
-    if not users or not isinstance(users, list):
-        return ""
-    return ", ".join(
-        filter(None, [u.get("username", "") for u in users if isinstance(u, dict)])
-    )
-
-
-def count_table_fields(form: Any) -> int:
-    if not form or not isinstance(form, list):
-        return 0
-    return sum(
-        1
-        for item in form
-        if isinstance(item, dict) and item.get("type") in ["input-table", "select-master"]
-    )
-
-
-def strip_html(text: str) -> str:
-    return re.sub(r"<[^>]+>", "", text or "").strip()
-
-
-def build_excel_bytes(df: pd.DataFrame) -> bytes:
-    buf = BytesIO()
-    df.to_excel(buf, index=False, engine="openpyxl")
-    buf.seek(0)
-    return buf.read()
-
-
-def is_google_sheets_destination(destination_type: Optional[str]) -> bool:
-    return str(destination_type or "").strip().lower() == "gsheets"
-
-
-def normalize_google_sheet_filename(filename: str) -> str:
-    lowered = filename.lower()
-    for extension in (".xlsx", ".xls", ".csv", ".tsv"):
-        if lowered.endswith(extension):
-            return filename[: -len(extension)]
-    return filename
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Google Drive helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
-async def _resolve_gdrive_token(token_source: GoogleDriveTokenSource, force_refresh: bool = False) -> str:
-    if callable(token_source):
-        return await token_source(force_refresh)
-    return token_source
-
-
-def _normalize_gdrive_token_expiry(expires_at: Optional[datetime]) -> Optional[datetime]:
-    if expires_at is not None and expires_at.tzinfo is None:
-        return expires_at.replace(tzinfo=timezone.utc)
-    return expires_at
-
-
-def build_cached_gdrive_token_provider(
-    load_token: GoogleDriveTokenLoader,
-    refresh_window: timedelta = GDRIVE_TOKEN_PROACTIVE_REFRESH_WINDOW,
-) -> GoogleDriveTokenProvider:
-    cached_token: Optional[str] = None
-    cached_expiry: Optional[datetime] = None
-
-    async def provider(force_refresh: bool = False) -> str:
-        nonlocal cached_token, cached_expiry
-
-        expires_at = _normalize_gdrive_token_expiry(cached_expiry)
-        proactive_refresh = (
-            cached_token is not None
-            and expires_at is not None
-            and expires_at <= datetime.now(timezone.utc) + refresh_window
-        )
-
-        if force_refresh or cached_token is None or proactive_refresh:
-            cached_token, cached_expiry = await load_token(force_refresh or proactive_refresh)
-
-        if cached_token is None:
-            raise ValueError("Google Drive access token could not be loaded")
-
-        return cached_token
-
-    return provider
-
-
-async def _gdrive_request(
-    client: httpx.AsyncClient,
-    method: str,
-    url: str,
-    token_source: GoogleDriveTokenSource,
-    **kwargs: Any,
-) -> httpx.Response:
-    base_headers = dict(kwargs.pop("headers", {}) or {})
-    attempts = 2 if callable(token_source) else 1
-    response: Optional[httpx.Response] = None
-
-    for attempt in range(attempts):
-        token = await _resolve_gdrive_token(token_source, force_refresh=attempt > 0)
-        headers = dict(base_headers)
-        headers["Authorization"] = f"Bearer {token}"
-        response = await client.request(method, url, headers=headers, **kwargs)
-        if response.status_code != 401:
-            return response
-
-    assert response is not None
-    return response
-
-
-async def gdrive_find_folders(
-    token: GoogleDriveTokenSource,
-    name: str,
-    parent_id: str,
-    *,
-    drive_id: str | None = None,
-) -> List[Dict[str, str]]:
-    """Find all folders with an exact name inside parent."""
-    # Escape single quotes in name for GDrive query
-    safe_name = name.replace("\\", "\\\\").replace("'", "\\'")
-    params = {
-        "q": (
-            f"name='{safe_name}' and '{parent_id}' in parents "
-            "and mimeType='application/vnd.google-apps.folder' and trashed=false"
-        ),
-        "fields": "files(id,name)",
-        "pageSize": "100",
-        "supportsAllDrives": "true",
-        "includeItemsFromAllDrives": "true",
-    }
-    if drive_id and drive_id != "root":
-        params["driveId"] = drive_id
-        params["corpora"] = "drive"
-    else:
-        params["corpora"] = "allDrives"
-
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await _gdrive_request(
-            client,
-            "GET",
-            GDRIVE_FILES_API,
-            token,
-            params=params,
-        )
-        resp.raise_for_status()
-        return [
-            {"id": file_info["id"], "name": file_info.get("name", "")}
-            for file_info in resp.json().get("files", [])
-            if isinstance(file_info, dict) and file_info.get("id")
-        ]
-
-
-async def gdrive_find_folder(
-    token: GoogleDriveTokenSource,
-    name: str,
-    parent_id: str,
-    *,
-    drive_id: str | None = None,
-) -> Optional[str]:
-    """Find a folder by exact name inside parent. Returns ID or None."""
-    files = await gdrive_find_folders(token, name, parent_id, drive_id=drive_id)
-    if files:
-        return files[0]["id"]
-    return None
-
-
-async def _gdrive_create_new_folder(token: GoogleDriveTokenSource, name: str, parent_id: str) -> str:
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await _gdrive_request(
-            client,
-            "POST",
-            GDRIVE_FILES_API,
-            token,
-            headers={
-                "Content-Type": "application/json",
-            },
-            json={
-                "name": name,
-                "mimeType": "application/vnd.google-apps.folder",
-                "parents": [parent_id],
-            },
-            params={"supportsAllDrives": "true"},
-        )
-        resp.raise_for_status()
-        return resp.json()["id"]
-
-
-async def gdrive_archive_item(
-    token: GoogleDriveTokenSource,
-    item_id: str,
-    *,
-    ignore_missing: bool = False,
-) -> bool:
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await _gdrive_request(
-            client,
-            "PATCH",
-            f"{GDRIVE_FILES_API}/{item_id}",
-            token,
-            headers={
-                "Content-Type": "application/json",
-            },
-            params={"supportsAllDrives": "true"},
-            json={"trashed": True},
-        )
-        if ignore_missing and resp.status_code == 404:
-            return False
-        resp.raise_for_status()
-        return True
-
-
-async def gdrive_recreate_folder(
-    token: GoogleDriveTokenSource,
-    name: str,
-    parent_id: str,
-    *,
-    drive_id: str | None = None,
-) -> tuple[str, int]:
-    existing_folders = await gdrive_find_folders(token, name, parent_id, drive_id=drive_id)
-    archived_count = 0
-    for folder in existing_folders:
-        archived = await gdrive_archive_item(token, folder["id"], ignore_missing=True)
-        if archived:
-            archived_count += 1
-
-    if existing_folders:
-        remaining_folders = await gdrive_find_folders(token, name, parent_id, drive_id=drive_id)
-        if remaining_folders:
-            raise ValueError(
-                f"Cannot recreate '{name}' in Google Drive because {len(remaining_folders)} folder(s) with the same name still remain in the selected destination. "
-                "This destination lets the current Google identity create files, but it is not allowing the existing backup root to be archived cleanly. "
-                "Move the old folder(s) to trash manually or grant a Shared Drive role that can trash items in this destination, then run the backup again."
-            )
-
-    return await _gdrive_create_new_folder(token, name, parent_id), archived_count
-
-
-async def gdrive_create_folder(
-    token: GoogleDriveTokenSource,
-    name: str,
-    parent_id: str,
-    *,
-    drive_id: str | None = None,
-) -> str:
-    """Get-or-create a folder. Returns its Google Drive ID."""
-    existing = await gdrive_find_folder(token, name, parent_id, drive_id=drive_id)
-    if existing:
-        return existing
-    return await _gdrive_create_new_folder(token, name, parent_id)
-
-
-async def gdrive_upload_bytes(
-    token: GoogleDriveTokenSource,
-    filename: str,
-    content: bytes,
-    mime_type: str,
-    parent_id: str,
-    *,
-    convert_to_google_sheet: bool = False,
-) -> str:
-    """Upload bytes as a file to Google Drive. Returns new file ID."""
-    metadata_payload: Dict[str, Any] = {
-        "name": normalize_google_sheet_filename(filename) if convert_to_google_sheet else filename,
-        "parents": [parent_id],
-    }
-    if convert_to_google_sheet:
-        metadata_payload["mimeType"] = "application/vnd.google-apps.spreadsheet"
-
-    metadata = json.dumps(metadata_payload)
-    boundary = "gdrive_boundary_2026"
-    body = (
-        f"--{boundary}\r\n"
-        f"Content-Type: application/json; charset=UTF-8\r\n\r\n"
-        f"{metadata}\r\n"
-        f"--{boundary}\r\n"
-        f"Content-Type: {mime_type}\r\n\r\n"
-    ).encode("utf-8") + content + f"\r\n--{boundary}--".encode("utf-8")
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await _gdrive_request(
-            client,
-            "POST",
-            GDRIVE_UPLOAD_API,
-            token,
-            headers={
-                "Content-Type": f"multipart/related; boundary={boundary}",
-            },
-            params={"uploadType": "multipart", "supportsAllDrives": "true"},
-            content=body,
-        )
-        resp.raise_for_status()
-        return resp.json()["id"]
-
-
-async def gdrive_upload_tabular_bytes(
-    token: GoogleDriveTokenSource,
-    filename: str,
-    content: bytes,
-    parent_id: str,
-    *,
-    destination_type: Optional[str] = None,
-) -> str:
-    return await gdrive_upload_bytes(
-        token,
-        filename,
-        content,
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        parent_id,
-        convert_to_google_sheet=is_google_sheets_destination(destination_type),
-    )
 
 
 # ─────────────────────────────────────────────────────────────────────────────
