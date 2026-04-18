@@ -11,6 +11,7 @@ from .contracts import (
     FieldDescriptor,
     OperationSpec,
     StreamDefinition,
+    WriteConfig,
 )
 
 
@@ -442,6 +443,10 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='spreadsheets',
                 primary_key='sheet_id',
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                ),
             ),
             StreamDefinition(
                 stream_key='rows',
@@ -449,6 +454,10 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh',),
                 parent_stream='sheets',
+                write_config=WriteConfig(
+                    supported_modes=('append', 'replace'),
+                    default_mode='append',
+                ),
             ),
         ),
         notes=(
@@ -483,6 +492,11 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh',),
                 primary_key='folder_id',
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    supports_dynamic_schema=False,
+                ),
             ),
             StreamDefinition(
                 stream_key='files',
@@ -490,6 +504,11 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh', 'incremental'),
                 primary_key='file_id',
+                write_config=WriteConfig(
+                    supported_modes=('append', 'replace'),
+                    default_mode='append',
+                    supports_dynamic_schema=False,
+                ),
             ),
         ),
     ),
@@ -530,6 +549,11 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='table_id',
                 parent_stream='datasets',
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    supports_dynamic_schema=False,
+                ),
             ),
             StreamDefinition(
                 stream_key='rows',
@@ -537,6 +561,10 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh', 'incremental'),
                 parent_stream='tables',
+                write_config=WriteConfig(
+                    supported_modes=('append', 'replace', 'upsert'),
+                    default_mode='append',
+                ),
             ),
         ),
         notes=(
@@ -840,10 +868,7 @@ class ConnectorCatalogService:
         return [
             c.as_destination_writer_payload(credential_count=counts.get(c.connector_key, 0))
             for c in CONNECTOR_REGISTRY
-            if c.get_writable_streams() and 'pipeline' in c.supported_modules
-            and c.connector_key not in get_readable_connector_keys() - get_writable_connector_keys()
-            # Only include connectors that are primarily destinations or explicitly support pipeline writes
-            and c.connector_key in {'gsheets', 'gdrive', 'bigquery'}
+            if c.is_destination and c.status != 'planned'
         ]
 
     async def build_pipeline_catalog(self) -> dict[str, object]:

@@ -87,6 +87,7 @@ class GoogleDriveConnector(BaseConnector):
 
         if stream_key == 'files':
             parent_id = str(cfg.get('parent_id') or 'root')
+            write_mode = str(cfg.get('write_mode', 'append'))
             uploaded = []
             for record in records:
                 name = str(record.get('name', ''))
@@ -96,9 +97,15 @@ class GoogleDriveConnector(BaseConnector):
                     continue
                 if isinstance(content, str):
                     content = content.encode('utf-8')
+                if write_mode == 'replace':
+                    # Delete existing file with same name before uploading
+                    existing = await client.find_folders(name, parent_id)
+                    for item in existing:
+                        if item.get('name') == name:
+                            await client.delete_file(item['id'])
                 file_id = await client.upload_bytes(name, content, mime_type, parent_id)
                 uploaded.append({'id': file_id, 'name': name})
-            return {'uploaded': len(uploaded), 'files': uploaded}
+            return {'uploaded': len(uploaded), 'files': uploaded, 'write_mode': write_mode}
 
         raise ValueError(f"Unknown stream '{stream_key}' for gdrive connector")
 

@@ -103,15 +103,20 @@ class GoogleSheetsConnector(BaseConnector):
         if stream_key == 'rows':
             spreadsheet_id = str(cfg.get('spreadsheet_id') or '')
             range_notation = str(cfg.get('range', 'Sheet1'))
+            write_mode = str(cfg.get('write_mode', 'append'))
             if not spreadsheet_id:
                 raise ValueError("rows write requires 'spreadsheet_id' in config")
             if not records:
-                return {'appended': 0}
+                return {'written': 0, 'write_mode': write_mode}
             # Convert dicts to row arrays using keys from first record
             headers = list(records[0].keys())
             rows = [headers] + [[record.get(h, '') for h in headers] for record in records]
-            await client.append_rows(spreadsheet_id, range_notation, rows)
-            return {'appended': len(records)}
+            if write_mode == 'replace':
+                await client.clear_sheet(spreadsheet_id, range_notation)
+                await client.update_values(spreadsheet_id, range_notation, rows)
+            else:
+                await client.append_rows(spreadsheet_id, range_notation, rows)
+            return {'written': len(records), 'write_mode': write_mode}
 
         raise ValueError(f"Unknown stream '{stream_key}' for gsheets connector")
 

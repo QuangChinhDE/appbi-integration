@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from enum import Enum
 from typing import Any, Mapping, Protocol
 
 
@@ -9,6 +10,33 @@ from typing import Any, Mapping, Protocol
 # Each connector exposes one or more *streams* (e.g. tickets, stages).
 # Each stream declares its own capabilities (read / write) independently.
 # Consumer modules (Backup, Pipeline, Automation) pick specific streams.
+
+
+class WriteMode(str, Enum):
+    """How a destination stream ingests records."""
+    APPEND = 'append'       # Add new rows; keep existing data intact.
+    REPLACE = 'replace'     # Clear target, then write all records (full-refresh).
+    UPSERT = 'upsert'       # Insert new rows, update existing by primary_key.
+
+
+@dataclass(frozen=True)
+class WriteConfig:
+    """Write-mode metadata attached to a destination stream.
+
+    Only destination streams (GSheets rows, BigQuery rows, GDrive files, …)
+    carry a WriteConfig.  Source streams with write-back (e.g. Service
+    create_ticket) do NOT set this — they are not pipeline destinations.
+    """
+    supported_modes: tuple[str, ...] = ('append',)
+    default_mode: str = 'append'
+    supports_dynamic_schema: bool = True   # fields discovered at runtime
+
+    def to_payload(self) -> dict[str, Any]:
+        return {
+            'supported_modes': list(self.supported_modes),
+            'default_mode': self.default_mode,
+            'supports_dynamic_schema': self.supports_dynamic_schema,
+        }
 
 
 @dataclass(frozen=True)
@@ -60,6 +88,7 @@ class StreamDefinition:
     read_operation: str | None = None   # maps to OperationSpec.operation_key
     write_operation: str | None = None
     schema_fields: tuple[FieldDescriptor, ...] = ()
+    write_config: WriteConfig | None = None  # only set for destination streams
 
     @property
     def can_read(self) -> bool:
@@ -84,6 +113,7 @@ class StreamDefinition:
                 {'name': f.name, 'type': f.field_type, 'required': f.required, 'description': f.description}
                 for f in self.schema_fields
             ],
+            'write_config': self.write_config.to_payload() if self.write_config else None,
         }
 
 
@@ -146,6 +176,15 @@ class ConnectorDefinition:
 
     def get_writable_streams(self) -> tuple[StreamDefinition, ...]:
         return tuple(s for s in self.streams if s.can_write)
+
+    def get_destination_streams(self) -> tuple[StreamDefinition, ...]:
+        """Streams with write_config — true pipeline destinations (not write-back)."""
+        return tuple(s for s in self.streams if s.write_config is not None)
+
+    @property
+    def is_destination(self) -> bool:
+        """True if this connector has at least one destination stream."""
+        return any(s.write_config for s in self.streams)
 
     def to_payload(self, *, credential_count: int = 0) -> dict[str, Any]:
         return {

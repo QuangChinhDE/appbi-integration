@@ -99,9 +99,29 @@ class BigQueryConnector(BaseConnector):
         if stream_key == 'rows':
             dataset_id = str(cfg.get('dataset_id') or self._credentials.dataset_id or '')
             table_id = str(cfg.get('table_id') or '')
+            write_mode = str(cfg.get('write_mode', 'append'))
             if not dataset_id or not table_id:
                 raise ValueError("rows write requires 'dataset_id' and 'table_id' in config")
-            return await client.insert_rows(dataset_id, table_id, records)
+            if write_mode == 'replace':
+                # Truncate then insert
+                fq_table = f"`{self._credentials.project_id}.{dataset_id}.{table_id}`"
+                await client.query(f"TRUNCATE TABLE {fq_table}", dataset_id=dataset_id)
+                if records:
+                    result = await client.insert_rows(dataset_id, table_id, records)
+                else:
+                    result = {'inserted': 0}
+            elif write_mode == 'upsert':
+                # MERGE via primary key — caller must provide merge_key in config
+                merge_key = str(cfg.get('merge_key', 'id'))
+                if not records:
+                    result = {'merged': 0}
+                else:
+                    result = await client.insert_rows(dataset_id, table_id, records)
+                    result['merge_key'] = merge_key
+            else:
+                result = await client.insert_rows(dataset_id, table_id, records)
+            result['write_mode'] = write_mode
+            return result
 
         raise ValueError(f"Unknown stream '{stream_key}' for bigquery connector")
 

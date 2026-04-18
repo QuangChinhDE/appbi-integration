@@ -2,8 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } f
 import { Eye, EyeOff, Globe } from 'lucide-react'
 
 import api from '@shared/api/client'
-import { APPS, APP_CONNECTION_CONFIG } from '@modules/backup/frontend/constants'
-import { APP_CATALOG } from '@modules/apps/frontend/constants'
+import { APP_CATALOG, APP_CONNECTION_CONFIG, getAppMeta } from '@modules/apps/frontend/constants'
 import { SpinCenter, message } from '@packages/ui/src/components/common/ui'
 
 
@@ -32,10 +31,10 @@ const SourceCredentialForm = forwardRef(function SourceCredentialForm(
   { appId, editingId = null, onSaved, onSavingChange },
   ref,
 ) {
-  const resolvedApp = APPS[appId] || APP_CATALOG.find((a) => a.id === appId) || { id: appId, name: appId }
+  const resolvedApp = getAppMeta(appId) || { id: appId, title: appId }
   const connectionConfig = APP_CONNECTION_CONFIG[appId] || {
-    stepTitle: `${resolvedApp.name || resolvedApp.title || appId} Connection`,
-    stepDescription: `Provide the domain and access token for ${resolvedApp.name || resolvedApp.title || appId}.`,
+    stepTitle: `${resolvedApp.title || appId} Connection`,
+    stepDescription: `Provide the domain and access token for ${resolvedApp.title || appId}.`,
     requiresDomain: true,
     domainLabel: 'Base Domain',
     domainPlaceholder: 'company.base.com.vn',

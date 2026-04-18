@@ -3,7 +3,7 @@ import { Database, Pencil, Plus, Search, Share2, Trash2 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import api from '@shared/api/client'
-import { APPS, DESTINATION_OPTIONS } from '@modules/backup/frontend/constants'
+import { APP_CATALOG, getAppMeta } from '@modules/apps/frontend/constants'
 import ShareDialog from '@modules/identity/frontend/components/ShareDialog'
 import { hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { getListAccessMeta, getResourcePermissions } from '@modules/identity/frontend/lib/resourcePermissions'
@@ -36,9 +36,8 @@ const SORT_OPTIONS = [
 
 function resolveAppFilterLabel(appId) {
   if (!appId) return ''
-  const destinationOption = DESTINATION_OPTIONS.find((item) => item.id === appId)
-  if (destinationOption?.title) return destinationOption.title
-  return APPS[appId]?.name || appId
+  const meta = getAppMeta(appId)
+  return meta?.title || appId
 }
 
 
@@ -101,18 +100,13 @@ function sortCredentialEntries(entries, sortKey) {
 function normalizeCredentialEntry(credential) {
   const preview = credential.preview || {}
   const isGoogle = GOOGLE_APP_IDS.has(credential.app_id)
-  const appMeta = APPS[credential.app_id]
-  const destinationOption = DESTINATION_OPTIONS.find((item) => item.id === credential.app_id)
+  const meta = getAppMeta(credential.app_id)
   const roleKey = isGoogle ? 'destination' : 'source'
   const roleMeta = ROLE_FILTER_META[roleKey]
 
-  const appTitle = isGoogle
-    ? (destinationOption?.title || credential.app_name || credential.app_id)
-    : (credential.app_name || appMeta?.name || credential.app_id)
-  const color = isGoogle ? (destinationOption?.color || '#64748b') : (appMeta?.color || '#64748b')
-  const icon = isGoogle
-    ? (destinationOption?.icon || <Database className="h-4 w-4" />)
-    : (appMeta?.icon || <Database className="h-4 w-4" />)
+  const appTitle = credential.app_name || meta?.title || credential.app_id
+  const color = meta?.color || '#64748b'
+  const icon = meta?.icon || <Database className="h-4 w-4" />
   const permissions = getResourcePermissions(credential.user_permission)
   const accessMeta = getListAccessMeta(credential.user_permission)
 

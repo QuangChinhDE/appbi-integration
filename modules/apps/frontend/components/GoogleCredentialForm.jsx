@@ -2,7 +2,7 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } 
 import { CheckCircle, Globe, Loader2, Lock, Shield } from 'lucide-react'
 
 import api from '@shared/api/client'
-import { DEFAULT_GOOGLE_REDIRECT, DESTINATION_OPTIONS } from '@modules/backup/frontend/constants'
+import { DEFAULT_GOOGLE_REDIRECT, getAppMeta } from '@modules/apps/frontend/constants'
 import { hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import { Alert, Button, Modal, SpinCenter, message } from '@packages/ui/src/components/common/ui'
@@ -80,7 +80,7 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
   const canEdit = hasPermission(permissions, 'apps', 'edit')
   const canManageSettings = hasPermission(permissions, 'settings', 'full')
   const option = useMemo(
-    () => DESTINATION_OPTIONS.find((item) => item.id === appId) || DESTINATION_OPTIONS[0],
+    () => getAppMeta(appId) || getAppMeta('gdrive') || { id: appId, title: appId },
     [appId],
   )
 

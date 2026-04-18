@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import api from '@shared/api/client'
-import { resolveIcon } from '@modules/apps/frontend/lib/iconResolver'
+import { resolveIcon } from '@packages/ui/src/lib/iconResolver'
 
 
 /**
@@ -66,11 +66,10 @@ export default function useConnectorCatalog() {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function inferRole(connector) {
-  const authType = connector.auth_spec?.auth_type
-  if (authType === 'google_oauth' || authType === 'service_account') return 'destination'
-  // If the connector has multiple auth types that include google, treat as destination
-  const authTypes = connector.auth_spec?.auth_types || []
-  if (authTypes.some((t) => t === 'google_oauth' || t === 'service_account')) return 'destination'
+  // A connector is a destination if any of its streams has write_config
+  const streams = connector.streams || []
+  const hasDestinationStream = streams.some((s) => s.write_config != null)
+  if (hasDestinationStream) return 'destination'
   return 'source'
 }
 
