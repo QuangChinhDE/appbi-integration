@@ -78,12 +78,18 @@ export default function useBackupFlows() {
     if (!record?.id) return false
     try {
       await api.delete(`/api/backup-flows/${record.id}`)
-      message.success('Backup flow deleted')
-      fetchFlows()
+      if (!options.silent) {
+        message.success('Backup flow deleted')
+      }
+      if (!options.skipReload) {
+        fetchFlows()
+      }
       options.onDeleted?.()
       return true
     } catch {
-      message.error('Failed to delete')
+      if (!options.silent) {
+        message.error('Failed to delete')
+      }
       return false
     }
   }, [fetchFlows])

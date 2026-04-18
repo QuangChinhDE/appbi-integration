@@ -13,6 +13,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from packages.auth.src.resource_permissions import (
+    apply_resource_scope,
+    batch_effective_permissions,
+    fetch_owner_email_lookup,
+    get_effective_permission,
+)
 from modules.apps.shared.types import (
     GOOGLE_STYLE_APPS,
     SOURCE_STYLE_APPS,
@@ -29,7 +35,7 @@ from modules.credentials.backend.services.google_auth_service import (
     encrypt_value,
     resolve_destination_google_auth_mode,
 )
-from packages.database.src.models import AppCredential, GoogleConnection
+from packages.database.src.models import AppCredential, GoogleConnection, ResourceType, User
 
 
 APPS_REQUIRING_DOMAIN = {"request", "workflow", "wework", "service"}
@@ -69,11 +75,19 @@ class AppCredentialService:
         return {key: value for key, value in preview.items() if value is not None}
 
     @classmethod
-    def _build_list_item(cls, credential: AppCredential) -> AppCredentialListItem:
+    def _build_list_item(
+        cls,
+        credential: AppCredential,
+        *,
+        owner_email: Optional[str] = None,
+        user_permission: Optional[str] = None,
+    ) -> AppCredentialListItem:
         return AppCredentialListItem(
             id=credential.id,
             name=credential.name,
             description=credential.description,
+            owner_email=owner_email,
+            user_permission=user_permission,
             app_id=credential.app_id,
             app_name=credential.app_name,
             auth_mode=credential.auth_mode,
@@ -84,8 +98,18 @@ class AppCredentialService:
         )
 
     @classmethod
-    def _build_detail(cls, credential: AppCredential) -> AppCredentialDetail:
-        list_item = cls._build_list_item(credential)
+    def _build_detail(
+        cls,
+        credential: AppCredential,
+        *,
+        owner_email: Optional[str] = None,
+        user_permission: Optional[str] = None,
+    ) -> AppCredentialDetail:
+        list_item = cls._build_list_item(
+            credential,
+            owner_email=owner_email,
+            user_permission=user_permission,
+        )
         auth = cls._materialize_auth_for_edit(credential)
         return AppCredentialDetail(**list_item.model_dump(), auth=auth)
 
@@ -117,22 +141,57 @@ class AppCredentialService:
         return auth
 
     # ── CRUD ───────────────────────────────────────────────────────────────
-    async def list_credentials(self, app_id: Optional[str] = None) -> List[AppCredentialListItem]:
+    async def list_credentials(self, current_user: User, app_id: Optional[str] = None) -> List[AppCredentialListItem]:
         stmt = select(AppCredential).order_by(
             AppCredential.updated_at.desc(), AppCredential.created_at.desc()
+        )
+        stmt = apply_resource_scope(
+            stmt,
+            AppCredential,
+            ResourceType.APP_CREDENTIAL,
+            current_user,
+            module='apps',
         )
         if app_id:
             stmt = stmt.where(AppCredential.app_id == app_id)
         result = await self.db.execute(stmt)
-        return [self._build_list_item(item) for item in result.scalars().all()]
+        items = result.scalars().all()
+        owner_lookup = await fetch_owner_email_lookup(self.db, (item.owner_id for item in items))
+        perm_map = await batch_effective_permissions(
+            self.db,
+            current_user,
+            items,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+        return [
+            self._build_list_item(
+                item,
+                owner_email=owner_lookup.get(item.owner_id),
+                user_permission=perm_map.get(str(item.id), 'none'),
+            )
+            for item in items
+        ]
 
-    async def get_credential(self, credential_id: str) -> Optional[AppCredentialDetail]:
+    async def get_credential(self, credential_id: str, current_user: User) -> Optional[AppCredentialDetail]:
         model = await self._get_model(credential_id)
         if not model:
             return None
-        return self._build_detail(model)
+        owner_lookup = await fetch_owner_email_lookup(self.db, (model.owner_id,))
+        user_permission = await get_effective_permission(
+            self.db,
+            current_user,
+            model,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+        return self._build_detail(
+            model,
+            owner_email=owner_lookup.get(model.owner_id),
+            user_permission=user_permission,
+        )
 
-    async def get_credential_snapshot(self, credential_id: str) -> Optional[AppCredentialApplyResponse]:
+    async def get_credential_snapshot(self, credential_id: str, current_user: User) -> Optional[AppCredentialApplyResponse]:
         model = await self._get_model(credential_id)
         if not model:
             return None
@@ -147,8 +206,18 @@ class AppCredentialService:
                         "Failed to decrypt access token for this credential. "
                         "Edit the credential in Apps and re-enter the access token."
                     ) from exc
+        owner_lookup = await fetch_owner_email_lookup(self.db, (model.owner_id,))
+        user_permission = await get_effective_permission(
+            self.db,
+            current_user,
+            model,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
         return AppCredentialApplyResponse(
             id=model.id,
+            owner_email=owner_lookup.get(model.owner_id),
+            user_permission=user_permission,
             app_id=model.app_id,
             app_name=model.app_name,
             auth_mode=model.auth_mode,
@@ -156,7 +225,7 @@ class AppCredentialService:
             config=dict(model.config or {}),
         )
 
-    async def create_credential(self, payload: AppCredentialCreate) -> AppCredentialDetail:
+    async def create_credential(self, payload: AppCredentialCreate, current_user: User) -> AppCredentialDetail:
         auth, auth_mode, config = await self._prepare_auth_and_config(
             app_id=payload.app_id,
             raw_auth=dict(payload.auth or {}),
@@ -165,6 +234,7 @@ class AppCredentialService:
         model = AppCredential(
             name=payload.name.strip(),
             description=(payload.description or "").strip() or None,
+            owner_id=current_user.id,
             app_id=payload.app_id,
             app_name=self._resolve_app_name(payload.app_id, payload.app_name),
             auth_mode=auth_mode,
@@ -174,10 +244,14 @@ class AppCredentialService:
         self.db.add(model)
         await self.db.commit()
         await self.db.refresh(model)
-        return self._build_detail(model)
+        return self._build_detail(
+            model,
+            owner_email=current_user.email,
+            user_permission='full',
+        )
 
     async def update_credential(
-        self, credential_id: str, payload: AppCredentialUpdate
+        self, credential_id: str, payload: AppCredentialUpdate, current_user: User
     ) -> Optional[AppCredentialDetail]:
         model = await self._get_model(credential_id)
         if not model:
@@ -217,7 +291,19 @@ class AppCredentialService:
 
         await self.db.commit()
         await self.db.refresh(model)
-        return self._build_detail(model)
+        owner_lookup = await fetch_owner_email_lookup(self.db, (model.owner_id,))
+        user_permission = await get_effective_permission(
+            self.db,
+            current_user,
+            model,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+        return self._build_detail(
+            model,
+            owner_email=owner_lookup.get(model.owner_id),
+            user_permission=user_permission,
+        )
 
     async def delete_credential(self, credential_id: str) -> bool:
         model = await self._get_model(credential_id)
@@ -226,6 +312,9 @@ class AppCredentialService:
         await self.db.delete(model)
         await self.db.commit()
         return True
+
+    async def get_credential_model(self, credential_id: str) -> Optional[AppCredential]:
+        return await self._get_model(credential_id)
 
     async def _get_model(self, credential_id: str) -> Optional[AppCredential]:
         parsed_id = self._parse_uuid(credential_id)

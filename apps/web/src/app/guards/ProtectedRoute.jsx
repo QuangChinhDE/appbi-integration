@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Navigate, useLocation } from 'react-router-dom'
 import api from '@shared/api/client'
-import { getFirstAccessibleRoute, hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { getFirstAccessibleRoute, hasPermission, isModuleEnabled } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
 /**
@@ -16,6 +16,7 @@ const ProtectedRoute = ({ children, module, minLevel = 'view' }) => {
   const hasHydrated = useAuthStore((state) => state.hasHydrated)
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
   const permissions = useAuthStore((state) => state.permissions)
+  const modules = useAuthStore((state) => state.modules)
   const setSession = useAuthStore((state) => state.setSession)
   const clearSession = useAuthStore((state) => state.clearSession)
 
@@ -26,7 +27,11 @@ const ProtectedRoute = ({ children, module, minLevel = 'view' }) => {
       try {
         const res = await api.get('/api/auth/me')
         if (cancelled) return
-        setSession({ user: res.data.user, permissions: res.data.permissions })
+        setSession({
+          user: res.data.user,
+          permissions: res.data.permissions,
+          modules: res.data.modules,
+        })
       } catch {
         if (cancelled) return
         clearSession()
@@ -52,8 +57,10 @@ const ProtectedRoute = ({ children, module, minLevel = 'view' }) => {
     return <Navigate to="/login" replace />
   }
 
-  if (module && !hasPermission(permissions, module, minLevel)) {
-    const fallbackRoute = getFirstAccessibleRoute(permissions)
+  const moduleEnabled = !module || isModuleEnabled(modules, module)
+
+  if (module && (!moduleEnabled || !hasPermission(permissions, module, minLevel))) {
+    const fallbackRoute = getFirstAccessibleRoute(permissions, modules)
     if (fallbackRoute && fallbackRoute !== location.pathname) {
       return <Navigate to={fallbackRoute} replace />
     }
@@ -62,7 +69,9 @@ const ProtectedRoute = ({ children, module, minLevel = 'view' }) => {
         <div className="max-w-md rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 px-6 py-8 text-center shadow-linear-sm">
           <h1 className="text-small font-strong text-text-primary">Access denied</h1>
           <p className="mt-2 text-caption leading-6 text-text-tertiary">
-            This account has no permission for this module.
+            {moduleEnabled
+              ? 'This account has no permission for this module.'
+              : 'This module is disabled for the current workspace.'}
           </p>
         </div>
       </div>

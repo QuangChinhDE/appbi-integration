@@ -14,8 +14,15 @@ from modules.backup.shared.types import (
     BackupFlowSave,
     BackupFlowUpdate,
 )
-from packages.auth.src import require_permission
+from packages.auth.src import (
+    get_current_user,
+    require_edit_access,
+    require_full_access,
+    require_permission,
+    require_view_access,
+)
 from packages.database.src import get_db
+from packages.database.src.models import ResourceType, User
 
 
 router = APIRouter(tags=["backup"], dependencies=[Depends(require_permission('backup', 'view'))])
@@ -25,7 +32,7 @@ router = APIRouter(tags=["backup"], dependencies=[Depends(require_permission('ba
 async def create_backup_flow_draft(
     draft: BackupFlowDraftCreate = BackupFlowDraftCreate(),
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """
     Create an empty draft backup flow.
@@ -33,7 +40,7 @@ async def create_backup_flow_draft(
     """
     service = BackupFlowService(db)
     try:
-        new_draft = await service.create_draft(draft)
+        new_draft = await service.create_draft(draft, current_user)
         return new_draft
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to create draft: {str(exc)}")
@@ -44,7 +51,7 @@ async def save_backup_flow(
     flow_id: str,
     save_data: BackupFlowSave,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """
     Save (publish) a draft backup flow with all required details.
@@ -52,7 +59,11 @@ async def save_backup_flow(
     """
     service = BackupFlowService(db)
     try:
-        saved_flow = await service.save_flow(flow_id, save_data)
+        flow = await service.get_flow_model(flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail="Backup flow not found")
+        await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
+        saved_flow = await service.save_flow(flow_id, save_data, current_user)
         if not saved_flow:
             raise HTTPException(status_code=404, detail="Backup flow not found")
         return saved_flow
@@ -68,7 +79,7 @@ async def save_backup_flow(
 async def create_backup_flow(
     flow: BackupFlowCreate,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """
     Create a new backup flow
@@ -81,7 +92,7 @@ async def create_backup_flow(
     """
     service = BackupFlowService(db)
     try:
-        new_flow = await service.create_flow(flow)
+        new_flow = await service.create_flow(flow, current_user)
         return new_flow
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -96,6 +107,7 @@ async def list_backup_flows(
     skip: int = 0,
     limit: int = 100,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """
     List all backup flows with optional filtering
@@ -106,7 +118,7 @@ async def list_backup_flows(
     - **limit**: Maximum number of records to return
     """
     service = BackupFlowService(db)
-    return await service.list_flows(status=status, app=app, skip=skip, limit=limit)
+    return await service.list_flows(current_user, status=status, app=app, skip=skip, limit=limit)
 
 
 @router.get("/api/backup-flows/dashboard", response_model=BackupDashboardResponse)
@@ -114,23 +126,26 @@ async def get_backup_dashboard(
     recent_limit: int = 8,
     active_limit: int = 5,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Return dashboard stats plus active and recent backup runs."""
     service = BackupFlowService(db)
-    return await service.get_dashboard_data(recent_limit=recent_limit, active_limit=active_limit)
+    return await service.get_dashboard_data(current_user, recent_limit=recent_limit, active_limit=active_limit)
 
 
 @router.get("/api/backup-flows/{flow_id}", response_model=BackupFlowResponse)
 async def get_backup_flow(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get a specific backup flow by ID"""
     service = BackupFlowService(db)
-    flow = await service.get_flow(flow_id)
-    if not flow:
+    flow_model = await service.get_flow_model(flow_id)
+    if not flow_model:
         raise HTTPException(status_code=404, detail="Backup flow not found")
-    return flow
+    await require_view_access(db, current_user, flow_model, resource_type=ResourceType.BACKUP_FLOW)
+    return await service.get_flow(flow_id, current_user)
 
 
 @router.patch("/api/backup-flows/{flow_id}", response_model=BackupFlowResponse)
@@ -138,12 +153,16 @@ async def update_backup_flow(
     flow_id: str,
     flow_update: BackupFlowUpdate,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """Update a backup flow"""
     service = BackupFlowService(db)
     try:
-        updated_flow = await service.update_flow(flow_id, flow_update)
+        flow = await service.get_flow_model(flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail="Backup flow not found")
+        await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
+        updated_flow = await service.update_flow(flow_id, flow_update, current_user)
         if not updated_flow:
             raise HTTPException(status_code=404, detail="Backup flow not found")
         return updated_flow
@@ -156,10 +175,14 @@ async def autosave_backup_flow(
     flow_id: str,
     data: BackupFlowAutosave,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """Auto-save partial wizard step data to the backup flow."""
     service = BackupFlowService(db)
+    flow = await service.get_flow_model(flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Backup flow not found")
+    await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
     ok = await service.autosave_flow(flow_id, data)
     if not ok:
         raise HTTPException(status_code=404, detail="Backup flow not found")
@@ -170,10 +193,14 @@ async def autosave_backup_flow(
 async def delete_backup_flow(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """Delete a backup flow"""
     service = BackupFlowService(db)
+    flow = await service.get_flow_model(flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Backup flow not found")
+    await require_full_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
     success = await service.delete_flow(flow_id)
     if not success:
         raise HTTPException(status_code=404, detail="Backup flow not found")
@@ -184,11 +211,15 @@ async def delete_backup_flow(
 async def publish_backup_flow(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """Publish a flow: set is_draft=0, is_published=1"""
     service = BackupFlowService(db)
-    flow = await service.publish_flow(flow_id)
+    flow_model = await service.get_flow_model(flow_id)
+    if not flow_model:
+        raise HTTPException(status_code=404, detail="Backup flow not found")
+    await require_edit_access(db, current_user, flow_model, resource_type=ResourceType.BACKUP_FLOW)
+    flow = await service.publish_flow(flow_id, current_user)
     if not flow:
         raise HTTPException(status_code=404, detail="Backup flow not found")
     return flow
@@ -199,7 +230,7 @@ async def run_backup_flow(
     flow_id: str,
     triggered_by: str = "manual",
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """
     Trigger a backup flow execution
@@ -208,7 +239,11 @@ async def run_backup_flow(
     """
     service = BackupFlowService(db)
     try:
-        run = await service.trigger_flow_run(flow_id, triggered_by)
+        flow = await service.get_flow_model(flow_id)
+        if not flow:
+            raise HTTPException(status_code=404, detail="Backup flow not found")
+        await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
+        run = await service.trigger_flow_run(flow_id, triggered_by or current_user.email)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not run:
@@ -240,10 +275,14 @@ async def interrupt_all_backup_flow_runs(
 async def stop_backup_flow_run(
     flow_id: str,
     db: AsyncSession = Depends(get_db),
-    _: object = Depends(require_permission('backup', 'edit')),
+    current_user: User = Depends(require_permission('backup', 'edit')),
 ):
     """Stop the active backup run(s) for a single flow."""
     service = BackupFlowService(db)
+    flow = await service.get_flow_model(flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Backup flow not found")
+    await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
     result = await service.interrupt_flow_running_tasks(flow_id)
     return {
         "flow_id": flow_id,
@@ -257,7 +296,12 @@ async def get_flow_runs(
     flow_id: str,
     limit: int = 10,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     """Get execution history for a backup flow"""
     service = BackupFlowService(db)
+    flow = await service.get_flow_model(flow_id)
+    if not flow:
+        raise HTTPException(status_code=404, detail="Backup flow not found")
+    await require_view_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
     return await service.get_flow_runs(flow_id, limit=limit)

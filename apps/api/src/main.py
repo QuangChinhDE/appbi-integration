@@ -3,13 +3,17 @@ from fastapi.middleware.cors import CORSMiddleware
 import os
 from datetime import datetime
 
+from modules.automation.backend.api.routes import router as automation_router
 from modules.apps.backend.api.routes import router as apps_router
 from modules.backup.backend.api.routes import router as backup_router
 from modules.backup.backend.services.backup_flow_service import BackupFlowService
 from modules.connectors.backend.api.routes import router as connectors_router
 from modules.credentials.backend.api.routes import router as credentials_router
 from modules.identity.backend.api.routes import router as identity_router
+from modules.identity.backend.api.share_routes import router as share_router
+from modules.pipeline.backend.api.routes import router as pipeline_router
 from packages.auth.src.bootstrap import ensure_bootstrap_admin
+from packages.auth.src.module_registry import is_module_enabled
 from packages.database.src import Base, async_session, engine, get_db
 from packages.database.src.schema_migrations import run_startup_schema_migrations
 
@@ -39,18 +43,26 @@ async def startup():
     async with async_session() as db:
         await run_startup_schema_migrations(db)
         await ensure_bootstrap_admin(db)
-        await BackupFlowService(db).interrupt_incomplete_runs()
+        if is_module_enabled('backup'):
+            await BackupFlowService(db).interrupt_incomplete_runs()
 
 # Health check endpoint
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
-app.include_router(backup_router)
 app.include_router(identity_router)
+app.include_router(share_router)
 app.include_router(credentials_router)
 app.include_router(apps_router)
-app.include_router(connectors_router)
+if is_module_enabled('backup') or is_module_enabled('pipeline'):
+    app.include_router(connectors_router)
+if is_module_enabled('backup'):
+    app.include_router(backup_router)
+if is_module_enabled('pipeline'):
+    app.include_router(pipeline_router)
+if is_module_enabled('automation'):
+    app.include_router(automation_router)
 
 
 if __name__ == "__main__":

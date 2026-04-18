@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Cloud } from 'lucide-react'
-import { Alert, Button, FilterTag } from '@packages/ui/src/components/common/ui'
+import ShareDialog from '@modules/identity/frontend/components/ShareDialog'
+import { getListAccessMeta } from '@modules/identity/frontend/lib/resourcePermissions'
+import { Alert, Button, FilterTag, Select, message } from '@packages/ui/src/components/common/ui'
+import BulkActionBar from '@packages/ui/src/components/common/BulkActionBar'
 import ConfirmDialog from '@packages/ui/src/components/common/ConfirmDialog'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
 import ModuleOverview from '@packages/ui/src/components/common/ModuleOverview'
+import OwnerBadge from '@packages/ui/src/components/common/OwnerBadge'
 import PaginatedCollection from '@packages/ui/src/components/common/PaginatedCollection'
 import PageListLayout from '@packages/ui/src/components/common/PageListLayout'
 import { BACKUP_APPS_PERMISSION_MESSAGE, hasPermission } from '@modules/identity/frontend/lib/permissions'
@@ -31,18 +35,83 @@ const BACKUP_TYPE_TONE = {
   purple: 'brand',
 }
 
+const SORT_OPTIONS = [
+  { value: 'updated', label: 'Recently updated' },
+  { value: 'name', label: 'Name A-Z' },
+  { value: 'app', label: 'App' },
+  { value: 'status', label: 'Status' },
+]
+
+const BACKUP_FLOW_RESOURCE_TYPE = 'backup_flow'
+
+
+function compareText(left, right) {
+  return String(left || '').localeCompare(String(right || ''))
+}
+
+
+function getDateValue(value) {
+  const parsed = new Date(value || '')
+  return Number.isNaN(parsed.getTime()) ? 0 : parsed.getTime()
+}
+
+
+function getFlowStatusRank(record) {
+  if (['pending', 'running'].includes(record.last_run_status)) return 0
+  if (record.is_published === 1) return 1
+  if (record.is_draft === 1) return 3
+  return 2
+}
+
+
+function sortBackupFlows(flows, sortKey) {
+  const items = [...flows]
+
+  items.sort((left, right) => {
+    if (sortKey === 'name') {
+      return compareText(left.name || 'Untitled draft', right.name || 'Untitled draft')
+    }
+
+    if (sortKey === 'app') {
+      return (
+        compareText(left.app_name || left.app, right.app_name || right.app)
+        || compareText(left.name || 'Untitled draft', right.name || 'Untitled draft')
+      )
+    }
+
+    if (sortKey === 'status') {
+      return (
+        getFlowStatusRank(left) - getFlowStatusRank(right)
+        || getDateValue(right.updated_at) - getDateValue(left.updated_at)
+        || compareText(left.name || 'Untitled draft', right.name || 'Untitled draft')
+      )
+    }
+
+    return (
+      getDateValue(right.updated_at) - getDateValue(left.updated_at)
+      || compareText(left.name || 'Untitled draft', right.name || 'Untitled draft')
+    )
+  })
+
+  return items
+}
+
 const BackupFlowPage = () => {
   // ── View mode ─────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState('list') // list | detail | create | edit
   const [listFilters, setListFilters] = useState({})
+  const [sortKey, setSortKey] = useState('updated')
 
   // ── Detail view extras ────────────────────────────────────────────────
   const [detailsFlowId, setDetailsFlowId] = useState(null)
   const [detailsFlowRecord, setDetailsFlowRecord] = useState(null)
   const [detailsActiveTab, setDetailsActiveTab] = useState('overview')
+  const [shareTarget, setShareTarget] = useState(null)
 
   const [confirmDialog, setConfirmDialog] = useState(null)
   const [confirmLoading, setConfirmLoading] = useState(false)
+  const [selectedIds, setSelectedIds] = useState(new Set())
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const location = useLocation()
   const permissions = useAuthStore((state) => state.permissions)
   const canEditBackup = hasPermission(permissions, 'backup', 'edit')
@@ -77,6 +146,15 @@ const BackupFlowPage = () => {
     if (!backupFlows.detailsFlow) return
     setDetailsFlowRecord(backupFlows.detailsFlow)
   }, [backupFlows.detailsFlow])
+
+  useEffect(() => {
+    const validIds = new Set(backupFlows.flows.map((record) => record.id))
+    setSelectedIds((current) => {
+      const next = new Set([...current].filter((id) => validIds.has(id)))
+      const unchanged = next.size === current.size && [...next].every((id) => current.has(id))
+      return unchanged ? current : next
+    })
+  }, [backupFlows.flows])
 
   // ── Sync google config modal fields ───────────────────────────────────
   useEffect(() => {
@@ -270,6 +348,57 @@ const BackupFlowPage = () => {
     })
   }, [backupFlows, openConfirmDialog])
 
+  const toggleSelect = useCallback((id) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback((ids) => {
+    setSelectedIds((current) => {
+      const allSelected = ids.length > 0 && ids.every((id) => current.has(id))
+      if (allSelected) {
+        const next = new Set(current)
+        ids.forEach((id) => next.delete(id))
+        return next
+      }
+      return new Set([...current, ...ids])
+    })
+  }, [])
+
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedIds.size === 0) return
+    const confirmed = window.confirm(`Delete ${selectedIds.size} flow(s)? This action cannot be undone.`)
+    if (!confirmed) return
+
+    setIsBulkDeleting(true)
+    let successCount = 0
+    let failCount = 0
+
+    for (const id of selectedIds) {
+      const deleted = await backupFlows.deleteFlow({ id }, { silent: true, skipReload: true })
+      if (deleted) {
+        successCount += 1
+      } else {
+        failCount += 1
+      }
+    }
+
+    setSelectedIds(new Set())
+    await backupFlows.fetchFlows()
+    setIsBulkDeleting(false)
+
+    if (successCount > 0) {
+      message.success(`Deleted ${successCount} flow(s)`)
+    }
+    if (failCount > 0) {
+      message.error(`Failed to delete ${failCount} flow(s)`)
+    }
+  }, [backupFlows, selectedIds])
+
   // ── Render ────────────────────────────────────────────────────────────
   return (
     <AppLayout>
@@ -303,9 +432,20 @@ const BackupFlowPage = () => {
             </Button>
           ) : null}
           isLoading={backupFlows.loadingFlows}
-          loadingText="Loading backup flows…"
-          searchPlaceholder="Search flows, apps, destinations, or status"
+          loadingText="Loading backup flows..."
+          searchPlaceholder="Search flows, apps, destinations, owners, or access"
           defaultView="list"
+          toolbarExtra={(
+            <div className="min-w-[180px]">
+              <Select size="sm" value={sortKey} onChange={(event) => setSortKey(event.target.value)}>
+                {SORT_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    Sort: {option.label}
+                  </option>
+                ))}
+              </Select>
+            </div>
+          )}
           activeFilters={activeListFilterCount > 0 ? (
             <>
               {listFilters.state && (
@@ -335,6 +475,22 @@ const BackupFlowPage = () => {
                   {BACKUP_TYPE_TAG[listFilters.backupType]?.label || listFilters.backupType}
                 </FilterTag>
               )}
+              {listFilters.access && (
+                <FilterTag
+                  tone={getListAccessMeta(listFilters.access).tone}
+                  active
+                  onClick={() => toggleListFilter('access', listFilters.access)}
+                >
+                  {getListAccessMeta(listFilters.access).label}
+                </FilterTag>
+              )}
+              {listFilters.owner && (
+                <OwnerBadge
+                  email={listFilters.owner}
+                  active
+                  onClick={() => toggleListFilter('owner', listFilters.owner)}
+                />
+              )}
               <Button variant="ghost" size="xs" onClick={clearListFilters}>
                 Clear filters
               </Button>
@@ -357,6 +513,8 @@ const BackupFlowPage = () => {
                       record.destination_name,
                       record.destination_type,
                       record.last_run_status,
+                      record.owner_email,
+                      record.user_permission,
                       BACKUP_TYPE_TAG[record.backup_type]?.label,
                     ]
                       .filter(Boolean)
@@ -367,15 +525,18 @@ const BackupFlowPage = () => {
                     matchesSearch &&
                     (!listFilters.state || stateValue === listFilters.state) &&
                     (!listFilters.publish || publishValue === listFilters.publish) &&
-                    (!listFilters.backupType || record.backup_type === listFilters.backupType)
+                    (!listFilters.backupType || record.backup_type === listFilters.backupType) &&
+                    (!listFilters.access || record.user_permission === listFilters.access) &&
+                    (!listFilters.owner || record.owner_email === listFilters.owner)
                   )
                 })
+                const visibleFlows = sortBackupFlows(filteredFlows, sortKey)
 
                 return (
                   <PaginatedCollection
-                    items={filteredFlows}
+                    items={visibleFlows}
                     viewMode={pageViewMode}
-                    resetKey={JSON.stringify({ filterText, pageViewMode, listFilters })}
+                    resetKey={JSON.stringify({ filterText, pageViewMode, listFilters, sortKey })}
                   >
                     {({ pageItems, pagination }) => (
                       <div className="space-y-6">
@@ -421,6 +582,10 @@ const BackupFlowPage = () => {
                 onRun={(record) => backupFlows.runFlow(record)}
                 onStop={(record) => requestStopFlow(record)}
                 onDelete={(record) => requestDeleteFlow(record)}
+                onShare={(record) => setShareTarget(record)}
+                selectedIds={canEditBackup ? selectedIds : undefined}
+                onToggleSelect={canEditBackup ? toggleSelect : undefined}
+                onToggleSelectAll={canEditBackup ? toggleSelectAll : undefined}
               />
 
               {pagination}
@@ -446,6 +611,7 @@ const BackupFlowPage = () => {
           onRun={handleRunFromDetail}
           onStop={handleStopFromDetail}
           onDelete={handleDeleteFromDetail}
+          onShare={() => setShareTarget(backupFlows.detailsFlow || detailsFlowRecord)}
           canEdit={canEditBackup}
           canConfigure={canConfigureBackup}
           configurationBlockedMessage={BACKUP_APPS_PERMISSION_MESSAGE}
@@ -518,6 +684,23 @@ const BackupFlowPage = () => {
         variant={confirmDialog?.variant || 'danger'}
         isLoading={confirmLoading}
       />
+
+      <ShareDialog
+        open={Boolean(shareTarget)}
+        onClose={() => setShareTarget(null)}
+        resourceType={BACKUP_FLOW_RESOURCE_TYPE}
+        resourceId={shareTarget?.id}
+        resourceName={shareTarget?.name || 'Backup flow'}
+      />
+
+      {canEditBackup && (
+        <BulkActionBar
+          selectedCount={selectedIds.size}
+          onDelete={handleBulkDelete}
+          onClear={() => setSelectedIds(new Set())}
+          isDeleting={isBulkDeleting}
+        />
+      )}
 
     </AppLayout>
   )

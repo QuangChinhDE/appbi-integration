@@ -134,6 +134,8 @@ class BackupFlowUpdate(BaseModel):
 class CredentialSummary(BaseModel):
     """Hydrated view of the AppCredential a flow references, safe for API output."""
     id: UUID
+    owner_email: Optional[str] = None
+    user_permission: Optional[str] = None
     app_id: str
     app_name: str
     auth_mode: str
@@ -144,6 +146,8 @@ class CredentialSummary(BaseModel):
 class BackupFlowResponse(BaseModel):
     id: UUID
     name: Optional[str] = None
+    owner_email: Optional[str] = None
+    user_permission: Optional[str] = None
     is_draft: int
     is_published: int
     source_credential_id: Optional[UUID] = None
@@ -170,6 +174,8 @@ class BackupFlowResponse(BaseModel):
 class BackupFlowListResponse(BaseModel):
     id: UUID
     name: Optional[str] = None
+    owner_email: Optional[str] = None
+    user_permission: Optional[str] = None
     is_draft: int
     is_published: int
     app: Optional[str] = None

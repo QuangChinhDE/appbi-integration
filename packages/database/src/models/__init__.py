@@ -1,4 +1,15 @@
-from sqlalchemy import Column, String, DateTime, Text, Integer, Boolean, ForeignKey, CheckConstraint, text
+from sqlalchemy import (
+    Column,
+    String,
+    DateTime,
+    Text,
+    Integer,
+    Boolean,
+    ForeignKey,
+    CheckConstraint,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.sql import func
 import uuid
@@ -16,6 +27,18 @@ class AuthProvider:
     GOOGLE = 'google'
 
 
+class ResourceType:
+    APP_CREDENTIAL = 'app_credential'
+    BACKUP_FLOW = 'backup_flow'
+    CHOICES = (APP_CREDENTIAL, BACKUP_FLOW)
+
+
+class SharePermission:
+    VIEW = 'view'
+    EDIT = 'edit'
+    CHOICES = (VIEW, EDIT)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -31,7 +54,7 @@ class User(Base):
         JSONB,
         nullable=False,
         server_default=text(
-            '\'{"backup":"none","apps":"none","automation":"none","settings":"none"}\'::jsonb'
+            '\'{"backup":"none","apps":"none","pipeline":"none","automation":"none","settings":"none"}\'::jsonb'
         ),
     )
     last_login_at = Column(DateTime(timezone=True), nullable=True)
@@ -80,6 +103,7 @@ class AppCredential(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(String(500), nullable=True)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
     app_id = Column(String(50), nullable=False)
     app_name = Column(String(100), nullable=False)
     auth_mode = Column(String(50), nullable=False)
@@ -118,6 +142,7 @@ class BackupFlow(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=True)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
 
     # Draft / publish flags
     is_draft = Column(Integer, default=1, nullable=False)
@@ -182,4 +207,28 @@ class BackupFlowRun(Base):
 
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed')", name='check_run_status'),
+    )
+
+
+class ResourceShare(Base):
+    __tablename__ = "resource_shares"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    resource_type = Column(String(50), nullable=False)
+    resource_id = Column(String(64), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    permission = Column(String(16), nullable=False, server_default=SharePermission.VIEW)
+    shared_by = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            f"resource_type IN {ResourceType.CHOICES}",
+            name='check_resource_share_resource_type',
+        ),
+        CheckConstraint(
+            f"permission IN {SharePermission.CHOICES}",
+            name='check_resource_share_permission',
+        ),
+        UniqueConstraint("resource_type", "resource_id", "user_id", name="uq_resource_shares"),
     )

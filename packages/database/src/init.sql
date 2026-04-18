@@ -144,6 +144,7 @@ CREATE TABLE IF NOT EXISTS app_credentials (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255) NOT NULL,
     description VARCHAR(500),
+    owner_id UUID REFERENCES users(id) ON DELETE SET NULL,
     app_id VARCHAR(50) NOT NULL CHECK (
         app_id IN ('request', 'workflow', 'wework', 'service', 'gdrive', 'gsheets')
     ),
@@ -159,6 +160,7 @@ CREATE TABLE IF NOT EXISTS app_credentials (
 
 CREATE INDEX idx_app_credentials_app_id ON app_credentials (app_id);
 CREATE INDEX idx_app_credentials_auth_mode ON app_credentials (auth_mode);
+CREATE INDEX idx_app_credentials_owner_id ON app_credentials (owner_id);
 CREATE INDEX idx_app_credentials_created_at ON app_credentials (created_at DESC);
 
 CREATE TRIGGER update_app_credentials_updated_at
@@ -172,6 +174,7 @@ CREATE TRIGGER update_app_credentials_updated_at
 CREATE TABLE IF NOT EXISTS backup_flows (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name VARCHAR(255),
+    owner_id UUID REFERENCES users(id) ON DELETE SET NULL,
 
     source_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
     destination_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
@@ -202,9 +205,28 @@ CREATE TABLE IF NOT EXISTS backup_flows (
 
 CREATE INDEX idx_backup_flows_source_credential ON backup_flows (source_credential_id);
 CREATE INDEX idx_backup_flows_destination_credential ON backup_flows (destination_credential_id);
+CREATE INDEX idx_backup_flows_owner_id ON backup_flows (owner_id);
 CREATE INDEX idx_backup_flows_status ON backup_flows (status);
 CREATE INDEX idx_backup_flows_created_at ON backup_flows (created_at DESC);
 CREATE INDEX idx_backup_flows_created_by ON backup_flows (created_by);
+
+CREATE TABLE IF NOT EXISTS resource_shares (
+    id SERIAL PRIMARY KEY,
+    resource_type VARCHAR(50) NOT NULL CHECK (
+        resource_type IN ('app_credential', 'backup_flow')
+    ),
+    resource_id VARCHAR(64) NOT NULL,
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    permission VARCHAR(16) NOT NULL DEFAULT 'view' CHECK (
+        permission IN ('view', 'edit')
+    ),
+    shared_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    CONSTRAINT uq_resource_shares UNIQUE (resource_type, resource_id, user_id)
+);
+
+CREATE INDEX idx_resource_shares_resource ON resource_shares (resource_type, resource_id);
+CREATE INDEX idx_resource_shares_user_id ON resource_shares (user_id);
 
 CREATE TABLE IF NOT EXISTS backup_flow_runs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

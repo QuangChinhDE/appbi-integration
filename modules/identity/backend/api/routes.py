@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.auth.src import (
+    ACTIVE_MODULE_ALLOWED_LEVELS,
     MODULE_ALLOWED_LEVELS,
     PRESETS,
     create_access_token,
@@ -21,6 +22,7 @@ from packages.auth.src import (
     validate_permissions,
     verify_password,
 )
+from packages.auth.src.module_registry import get_active_module_payloads, get_active_modules
 from packages.database.src import get_db
 from packages.database.src.models import AuthProvider, User, UserStatus
 
@@ -79,11 +81,13 @@ class LoginResponse(BaseModel):
     user: UserResponse
     permissions: dict[str, str]
     module_levels: dict[str, list[str]]
+    modules: list[dict[str, str | int | list[str] | None]]
 
 
 class MyPermissionsResponse(BaseModel):
     permissions: dict[str, str]
     module_levels: dict[str, list[str]]
+    modules: list[dict[str, str | int | list[str] | None]]
 
 
 class UserPermissionRow(BaseModel):
@@ -144,6 +148,12 @@ class AdminUserUpdateRequest(BaseModel):
     status: str | None = None
 
 
+class ShareableUserResponse(BaseModel):
+    id: str
+    email: str
+    full_name: str
+
+
 def _serialize_user(user: User) -> UserResponse:
     return UserResponse(
         id=str(user.id),
@@ -178,6 +188,14 @@ def _serialize_admin_user(user: User) -> AdminUserRecord:
         status=user.status,
         last_login_at=user.last_login_at,
         created_at=user.created_at,
+    )
+
+
+def _serialize_shareable_user(user: User) -> ShareableUserResponse:
+    return ShareableUserResponse(
+        id=str(user.id),
+        email=user.email,
+        full_name=user.full_name,
     )
 
 
@@ -250,7 +268,8 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
         access_token=token,
         user=_serialize_user(user),
         permissions=get_user_permissions(user),
-        module_levels=MODULE_ALLOWED_LEVELS,
+        module_levels=ACTIVE_MODULE_ALLOWED_LEVELS,
+        modules=get_active_module_payloads(),
     )
 
 
@@ -260,7 +279,8 @@ async def me(current_user: User = Depends(get_current_user)):
         access_token='',
         user=_serialize_user(current_user),
         permissions=get_user_permissions(current_user),
-        module_levels=MODULE_ALLOWED_LEVELS,
+        module_levels=ACTIVE_MODULE_ALLOWED_LEVELS,
+        modules=get_active_module_payloads(),
     )
 
 
@@ -276,7 +296,8 @@ async def logout(response: Response):
 async def get_my_permissions(current_user: User = Depends(get_current_user)):
     return MyPermissionsResponse(
         permissions=get_user_permissions(current_user),
-        module_levels=MODULE_ALLOWED_LEVELS,
+        module_levels=ACTIVE_MODULE_ALLOWED_LEVELS,
+        modules=get_active_module_payloads(),
     )
 
 
@@ -292,9 +313,10 @@ async def get_permission_matrix(
 ):
     result = await db.execute(select(User).order_by(User.full_name.asc(), User.email.asc()))
     users = result.scalars().all()
+    active_modules = get_active_modules()
     return PermissionMatrixResponse(
-        modules=list(MODULE_ALLOWED_LEVELS.keys()),
-        module_levels=MODULE_ALLOWED_LEVELS,
+        modules=[module.key for module in active_modules],
+        module_levels=ACTIVE_MODULE_ALLOWED_LEVELS,
         users=[_serialize_user_row(user) for user in users],
     )
 
@@ -323,6 +345,20 @@ async def list_users(
     result = await db.execute(select(User).order_by(User.full_name.asc(), User.email.asc()))
     users = result.scalars().all()
     return [_serialize_admin_user(user) for user in users]
+
+
+@router.get('/api/users/shareable', response_model=list[ShareableUserResponse])
+async def list_shareable_users(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(User)
+        .where(User.status == UserStatus.ACTIVE, User.id != current_user.id)
+        .order_by(User.full_name.asc(), User.email.asc())
+    )
+    users = result.scalars().all()
+    return [_serialize_shareable_user(user) for user in users]
 
 
 @router.post('/api/users/', response_model=AdminUserRecord, status_code=status.HTTP_201_CREATED)

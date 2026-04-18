@@ -3,24 +3,42 @@ from packages.auth.src.dependencies import get_current_user, require_any_permiss
 from packages.auth.src.jwt import ALGORITHM, create_access_token
 from packages.auth.src.password import hash_password, verify_password
 from packages.auth.src.permissions import (
+    ACTIVE_MODULE_ALLOWED_LEVELS,
     BACKUP_APPS_PERMISSION_MESSAGE,
     LEVEL_ORDER,
     MODULE_ALLOWED_LEVELS,
     MODULES,
+    PIPELINE_APPS_PERMISSION_MESSAGE,
     PRESETS,
     default_permissions,
     get_user_permissions,
     validate_permission_dependencies,
     validate_permissions,
 )
+from packages.auth.src.resource_permissions import (
+    apply_resource_scope,
+    batch_effective_permissions,
+    fetch_owner_email_lookup,
+    get_effective_permission,
+    get_resource_or_404,
+    get_user_module_permission,
+    require_edit_access,
+    require_full_access,
+    require_view_access,
+    stamp_owner_emails,
+    validate_resource_type,
+    validate_share_permission,
+)
 
 
 __all__ = [
     'ALGORITHM',
+    'ACTIVE_MODULE_ALLOWED_LEVELS',
     'BACKUP_APPS_PERMISSION_MESSAGE',
     'LEVEL_ORDER',
     'MODULE_ALLOWED_LEVELS',
     'MODULES',
+    'PIPELINE_APPS_PERMISSION_MESSAGE',
     'PRESETS',
     'create_access_token',
     'default_permissions',
@@ -32,5 +50,17 @@ __all__ = [
     'require_permission',
     'validate_permission_dependencies',
     'validate_permissions',
+    'apply_resource_scope',
+    'batch_effective_permissions',
+    'fetch_owner_email_lookup',
+    'get_effective_permission',
+    'get_resource_or_404',
+    'get_user_module_permission',
     'verify_password',
+    'require_edit_access',
+    'require_full_access',
+    'require_view_access',
+    'stamp_owner_emails',
+    'validate_resource_type',
+    'validate_share_permission',
 ]

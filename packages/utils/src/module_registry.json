@@ -1,0 +1,84 @@
+{
+  "modules": [
+    {
+      "key": "backup",
+      "label": "Backup",
+      "route": "/backup",
+      "description": "Draft-first backup flows, run tracking, and storage targets.",
+      "icon": "CloudUpload",
+      "nav_order": 10,
+      "levels": ["none", "view", "edit", "full"],
+      "feature_flag": "FEATURE_MODULE_BACKUP_ENABLED",
+      "default_enabled": true,
+      "dependencies": [
+        {
+          "module": "apps",
+          "min_level": "view",
+          "when_min_level": "edit",
+          "message": "Backup edit and full access require Apps view or higher because Backup reuses saved sources and destinations from Apps."
+        }
+      ]
+    },
+    {
+      "key": "apps",
+      "label": "Apps",
+      "route": "/apps",
+      "description": "Role-neutral registry of reusable app and destination credentials.",
+      "icon": "Database",
+      "nav_order": 20,
+      "levels": ["none", "view", "edit", "full"],
+      "feature_flag": "FEATURE_MODULE_APPS_ENABLED",
+      "default_enabled": true,
+      "legacy_aliases": ["sources", "destinations"]
+    },
+    {
+      "key": "pipeline",
+      "label": "Pipeline",
+      "route": "/pipeline",
+      "description": "Source-to-destination sync pipelines built on top of reusable app credentials.",
+      "icon": "Workflow",
+      "nav_order": 30,
+      "levels": ["none", "view", "edit", "full"],
+      "feature_flag": "FEATURE_MODULE_PIPELINE_ENABLED",
+      "default_enabled": true,
+      "dependencies": [
+        {
+          "module": "apps",
+          "min_level": "view",
+          "when_min_level": "edit",
+          "message": "Pipeline edit and full access require Apps view or higher because Pipeline reuses saved source and destination credentials from Apps."
+        }
+      ]
+    },
+    {
+      "key": "automation",
+      "label": "Automation",
+      "route": "/automation",
+      "description": "Reusable workflow automation and future orchestration surfaces.",
+      "icon": "Zap",
+      "nav_order": 40,
+      "levels": ["none", "view", "edit", "full"],
+      "feature_flag": "FEATURE_MODULE_AUTOMATION_ENABLED",
+      "default_enabled": true,
+      "dependencies": [
+        {
+          "module": "apps",
+          "min_level": "view",
+          "when_min_level": "edit",
+          "message": "Automation edit and full access require Apps view or higher because Automation reuses saved app credentials from Apps."
+        }
+      ]
+    },
+    {
+      "key": "settings",
+      "label": "Settings",
+      "route": "/settings",
+      "description": "Workspace users, presets, and permission management.",
+      "icon": "Settings",
+      "nav_order": 50,
+      "levels": ["none", "full"],
+      "feature_flag": "FEATURE_MODULE_SETTINGS_ENABLED",
+      "default_enabled": true
+    }
+  ]
+}

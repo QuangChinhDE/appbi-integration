@@ -51,6 +51,8 @@ class AppCredentialListItem(BaseModel):
     id: UUID
     name: str
     description: Optional[str] = None
+    owner_email: Optional[str] = None
+    user_permission: Optional[str] = None
     app_id: str
     app_name: str
     auth_mode: str
@@ -73,6 +75,8 @@ class AppCredentialDetail(AppCredentialListItem):
 class AppCredentialApplyResponse(BaseModel):
     """Runtime payload Backup uses to execute a flow with this credential."""
     id: UUID
+    owner_email: Optional[str] = None
+    user_permission: Optional[str] = None
     app_id: str
     app_name: str
     auth_mode: str

@@ -32,4 +32,34 @@ api.interceptors.response.use(
   },
 )
 
+export const usersApi = {
+  async getShareable() {
+    const response = await api.get('/api/users/shareable')
+    return response.data
+  },
+}
+
+export const sharesApi = {
+  async getShares(resourceType, resourceId) {
+    const response = await api.get(`/api/shares/${resourceType}/${resourceId}`)
+    return response.data
+  },
+  async share(resourceType, resourceId, payload) {
+    const response = await api.post(`/api/shares/${resourceType}/${resourceId}`, payload)
+    return response.data
+  },
+  async updateShare(resourceType, resourceId, userId, payload) {
+    const response = await api.put(`/api/shares/${resourceType}/${resourceId}/${userId}`, payload)
+    return response.data
+  },
+  async revokeShare(resourceType, resourceId, userId) {
+    const response = await api.delete(`/api/shares/${resourceType}/${resourceId}/${userId}`)
+    return response.data
+  },
+  async shareAllTeam(resourceType, resourceId, payload) {
+    const response = await api.post(`/api/shares/${resourceType}/${resourceId}/all-team`, payload)
+    return response.data
+  },
+}
+
 export default api

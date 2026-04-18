@@ -22,7 +22,13 @@ from modules.backup.shared.types import (
     CredentialSummary,
 )
 from modules.credentials.backend.services.google_auth_service import validate_service_account_drive_destination
-from packages.database.src.models import AppCredential, BackupFlow, BackupFlowRun
+from packages.auth.src.resource_permissions import (
+    apply_resource_scope,
+    batch_effective_permissions,
+    fetch_owner_email_lookup,
+    get_effective_permission,
+)
+from packages.database.src.models import AppCredential, BackupFlow, BackupFlowRun, ResourceType, User
 
 
 BACKUP_RUN_TASKS: Dict[str, asyncio.Task] = {}
@@ -174,7 +180,12 @@ class BackupFlowService:
         return source, destination
 
     @staticmethod
-    def _credential_summary(credential: Optional[AppCredential]) -> Optional[CredentialSummary]:
+    def _credential_summary(
+        credential: Optional[AppCredential],
+        *,
+        owner_email: Optional[str] = None,
+        user_permission: Optional[str] = None,
+    ) -> Optional[CredentialSummary]:
         if not credential:
             return None
         # Derive preview inline to avoid importing the service just for this.
@@ -193,6 +204,8 @@ class BackupFlowService:
         preview = {k: v for k, v in preview.items() if v not in (None, "")}
         return CredentialSummary(
             id=credential.id,
+            owner_email=owner_email,
+            user_permission=user_permission,
             app_id=credential.app_id,
             app_name=credential.app_name,
             auth_mode=credential.auth_mode,
@@ -220,18 +233,48 @@ class BackupFlowService:
         return None
 
     # ── Response hydration ───────────────────────────────────────────────
-    async def build_flow_response(self, flow: BackupFlow) -> BackupFlowResponse:
+    async def build_flow_response(self, flow: BackupFlow, current_user: User) -> BackupFlowResponse:
         source = await self._load_credential(flow.source_credential_id)
         destination = await self._load_credential(flow.destination_credential_id)
+        credential_items = [item for item in (source, destination) if item is not None]
+        credential_owner_lookup = await fetch_owner_email_lookup(
+            self.db,
+            (item.owner_id for item in credential_items),
+        )
+        credential_permission_lookup = await batch_effective_permissions(
+            self.db,
+            current_user,
+            credential_items,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+        flow_owner_lookup = await fetch_owner_email_lookup(self.db, (flow.owner_id,))
+        flow_permission = await get_effective_permission(
+            self.db,
+            current_user,
+            flow,
+            module='backup',
+            resource_type=ResourceType.BACKUP_FLOW,
+        )
         return BackupFlowResponse(
             id=flow.id,
             name=flow.name,
+            owner_email=flow_owner_lookup.get(flow.owner_id),
+            user_permission=flow_permission,
             is_draft=flow.is_draft,
             is_published=flow.is_published,
             source_credential_id=flow.source_credential_id,
             destination_credential_id=flow.destination_credential_id,
-            source=self._credential_summary(source),
-            destination=self._credential_summary(destination),
+            source=self._credential_summary(
+                source,
+                owner_email=credential_owner_lookup.get(source.owner_id) if source else None,
+                user_permission=credential_permission_lookup.get(str(source.id), 'none') if source else None,
+            ),
+            destination=self._credential_summary(
+                destination,
+                owner_email=credential_owner_lookup.get(destination.owner_id) if destination else None,
+                user_permission=credential_permission_lookup.get(str(destination.id), 'none') if destination else None,
+            ),
             destination_target=dict(flow.destination_target or {}) or None,
             backup_type=flow.backup_type,
             structure=dict(flow.structure or {}) or None,
@@ -263,19 +306,20 @@ class BackupFlowService:
         return f"{app_name}_{type_short}_{dest_short}_{timestamp}"
 
     # ── Flow CRUD ─────────────────────────────────────────────────────────
-    async def create_draft(self, draft_data: BackupFlowDraftCreate) -> BackupFlowResponse:
+    async def create_draft(self, draft_data: BackupFlowDraftCreate, current_user: User) -> BackupFlowResponse:
         new_flow = BackupFlow(
+            owner_id=current_user.id,
             is_draft=1,
             is_published=0,
             status='active',
-            created_by=draft_data.created_by,
+            created_by=draft_data.created_by or current_user.email,
         )
         self.db.add(new_flow)
         await self.db.commit()
         await self.db.refresh(new_flow)
-        return await self.build_flow_response(new_flow)
+        return await self.build_flow_response(new_flow, current_user)
 
-    async def save_flow(self, flow_id: str, save_data: BackupFlowSave) -> Optional[BackupFlowResponse]:
+    async def save_flow(self, flow_id: str, save_data: BackupFlowSave, current_user: User) -> Optional[BackupFlowResponse]:
         flow = await self.db.get(BackupFlow, flow_id)
         if not flow:
             return None
@@ -300,11 +344,11 @@ class BackupFlowService:
         flow.schedule = save_data.schedule.model_dump() if save_data.schedule else None
         flow.is_draft = 0
         flow.is_published = 1
-        flow.updated_by = save_data.updated_by
+        flow.updated_by = save_data.updated_by or current_user.email
 
         await self.db.commit()
         await self.db.refresh(flow)
-        return await self.build_flow_response(flow)
+        return await self.build_flow_response(flow, current_user)
 
     async def autosave_flow(self, flow_id: str, data: BackupFlowAutosave) -> bool:
         flow = await self.db.get(BackupFlow, flow_id)
@@ -336,7 +380,7 @@ class BackupFlowService:
         await self.db.commit()
         return True
 
-    async def create_flow(self, flow_data: BackupFlowCreate) -> BackupFlowResponse:
+    async def create_flow(self, flow_data: BackupFlowCreate, current_user: User) -> BackupFlowResponse:
         source, destination = await self._validate_role_assignment(
             flow_data.source.credential_id,
             flow_data.destination.credential_id,
@@ -350,13 +394,14 @@ class BackupFlowService:
 
         new_flow = BackupFlow(
             name=flow_name,
+            owner_id=current_user.id,
             source_credential_id=source.id,
             destination_credential_id=destination.id,
             destination_target=dict(flow_data.destination.target or {}) or None,
             backup_type=flow_data.backup_type,
             structure=flow_data.structure.model_dump() if flow_data.structure else None,
             schedule=flow_data.schedule.model_dump() if flow_data.schedule else None,
-            created_by=flow_data.created_by,
+            created_by=flow_data.created_by or current_user.email,
             status='active',
         )
 
@@ -364,16 +409,24 @@ class BackupFlowService:
         await self.db.commit()
         await self.db.refresh(new_flow)
 
-        return await self.build_flow_response(new_flow)
+        return await self.build_flow_response(new_flow, current_user)
 
     async def list_flows(
         self,
+        current_user: User,
         status: Optional[str] = None,
         app: Optional[str] = None,
         skip: int = 0,
         limit: int = 100,
     ) -> List[BackupFlowListResponse]:
         query = select(BackupFlow)
+        query = apply_resource_scope(
+            query,
+            BackupFlow,
+            ResourceType.BACKUP_FLOW,
+            current_user,
+            module='backup',
+        )
         if status:
             query = query.where(BackupFlow.status == status)
         if app:
@@ -398,6 +451,14 @@ class BackupFlowService:
                 select(AppCredential).where(AppCredential.id.in_(tuple(credential_ids)))
             )
             credentials_map = {c.id: c for c in cred_result.scalars().all()}
+        owner_lookup = await fetch_owner_email_lookup(self.db, (flow.owner_id for flow in flows))
+        permission_lookup = await batch_effective_permissions(
+            self.db,
+            current_user,
+            flows,
+            module='backup',
+            resource_type=ResourceType.BACKUP_FLOW,
+        )
 
         response = []
         for flow in flows:
@@ -420,6 +481,8 @@ class BackupFlowService:
             response.append(BackupFlowListResponse(
                 id=flow.id,
                 name=flow.name,
+                owner_email=owner_lookup.get(flow.owner_id),
+                user_permission=permission_lookup.get(str(flow.id), 'none'),
                 is_draft=flow.is_draft,
                 is_published=flow.is_published,
                 app=source.app_id if source else None,
@@ -436,14 +499,14 @@ class BackupFlowService:
 
         return response
 
-    async def get_flow(self, flow_id: str) -> Optional[BackupFlowResponse]:
+    async def get_flow(self, flow_id: str, current_user: User) -> Optional[BackupFlowResponse]:
         flow = await self.db.get(BackupFlow, flow_id)
         if not flow:
             return None
-        return await self.build_flow_response(flow)
+        return await self.build_flow_response(flow, current_user)
 
     async def update_flow(
-        self, flow_id: str, flow_update: BackupFlowUpdate
+        self, flow_id: str, flow_update: BackupFlowUpdate, current_user: User
     ) -> Optional[BackupFlowResponse]:
         flow = await self.db.get(BackupFlow, flow_id)
         if not flow:
@@ -474,11 +537,11 @@ class BackupFlowService:
         if flow_update.status:
             flow.status = flow_update.status
 
-        flow.updated_by = flow_update.updated_by
+        flow.updated_by = flow_update.updated_by or current_user.email
 
         await self.db.commit()
         await self.db.refresh(flow)
-        return await self.build_flow_response(flow)
+        return await self.build_flow_response(flow, current_user)
 
     async def delete_flow(self, flow_id: str) -> bool:
         flow = await self.db.get(BackupFlow, flow_id)
@@ -488,15 +551,16 @@ class BackupFlowService:
         await self.db.commit()
         return True
 
-    async def publish_flow(self, flow_id: str) -> Optional[BackupFlowResponse]:
+    async def publish_flow(self, flow_id: str, current_user: User) -> Optional[BackupFlowResponse]:
         flow = await self.db.get(BackupFlow, flow_id)
         if not flow:
             return None
         flow.is_draft = 0
         flow.is_published = 1
+        flow.updated_by = current_user.email
         await self.db.commit()
         await self.db.refresh(flow)
-        return await self.build_flow_response(flow)
+        return await self.build_flow_response(flow, current_user)
 
     # ── Run triggering ───────────────────────────────────────────────────
     async def trigger_flow_run(
@@ -572,13 +636,22 @@ class BackupFlowService:
 
     async def get_dashboard_data(
         self,
+        current_user: User,
         recent_limit: int = 8,
         active_limit: int = 5,
     ) -> BackupDashboardResponse:
-        flow_result = await self.db.execute(select(BackupFlow).order_by(BackupFlow.created_at.desc()))
+        flow_stmt = apply_resource_scope(
+            select(BackupFlow).order_by(BackupFlow.created_at.desc()),
+            BackupFlow,
+            ResourceType.BACKUP_FLOW,
+            current_user,
+            module='backup',
+        )
+        flow_result = await self.db.execute(flow_stmt)
         flows = flow_result.scalars().all()
         published_flows = [flow for flow in flows if flow.is_draft == 0]
         flow_map = {str(flow.id): flow for flow in flows}
+        flow_ids = tuple(flow.id for flow in flows)
 
         # Batch-load source credentials for app label rendering.
         source_ids = {flow.source_credential_id for flow in flows if flow.source_credential_id}
@@ -589,20 +662,28 @@ class BackupFlowService:
             )
             source_map = {c.id: c for c in cred_result.scalars().all()}
 
-        active_result = await self.db.execute(
-            select(BackupFlowRun)
-            .where(BackupFlowRun.status.in_(("pending", "running")))
-            .order_by(BackupFlowRun.started_at.desc())
-            .limit(active_limit)
-        )
-        active_runs = active_result.scalars().all()
+        if flow_ids:
+            active_result = await self.db.execute(
+                select(BackupFlowRun)
+                .where(
+                    BackupFlowRun.flow_id.in_(flow_ids),
+                    BackupFlowRun.status.in_(("pending", "running")),
+                )
+                .order_by(BackupFlowRun.started_at.desc())
+                .limit(active_limit)
+            )
+            active_runs = active_result.scalars().all()
 
-        recent_result = await self.db.execute(
-            select(BackupFlowRun)
-            .order_by(BackupFlowRun.started_at.desc())
-            .limit(recent_limit)
-        )
-        recent_runs = recent_result.scalars().all()
+            recent_result = await self.db.execute(
+                select(BackupFlowRun)
+                .where(BackupFlowRun.flow_id.in_(flow_ids))
+                .order_by(BackupFlowRun.started_at.desc())
+                .limit(recent_limit)
+            )
+            recent_runs = recent_result.scalars().all()
+        else:
+            active_runs = []
+            recent_runs = []
 
         configured_apps = len({
             source_map[flow.source_credential_id].app_id
@@ -641,6 +722,9 @@ class BackupFlowService:
             active_runs=[build_run_response(run) for run in active_runs],
             recent_runs=[build_run_response(run) for run in recent_runs],
         )
+
+    async def get_flow_model(self, flow_id: str) -> Optional[BackupFlow]:
+        return await self.db.get(BackupFlow, flow_id)
 
     # ── Runtime helpers for connector extractors ────────────────────────
     async def build_source_runtime(self, flow: BackupFlow) -> Dict[str, any]:

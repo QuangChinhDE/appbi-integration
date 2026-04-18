@@ -34,7 +34,7 @@ const LoginPage = () => {
     setLoading(true)
     try {
       const res = await api.post('/api/auth/login', { email, password })
-      const dest = getFirstAccessibleRoute(res.data?.permissions) || '/'
+      const dest = getFirstAccessibleRoute(res.data?.permissions, res.data?.modules) || '/'
       window.location.replace(dest)
     } catch (err) {
       setError(err.response?.data?.detail || 'Login failed. Please try again.')

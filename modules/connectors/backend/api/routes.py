@@ -11,11 +11,14 @@ from modules.connectors.apps.service.common import ServiceCredentials, ServiceMa
 from modules.connectors.apps.wework.common import WeworkCredentials, WeworkManagementClient, merge_task_collections
 from modules.connectors.apps.workflow.common import WorkflowCredentials, WorkflowManagementClient
 from modules.connectors.backend.services.source_app_service import BackupSourceAppService
-from packages.auth.src import require_permission
+from packages.auth.src import require_any_permission
 from packages.database.src import get_db
 
 
-router = APIRouter(tags=["connectors"], dependencies=[Depends(require_permission('backup', 'edit'))])
+router = APIRouter(
+    tags=["connectors"],
+    dependencies=[Depends(require_any_permission([('backup', 'edit'), ('pipeline', 'edit')]))],
+)
 logger = logging.getLogger(__name__)
 
 

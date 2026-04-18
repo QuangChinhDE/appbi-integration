@@ -2,17 +2,10 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, Edit2, Plus, UserX } from 'lucide-react'
 
 import api from '@shared/api/client'
-import { BACKUP_APPS_PERMISSION_MESSAGE, resolvePermissionDependencies } from '@modules/identity/frontend/lib/permissions'
+import { PERMISSION_DEPENDENCY_MESSAGES, resolvePermissionDependencies } from '@modules/identity/frontend/lib/permissions'
+import { getDefaultPermissionShape, getModuleLabel } from '@modules/identity/frontend/lib/moduleRegistry'
 import { message, SpinCenter } from '@packages/ui/src/components/common/ui'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
-
-
-const MODULE_LABELS = {
-  backup: 'Backup',
-  apps: 'Apps',
-  automation: 'Automation',
-  settings: 'Settings',
-}
 
 const LEVEL_STYLES = {
   none: { bg: 'bg-danger/10', text: 'text-danger', ring: 'ring-danger/20' },
@@ -48,12 +41,7 @@ const STATUS_COLORS = {
   deactivated: 'bg-danger/10 text-danger',
 }
 
-const DEFAULT_MATRIX_PERMISSIONS = {
-  backup: 'none',
-  apps: 'none',
-  automation: 'none',
-  settings: 'none',
-}
+const DEFAULT_MATRIX_PERMISSIONS = getDefaultPermissionShape()
 
 const EMPTY_INVITE_FORM = {
   email: '',
@@ -316,9 +304,13 @@ function MatrixView({
 
   return (
     <>
-      <div className="mb-5 rounded-xl border border-warning/20 bg-warning/6 px-4 py-3 text-caption text-warning">
-        {BACKUP_APPS_PERMISSION_MESSAGE} The matrix keeps Apps at View or higher automatically whenever Backup is set to Edit or Full.
-      </div>
+      {PERMISSION_DEPENDENCY_MESSAGES.length > 0 && (
+        <div className="mb-5 rounded-xl border border-warning/20 bg-warning/6 px-4 py-3 text-caption text-warning">
+          {PERMISSION_DEPENDENCY_MESSAGES.map((messageText) => (
+            <p key={messageText} className="leading-6">{messageText}</p>
+          ))}
+        </div>
+      )}
 
       <div className="mb-5 flex flex-wrap items-center gap-2.5">
         <span className="mr-1 text-caption text-text-tertiary">Apply preset:</span>
@@ -345,7 +337,7 @@ function MatrixView({
               <th className="sticky left-0 min-w-[220px] bg-surface-2 px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">User</th>
               {modules.map((module) => (
                 <th key={module} className="min-w-[120px] px-3 py-3 text-center text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
-                  {MODULE_LABELS[module] || module}
+                    {getModuleLabel(module)}
                 </th>
               ))}
             </tr>
@@ -574,7 +566,7 @@ function PresetsView({ presets, loading }) {
                 const style = LEVEL_STYLES[level] || LEVEL_STYLES.none
                 return (
                   <div key={module} className="flex items-center gap-1 text-xs">
-                    <span className="text-text-tertiary">{MODULE_LABELS[module] || module}:</span>
+                    <span className="text-text-tertiary">{getModuleLabel(module)}:</span>
                     <span className={`rounded px-1.5 py-0.5 font-emphasis ${style.bg} ${style.text}`}>
                       {LEVEL_LABELS[level] || level}
                     </span>

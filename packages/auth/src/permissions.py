@@ -2,29 +2,33 @@ from __future__ import annotations
 
 from typing import Dict, List
 
+from packages.auth.src.module_registry import (
+    get_dependency_message,
+    get_module_allowed_levels,
+    get_module_definition,
+    get_registered_modules,
+    get_registered_module_keys,
+)
+
 
 LEVEL_ORDER: Dict[str, int] = {'none': 0, 'view': 1, 'edit': 2, 'full': 3}
 
-BACKUP_APPS_PERMISSION_MESSAGE = (
+MODULES: List[str] = get_registered_module_keys()
+MODULE_ALLOWED_LEVELS: Dict[str, List[str]] = get_module_allowed_levels()
+ACTIVE_MODULE_ALLOWED_LEVELS: Dict[str, List[str]] = get_module_allowed_levels(active_only=True)
+
+BACKUP_APPS_PERMISSION_MESSAGE = get_dependency_message('backup', 'apps') or (
     'Backup edit and full access require Apps view or higher because Backup reuses saved '
     'sources and destinations from Apps.'
 )
+PIPELINE_APPS_PERMISSION_MESSAGE = get_dependency_message('pipeline', 'apps') or (
+    'Pipeline edit and full access require Apps view or higher because Pipeline reuses saved '
+    'source and destination credentials from Apps.'
+)
 
-MODULES: List[str] = [
-    'backup',
-    'apps',
-    'automation',
-    'settings',
-]
-
-MODULE_ALLOWED_LEVELS: Dict[str, List[str]] = {
-    'backup': ['none', 'view', 'edit', 'full'],
-    'apps': ['none', 'view', 'edit', 'full'],
-    'automation': ['none', 'view', 'edit', 'full'],
-    'settings': ['none', 'full'],
-}
-
-LEGACY_APP_MODULES: List[str] = ['sources', 'destinations']
+LEGACY_APP_MODULES: List[str] = list(
+    (getattr(get_module_definition('apps'), 'legacy_aliases', ()) or ('sources', 'destinations'))
+)
 
 
 def _highest_permission_level(levels: List[str]) -> str:
@@ -33,6 +37,16 @@ def _highest_permission_level(levels: List[str]) -> str:
         if LEVEL_ORDER.get(level, 0) > LEVEL_ORDER.get(resolved, 0):
             resolved = level
     return resolved
+
+
+def _best_allowed_level(module: str, preferred_levels: List[str], fallback: str = 'none') -> str:
+    allowed = MODULE_ALLOWED_LEVELS.get(module, ['none'])
+    for level in preferred_levels:
+        if level in allowed:
+            return level
+    if fallback in allowed:
+        return fallback
+    return allowed[0] if allowed else 'none'
 
 
 def _resolve_apps_permission(stored: dict | None) -> str:
@@ -49,30 +63,35 @@ def _resolve_apps_permission(stored: dict | None) -> str:
         return 'none'
     return _highest_permission_level(candidates)
 
+
 PRESETS: Dict[str, Dict[str, str]] = {
     'admin': {
-        'backup': 'full',
-        'apps': 'full',
-        'automation': 'full',
-        'settings': 'full',
+        module.key: _best_allowed_level(module.key, ['full', 'edit', 'view', 'none'])
+        for module in get_registered_modules()
     },
     'editor': {
-        'backup': 'edit',
-        'apps': 'edit',
-        'automation': 'edit',
-        'settings': 'none',
+        module.key: (
+            'none'
+            if module.key == 'settings'
+            else _best_allowed_level(module.key, ['edit', 'view', 'none'])
+        )
+        for module in get_registered_modules()
     },
     'viewer': {
-        'backup': 'view',
-        'apps': 'view',
-        'automation': 'view',
-        'settings': 'none',
+        module.key: (
+            'none'
+            if module.key == 'settings'
+            else _best_allowed_level(module.key, ['view', 'none'])
+        )
+        for module in get_registered_modules()
     },
     'minimal': {
-        'backup': 'view',
-        'apps': 'none',
-        'automation': 'none',
-        'settings': 'none',
+        module.key: (
+            _best_allowed_level(module.key, ['view', 'none'])
+            if module.key == 'backup'
+            else 'none'
+        )
+        for module in get_registered_modules()
     },
 }
 
@@ -115,8 +134,21 @@ def validate_permissions(permissions: Dict[str, str]) -> None:
 
 def validate_permission_dependencies(permissions: Dict[str, str]) -> None:
     normalized = normalize_permissions(permissions)
-    backup_level = normalized.get('backup', 'none')
-    apps_level = normalized.get('apps', 'none')
 
-    if LEVEL_ORDER.get(backup_level, 0) >= LEVEL_ORDER['edit'] and LEVEL_ORDER.get(apps_level, 0) < LEVEL_ORDER['view']:
-        raise ValueError(BACKUP_APPS_PERMISSION_MESSAGE)
+    for module in get_registered_modules():
+        current_level = normalized.get(module.key, 'none')
+        for dependency in module.dependencies:
+            required_level = dependency.min_level or 'view'
+            when_min_level = dependency.when_min_level or 'view'
+            dependency_level = normalized.get(dependency.module, 'none')
+            if LEVEL_ORDER.get(current_level, 0) < LEVEL_ORDER.get(when_min_level, 0):
+                continue
+            if LEVEL_ORDER.get(dependency_level, 0) >= LEVEL_ORDER.get(required_level, 0):
+                continue
+            raise ValueError(
+                dependency.message
+                or (
+                    f"{module.label} {when_min_level} and above require {dependency.module} "
+                    f"{required_level} or higher."
+                )
+            )

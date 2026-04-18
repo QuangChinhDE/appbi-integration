@@ -17,6 +17,8 @@ DESTINATION_NAME_MAP = {
     "gdrive": "Google Drive",
     "gsheets": "Google Sheets",
 }
+RESOURCE_TYPES = ("app_credential", "backup_flow")
+SHARE_PERMISSIONS = ("view", "edit")
 
 
 def _as_dict(value: Any) -> Dict[str, Any]:
@@ -73,6 +75,59 @@ async def _column_exists(db: AsyncSession, table_name: str, column_name: str) ->
         {"table_name": table_name, "column_name": column_name},
     )
     return result.scalar_one_or_none() is not None
+
+
+async def _get_column_default(db: AsyncSession, table_name: str, column_name: str) -> str:
+    result = await db.execute(
+        text(
+            """
+            SELECT column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = :table_name
+              AND column_name = :column_name
+            """
+        ),
+        {"table_name": table_name, "column_name": column_name},
+    )
+    return str(result.scalar_one_or_none() or "")
+
+
+async def _lookup_user_id_by_email(db: AsyncSession, email: Optional[str]) -> Optional[UUID]:
+    normalized = str(email or "").strip().lower()
+    if not normalized or not await _table_exists(db, "users"):
+        return None
+    result = await db.execute(
+        text(
+            """
+            SELECT id
+            FROM users
+            WHERE lower(email) = :email
+            ORDER BY created_at ASC
+            LIMIT 1
+            """
+        ),
+        {"email": normalized},
+    )
+    return result.scalar_one_or_none()
+
+
+async def _get_fallback_owner_id(db: AsyncSession) -> Optional[UUID]:
+    if not await _table_exists(db, "users"):
+        return None
+    result = await db.execute(
+        text(
+            """
+            SELECT id
+            FROM users
+            ORDER BY
+                CASE WHEN status = 'active' THEN 0 ELSE 1 END,
+                created_at ASC
+            LIMIT 1
+            """
+        )
+    )
+    return result.scalar_one_or_none()
 
 
 async def _app_credential_exists(db: AsyncSession, credential_id: Any) -> bool:
@@ -201,6 +256,66 @@ async def _ensure_backup_flow_role_columns(db: AsyncSession) -> bool:
     )
     await db.execute(
         text("CREATE INDEX IF NOT EXISTS idx_backup_flows_destination_credential ON backup_flows (destination_credential_id)")
+    )
+    return changed
+
+
+async def _ensure_resource_owner_columns(db: AsyncSession) -> bool:
+    changed = False
+
+    owner_columns = {
+        "app_credentials": "ALTER TABLE app_credentials ADD COLUMN owner_id UUID REFERENCES users(id) ON DELETE SET NULL",
+        "backup_flows": "ALTER TABLE backup_flows ADD COLUMN owner_id UUID REFERENCES users(id) ON DELETE SET NULL",
+    }
+
+    for table_name, ddl in owner_columns.items():
+        if not await _table_exists(db, table_name):
+            continue
+        if await _column_exists(db, table_name, "owner_id"):
+            continue
+        await db.execute(text(ddl))
+        changed = True
+        logger.info("Added %s.owner_id column", table_name)
+
+    await db.execute(text("CREATE INDEX IF NOT EXISTS idx_app_credentials_owner_id ON app_credentials (owner_id)"))
+    await db.execute(text("CREATE INDEX IF NOT EXISTS idx_backup_flows_owner_id ON backup_flows (owner_id)"))
+    return changed
+
+
+async def _ensure_resource_shares_table(db: AsyncSession) -> bool:
+    changed = False
+
+    if not await _table_exists(db, "resource_shares"):
+        await db.execute(
+            text(
+                """
+                CREATE TABLE resource_shares (
+                    id SERIAL PRIMARY KEY,
+                    resource_type VARCHAR(50) NOT NULL,
+                    resource_id VARCHAR(64) NOT NULL,
+                    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    permission VARCHAR(16) NOT NULL DEFAULT 'view',
+                    shared_by UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+                    CONSTRAINT uq_resource_shares UNIQUE (resource_type, resource_id, user_id),
+                    CONSTRAINT check_resource_share_resource_type CHECK (
+                        resource_type IN ('app_credential', 'backup_flow')
+                    ),
+                    CONSTRAINT check_resource_share_permission CHECK (
+                        permission IN ('view', 'edit')
+                    )
+                )
+                """
+            )
+        )
+        changed = True
+        logger.info("Created resource_shares table")
+
+    await db.execute(
+        text("CREATE INDEX IF NOT EXISTS idx_resource_shares_resource ON resource_shares (resource_type, resource_id)")
+    )
+    await db.execute(
+        text("CREATE INDEX IF NOT EXISTS idx_resource_shares_user_id ON resource_shares (user_id)")
     )
     return changed
 
@@ -548,6 +663,135 @@ async def _backfill_backup_flow_role_assignments(db: AsyncSession) -> int:
     return updated_count
 
 
+async def _backfill_backup_flow_owners(db: AsyncSession) -> int:
+    if not await _table_exists(db, "backup_flows"):
+        return 0
+    if not await _column_exists(db, "backup_flows", "owner_id"):
+        return 0
+
+    result = await db.execute(
+        text(
+            """
+            SELECT id, owner_id, created_by, updated_by
+            FROM backup_flows
+            ORDER BY created_at ASC
+            """
+        )
+    )
+    rows = result.mappings().all()
+    updated_count = 0
+    fallback_owner_id = await _get_fallback_owner_id(db)
+
+    for row in rows:
+        if row["owner_id"] is not None:
+            continue
+
+        owner_id = await _lookup_user_id_by_email(db, row.get("created_by"))
+        if owner_id is None:
+            owner_id = await _lookup_user_id_by_email(db, row.get("updated_by"))
+        if owner_id is None:
+            owner_id = fallback_owner_id
+        if owner_id is None:
+            continue
+
+        await db.execute(
+            text("UPDATE backup_flows SET owner_id = :owner_id WHERE id = :flow_id"),
+            {"owner_id": owner_id, "flow_id": row["id"]},
+        )
+        updated_count += 1
+
+    if updated_count:
+        logger.info("Backfilled owner_id for %s backup_flows row(s)", updated_count)
+    return updated_count
+
+
+async def _backfill_app_credential_owners(db: AsyncSession) -> int:
+    if not await _table_exists(db, "app_credentials"):
+        return 0
+    if not await _column_exists(db, "app_credentials", "owner_id"):
+        return 0
+
+    result = await db.execute(
+        text(
+            """
+            SELECT
+                ac.id,
+                ac.owner_id
+            FROM app_credentials ac
+            ORDER BY ac.created_at ASC
+            """
+        )
+    )
+    rows = result.mappings().all()
+    owners_by_credential: Dict[UUID, set[UUID]] = {}
+    refs_result = await db.execute(
+        text(
+            """
+            SELECT credential_id, owner_id
+            FROM (
+                SELECT source_credential_id AS credential_id, owner_id
+                FROM backup_flows
+                WHERE source_credential_id IS NOT NULL
+                  AND owner_id IS NOT NULL
+                UNION ALL
+                SELECT destination_credential_id AS credential_id, owner_id
+                FROM backup_flows
+                WHERE destination_credential_id IS NOT NULL
+                  AND owner_id IS NOT NULL
+            ) credential_refs
+            """
+        )
+    )
+    for row in refs_result.mappings().all():
+        owners_by_credential.setdefault(row["credential_id"], set()).add(row["owner_id"])
+
+    fallback_owner_id = await _get_fallback_owner_id(db)
+    updated_count = 0
+    for row in rows:
+        if row["owner_id"] is not None:
+            continue
+
+        owner_candidates = owners_by_credential.get(row["id"], set())
+        owner_id = next(iter(owner_candidates)) if len(owner_candidates) == 1 else None
+        if owner_id is None:
+            owner_id = fallback_owner_id
+        if owner_id is None:
+            continue
+
+        await db.execute(
+            text("UPDATE app_credentials SET owner_id = :owner_id WHERE id = :credential_id"),
+            {"owner_id": owner_id, "credential_id": row["id"]},
+        )
+        updated_count += 1
+
+    if updated_count:
+        logger.info("Backfilled owner_id for %s app_credentials row(s)", updated_count)
+    return updated_count
+
+
+async def _ensure_user_permissions_default(db: AsyncSession) -> bool:
+    if not await _table_exists(db, 'users'):
+        return False
+    if not await _column_exists(db, 'users', 'permissions'):
+        return False
+
+    current_default = await _get_column_default(db, 'users', 'permissions')
+    if 'pipeline' in current_default:
+        return False
+
+    await db.execute(
+        text(
+            """
+            ALTER TABLE users
+            ALTER COLUMN permissions SET DEFAULT
+            '{"backup":"none","apps":"none","pipeline":"none","automation":"none","settings":"none"}'::jsonb
+            """
+        )
+    )
+    logger.info('Updated users.permissions default to include the pipeline module')
+    return True
+
+
 async def run_startup_schema_migrations(db: AsyncSession) -> None:
     """Upgrade legacy database structures to the current credential-based schema.
 
@@ -560,11 +804,21 @@ async def run_startup_schema_migrations(db: AsyncSession) -> None:
     changed = False
     if await _ensure_backup_flow_role_columns(db):
         changed = True
+    if await _ensure_resource_owner_columns(db):
+        changed = True
+    if await _ensure_resource_shares_table(db):
+        changed = True
+    if await _ensure_user_permissions_default(db):
+        changed = True
     if await _migrate_legacy_source_connections(db):
         changed = True
     if await _migrate_legacy_destination_profiles(db):
         changed = True
     if await _backfill_backup_flow_role_assignments(db):
+        changed = True
+    if await _backfill_backup_flow_owners(db):
+        changed = True
+    if await _backfill_app_credential_owners(db):
         changed = True
 
     if changed:

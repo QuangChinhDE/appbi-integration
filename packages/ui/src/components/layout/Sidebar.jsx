@@ -13,17 +13,19 @@ import {
 } from 'lucide-react'
 import api from '@shared/api/client'
 import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { getNavigableModules } from '@modules/identity/frontend/lib/moduleRegistry'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import { useNotifications } from '@modules/identity/frontend/lib/notifications'
 import NotificationsModal from '../common/NotificationsModal'
 import { cn } from '../../lib/utils'
 
-const NAV_ITEMS = [
-  { key: '/backup', icon: CloudUpload, label: 'Backup', module: 'backup' },
-  { key: '/apps', icon: Database, label: 'Apps', module: 'apps' },
-  { key: '/automation', icon: Zap, label: 'Automation', module: 'automation' },
-  { key: '/settings', icon: Settings, label: 'Settings', module: 'settings' },
-]
+const ICON_MAP = {
+  CloudUpload,
+  Database,
+  Workflow,
+  Zap,
+  Settings,
+}
 
 function getInitials(name) {
   return name
@@ -43,6 +45,7 @@ const Sidebar = ({ collapsed, onToggle }) => {
 
   const user = useAuthStore((state) => state.user)
   const permissions = useAuthStore((state) => state.permissions)
+  const modules = useAuthStore((state) => state.modules)
   const clearSession = useAuthStore((state) => state.clearSession)
   const {
     notifications,
@@ -54,7 +57,12 @@ const Sidebar = ({ collapsed, onToggle }) => {
   const displayName = user?.full_name || user?.email || ''
   const email = user?.email || ''
   const initials = (displayName || email) ? getInitials(displayName || email) : 'U'
-  const visibleItems = NAV_ITEMS.filter((item) => hasPermission(permissions, item.module, 'view'))
+  const visibleItems = getNavigableModules(modules)
+    .filter((item) => hasPermission(permissions, item.key, 'view'))
+    .map((item) => ({
+      ...item,
+      Icon: ICON_MAP[item.icon] || Workflow,
+    }))
 
   // Auto-mark as read when the modal opens with unread items.
   useEffect(() => {
@@ -120,13 +128,13 @@ const Sidebar = ({ collapsed, onToggle }) => {
         {/* Navigation */}
         <nav className="flex-1 overflow-y-auto py-3">
           <ul className="space-y-0.5 px-2">
-            {visibleItems.map(({ key, icon: Icon, label }) => {
+            {visibleItems.map(({ route, Icon, label }) => {
               const isActive =
-                location.pathname === key || location.pathname.startsWith(key + '/')
+                location.pathname === route || location.pathname.startsWith(route + '/')
               return (
-                <li key={key}>
+                <li key={route}>
                   <button
-                    onClick={() => navigate(key)}
+                    onClick={() => navigate(route)}
                     title={collapsed ? label : undefined}
                     className={cn(
                       'flex w-full items-center h-8 rounded-md transition-colors duration-150',

@@ -3,7 +3,11 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppsPage from '@modules/apps/frontend/pages/AppsPage'
 import BackupFlowPage from '@modules/backup/frontend/pages/BackupFlowPage'
 import AutomationPage from '@modules/automation/frontend/pages/AutomationPage'
+import AutomationDetailPage from '@modules/automation/frontend/pages/AutomationDetailPage'
+import PipelinePage from '@modules/pipeline/frontend/pages/PipelinePage'
+import PipelineDetailPage from '@modules/pipeline/frontend/pages/PipelineDetailPage'
 import { getFirstAccessibleRoute } from '@modules/identity/frontend/lib/permissions'
+import { getNavigableModules } from '@modules/identity/frontend/lib/moduleRegistry'
 import LoginPage from '@modules/identity/frontend/pages/LoginPage'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import PermissionSettingsPanel from '@modules/credentials/frontend/components/PermissionSettingsPanel'
@@ -16,9 +20,18 @@ const SETTINGS_TABS = [
   { key: 'presets', label: 'Presets' },
 ]
 
+const MODULE_PAGE_COMPONENTS = {
+  apps: AppsPage,
+  automation: AutomationPage,
+  backup: BackupFlowPage,
+  pipeline: PipelinePage,
+  settings: SettingsPage,
+}
+
 function HomeRedirect() {
   const permissions = useAuthStore((state) => state.permissions)
-  const nextPath = getFirstAccessibleRoute(permissions)
+  const modules = useAuthStore((state) => state.modules)
+  const nextPath = getFirstAccessibleRoute(permissions, modules)
 
   if (nextPath) {
     return <Navigate to={nextPath} replace />
@@ -75,42 +88,45 @@ function SettingsPage() {
 }
 
 function AppRouter() {
+  const modules = useAuthStore((state) => state.modules)
+  const hasHydrated = useAuthStore((state) => state.hasHydrated)
+  const dynamicRoutes = hasHydrated ? getNavigableModules(modules) : getNavigableModules()
+
   return (
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route
-          path="/backup"
-          element={
-            <ProtectedRoute module="backup">
-              <BackupFlowPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apps"
-          element={
-            <ProtectedRoute module="apps">
-              <AppsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/settings"
-          element={
-            <ProtectedRoute module="settings">
-              <SettingsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/automation"
+          path="/automation/:connectorKey"
           element={
             <ProtectedRoute module="automation">
-              <AutomationPage />
+              <AutomationDetailPage />
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/pipeline/:kind/:capabilityKey"
+          element={
+            <ProtectedRoute module="pipeline">
+              <PipelineDetailPage />
+            </ProtectedRoute>
+          }
+        />
+        {dynamicRoutes.map((module) => {
+          const PageComponent = MODULE_PAGE_COMPONENTS[module.key]
+          if (!PageComponent) return null
+          return (
+            <Route
+              key={module.key}
+              path={module.route}
+              element={
+                <ProtectedRoute module={module.key}>
+                  <PageComponent />
+                </ProtectedRoute>
+              }
+            />
+          )
+        })}
         <Route
           path="/"
           element={

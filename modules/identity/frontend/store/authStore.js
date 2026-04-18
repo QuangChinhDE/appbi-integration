@@ -15,16 +15,18 @@ import { create } from 'zustand'
 export const useAuthStore = create((set) => ({
   user: null,
   permissions: {},
+  modules: [],
   isAuthenticated: false,
   hasHydrated: false,
-  setSession: ({ user, permissions }) =>
+  setSession: ({ user, permissions, modules }) =>
     set({
       user: user || null,
       permissions: permissions || {},
+      modules: Array.isArray(modules) ? modules : [],
       isAuthenticated: Boolean(user),
       hasHydrated: true,
     }),
   clearSession: () =>
-    set({ user: null, permissions: {}, isAuthenticated: false, hasHydrated: true }),
+    set({ user: null, permissions: {}, modules: [], isAuthenticated: false, hasHydrated: true }),
   markHydrated: () => set({ hasHydrated: true }),
 }))
