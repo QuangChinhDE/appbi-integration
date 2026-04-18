@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react'
 import { ChevronDown, Edit2, Plus, UserX } from 'lucide-react'
 
 import api from '@shared/api/client'
+import { BACKUP_APPS_PERMISSION_MESSAGE, resolvePermissionDependencies } from '@modules/identity/frontend/lib/permissions'
 import { message, SpinCenter } from '@packages/ui/src/components/common/ui'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
@@ -14,10 +15,10 @@ const MODULE_LABELS = {
 }
 
 const LEVEL_STYLES = {
-  none: { bg: 'bg-red-50', text: 'text-red-700', ring: 'ring-red-200' },
-  view: { bg: 'bg-blue-50', text: 'text-blue-700', ring: 'ring-blue-200' },
-  edit: { bg: 'bg-green-50', text: 'text-green-700', ring: 'ring-green-200' },
-  full: { bg: 'bg-purple-50', text: 'text-purple-700', ring: 'ring-purple-200' },
+  none: { bg: 'bg-danger/10', text: 'text-danger', ring: 'ring-danger/20' },
+  view: { bg: 'bg-info/10', text: 'text-info', ring: 'ring-info/20' },
+  edit: { bg: 'bg-success/10', text: 'text-success', ring: 'ring-success/20' },
+  full: { bg: 'bg-[#7c3aed]/10', text: 'text-[#7c3aed]', ring: 'ring-[#7c3aed]/20' },
 }
 
 const LEVEL_LABELS = {
@@ -36,15 +37,22 @@ const PRESET_LABELS = {
 }
 
 const PRESET_COLORS = {
-  admin: 'bg-purple-100 text-purple-800 border-purple-300',
-  editor: 'bg-blue-100 text-blue-800 border-blue-300',
-  viewer: 'bg-green-100 text-green-800 border-green-300',
-  minimal: 'bg-orange-100 text-orange-800 border-orange-300',
+  admin: 'bg-[#7c3aed]/10 text-[#7c3aed] border-[#7c3aed]/20',
+  editor: 'bg-info/10 text-info border-info/20',
+  viewer: 'bg-success/10 text-success border-success/20',
+  minimal: 'bg-warning/10 text-warning border-warning/20',
 }
 
 const STATUS_COLORS = {
-  active: 'bg-green-100 text-green-700',
-  deactivated: 'bg-red-100 text-red-700',
+  active: 'bg-success/10 text-success',
+  deactivated: 'bg-danger/10 text-danger',
+}
+
+const DEFAULT_MATRIX_PERMISSIONS = {
+  backup: 'none',
+  apps: 'none',
+  automation: 'none',
+  settings: 'none',
 }
 
 const EMPTY_INVITE_FORM = {
@@ -66,10 +74,10 @@ function formatDate(value) {
 
 function ModalShell({ title, subtitle, onClose, children }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
-        {subtitle && <p className="mt-1 text-sm text-gray-500">{subtitle}</p>}
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/84 backdrop-blur-[3px] p-4 animate-fade-in" onClick={onClose}>
+      <div className="w-full max-w-sm rounded-xl bg-surface-1 border border-[rgb(var(--border-strong))] p-5 shadow-linear-lg animate-slide-up" onClick={(event) => event.stopPropagation()}>
+        <h2 className="text-small font-strong text-text-primary">{title}</h2>
+        {subtitle && <p className="mt-0.5 text-caption text-text-tertiary">{subtitle}</p>}
         <div className="mt-4">{children}</div>
       </div>
     </div>
@@ -128,64 +136,64 @@ function InviteUserModal({ onClose, onSuccess }) {
       onClose={loading ? () => {} : onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
-        {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+        {error && <p className="rounded-lg border border-danger/20 bg-danger/6 px-3 py-2 text-caption text-danger">{error}</p>}
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Full name</label>
+          <label className="mb-1 block text-caption font-emphasis text-text-secondary">Full name</label>
           <input
             type="text"
             required
             value={form.full_name}
             onChange={(event) => setForm((prev) => ({ ...prev, full_name: event.target.value }))}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
           />
         </div>
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Email</label>
+          <label className="mb-1 block text-caption font-emphasis text-text-secondary">Email</label>
           <input
             type="email"
             required
             value={form.email}
             onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
-            className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
           />
         </div>
 
         {availableProviders.length > 0 && (
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Login method</label>
+            <label className="mb-1 block text-caption font-emphasis text-text-secondary">Login method</label>
             <div className="relative">
               <select
                 value={form.auth_provider}
                 onChange={(event) => setForm((prev) => ({ ...prev, auth_provider: event.target.value, password: '' }))}
-                className="w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full appearance-none rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 pr-8 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
               >
                 {availableProviders.map((provider) => (
                   <option key={provider.value} value={provider.value}>{provider.label}</option>
                 ))}
               </select>
-              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-text-quaternary" />
             </div>
           </div>
         )}
 
         {form.auth_provider === 'password' ? (
           <div>
-            <label className="mb-1 block text-sm font-medium text-gray-700">Password</label>
+            <label className="mb-1 block text-caption font-emphasis text-text-secondary">Password</label>
             <input
               type="password"
               required
               minLength={8}
               value={form.password}
               onChange={(event) => setForm((prev) => ({ ...prev, password: event.target.value }))}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
               placeholder="Minimum 8 characters"
             />
-            <p className="mt-1 text-xs text-gray-500">Use at least 8 characters for the initial password.</p>
+            <p className="mt-1 text-tiny text-text-quaternary">Use at least 8 characters for the initial password.</p>
           </div>
         ) : (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <div className="rounded-lg border border-info/20 bg-info/6 px-3 py-2 text-caption text-info">
             The user will sign in with Google using this email. No password is required.
           </div>
         )}
@@ -195,14 +203,14 @@ function InviteUserModal({ onClose, onSuccess }) {
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-md border border-[rgb(var(--border-strong))] bg-surface-1 px-3.5 py-1.5 text-caption text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={loading}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+            className="rounded-md bg-brand px-3.5 py-1.5 text-caption font-emphasis text-text-inverse transition-colors hover:bg-brand-hover disabled:opacity-60"
           >
             {loading ? 'Creating…' : 'Create'}
           </button>
@@ -240,20 +248,20 @@ function EditUserModal({ user, onClose, onSuccess }) {
       onClose={loading ? () => {} : onClose}
     >
       <form onSubmit={handleSubmit} className="space-y-3">
-        {error && <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+        {error && <p className="rounded-lg border border-danger/20 bg-danger/6 px-3 py-2 text-caption text-danger">{error}</p>}
 
         <div>
-          <label className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+          <label className="mb-1 block text-caption font-emphasis text-text-secondary">Status</label>
           <div className="relative">
             <select
               value={status}
               onChange={(event) => setStatus(event.target.value)}
-              className="w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 py-2 pr-8 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full appearance-none rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 pr-8 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
             >
               <option value="active">Active</option>
               <option value="deactivated">Deactivated</option>
             </select>
-            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-text-quaternary" />
           </div>
         </div>
 
@@ -262,14 +270,14 @@ function EditUserModal({ user, onClose, onSuccess }) {
             type="button"
             onClick={onClose}
             disabled={loading}
-            className="rounded-lg border border-gray-200 px-4 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50"
+            className="rounded-md border border-[rgb(var(--border-strong))] bg-surface-1 px-3.5 py-1.5 text-caption text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={loading}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-60"
+            className="rounded-md bg-brand px-3.5 py-1.5 text-caption font-emphasis text-text-inverse transition-colors hover:bg-brand-hover disabled:opacity-60"
           >
             {loading ? 'Saving…' : 'Save'}
           </button>
@@ -308,37 +316,41 @@ function MatrixView({
 
   return (
     <>
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <span className="mr-1 text-sm text-gray-500">Apply preset:</span>
+      <div className="mb-5 rounded-xl border border-warning/20 bg-warning/6 px-4 py-3 text-caption text-warning">
+        {BACKUP_APPS_PERMISSION_MESSAGE} The matrix keeps Apps at View or higher automatically whenever Backup is set to Edit or Full.
+      </div>
+
+      <div className="mb-5 flex flex-wrap items-center gap-2.5">
+        <span className="mr-1 text-caption text-text-tertiary">Apply preset:</span>
         {PRESET_ORDER.filter((preset) => presets[preset]).map((preset) => (
           <button
             key={preset}
             type="button"
             onClick={() => { void onApplyPreset(preset) }}
             disabled={Boolean(applyingPreset)}
-            className={`rounded-full border px-4 py-1.5 text-sm font-medium transition-all hover:shadow-sm disabled:opacity-50 ${PRESET_COLORS[preset]}`}
+            className={`rounded-full border px-3.5 py-1 text-caption font-emphasis transition-all hover:shadow-linear-sm disabled:opacity-50 ${PRESET_COLORS[preset]}`}
           >
             {PRESET_LABELS[preset]}
           </button>
         ))}
         {!selectedUser && (
-          <span className="text-xs italic text-gray-400">Select a user first, then click preset</span>
+          <span className="text-tiny italic text-text-quaternary">Select a user first, then click preset</span>
         )}
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-gray-200 bg-white shadow-sm">
-        <table className="w-full text-sm">
+      <div className="overflow-x-auto rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
+        <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
           <thead>
-            <tr className="border-b border-gray-200 bg-gray-50/80">
-              <th className="sticky left-0 min-w-[220px] bg-gray-50/80 px-5 py-3.5 text-left font-medium text-gray-600">User</th>
+            <tr className="bg-surface-2">
+              <th className="sticky left-0 min-w-[220px] bg-surface-2 px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">User</th>
               {modules.map((module) => (
-                <th key={module} className="min-w-[120px] px-3 py-3.5 text-center font-medium text-gray-600">
+                <th key={module} className="min-w-[120px] px-3 py-3 text-center text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
                   {MODULE_LABELS[module] || module}
                 </th>
               ))}
             </tr>
           </thead>
-          <tbody className="divide-y divide-gray-100">
+          <tbody className="divide-y divide-[rgb(var(--border-line))]">
             {users.map((user) => {
               const isSelected = selectedUser === user.user_id
               const rowPending = Boolean(pendingChanges[user.user_id])
@@ -349,27 +361,27 @@ function MatrixView({
                   onClick={() => onSelectUser(isSelected ? null : user.user_id)}
                   className={`cursor-pointer transition-colors ${
                     isSelected
-                      ? 'bg-blue-50/60 ring-1 ring-inset ring-blue-200'
+                      ? 'bg-brand/6 ring-1 ring-inset ring-brand/20'
                       : rowPending
-                        ? 'bg-yellow-50/60'
-                        : 'hover:bg-gray-50'
+                        ? 'bg-warning/6'
+                        : 'hover:bg-surface-2'
                   }`}
                 >
-                  <td className="sticky left-0 bg-inherit px-5 py-3.5">
+                  <td className="sticky left-0 bg-inherit px-4 py-3">
                     <div className="flex items-center space-x-3">
-                      <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
-                        isSelected ? 'bg-blue-600' : 'bg-gradient-to-br from-blue-500 to-purple-500'
+                      <div className={`flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-tiny font-strong text-white ${
+                        isSelected ? 'bg-brand' : 'bg-brand'
                       }`}>
                         {(user.full_name || user.email).slice(0, 2).toUpperCase()}
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
-                          <p className="truncate font-medium text-gray-900">{user.full_name}</p>
+                          <p className="truncate font-emphasis text-text-primary">{user.full_name}</p>
                           {isOwner && (
-                            <span className="rounded bg-gray-200 px-1.5 py-0.5 text-[10px] font-medium text-gray-600">Owner</span>
+                            <span className="rounded bg-surface-3 px-1.5 py-0.5 text-[10px] font-emphasis text-text-tertiary">Owner</span>
                           )}
                         </div>
-                        <p className="truncate text-xs text-gray-400">{user.email}</p>
+                        <p className="truncate text-tiny text-text-quaternary">{user.email}</p>
                       </div>
                     </div>
                   </td>
@@ -380,15 +392,15 @@ function MatrixView({
                     const style = LEVEL_STYLES[value] || LEVEL_STYLES.none
                     const disableSelfAdminDowngrade = currentUser?.id === user.user_id && module === 'settings'
                     return (
-                      <td key={module} className="px-3 py-3.5 text-center">
+                      <td key={module} className="px-3 py-3 text-center">
                         <select
                           value={value}
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) => onChangeLevel(user.user_id, module, event.target.value)}
                           disabled={disableSelfAdminDowngrade}
-                          className={`min-w-[90px] cursor-pointer appearance-none rounded-lg px-3 py-1.5 text-center text-xs font-semibold ring-1 ring-inset transition-all hover:shadow-sm disabled:cursor-not-allowed disabled:opacity-50 ${
+                          className={`min-w-[90px] cursor-pointer appearance-none rounded-md px-2.5 py-1 text-center text-tiny font-strong ring-1 ring-inset transition-all hover:shadow-linear-sm disabled:cursor-not-allowed disabled:opacity-50 ${
                             changed
-                              ? 'bg-yellow-50 text-yellow-800 ring-yellow-400 shadow-sm'
+                              ? 'bg-warning/10 text-warning ring-warning/30 shadow-linear-sm'
                               : `${style.bg} ${style.text} ${style.ring}`
                           }`}
                         >
@@ -406,12 +418,12 @@ function MatrixView({
         </table>
       </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-4 text-xs text-gray-500">
+      <div className="mt-4 flex flex-wrap items-center gap-4 text-tiny text-text-tertiary">
         {Object.entries(LEVEL_LABELS).map(([value, label]) => {
           const style = LEVEL_STYLES[value] || LEVEL_STYLES.none
           return (
             <div key={value} className="flex items-center gap-1.5">
-              <span className={`inline-flex items-center rounded-md px-2 py-0.5 font-medium ring-1 ring-inset ${style.bg} ${style.text} ${style.ring}`}>
+              <span className={`inline-flex items-center rounded-md px-2 py-0.5 font-emphasis ring-1 ring-inset ${style.bg} ${style.text} ${style.ring}`}>
                 {label}
               </span>
               <span>
@@ -433,7 +445,7 @@ function MatrixView({
           type="button"
           onClick={onResetAll}
           disabled={!hasPending}
-          className="rounded-lg border border-gray-300 bg-white px-6 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md border border-[rgb(var(--border-strong))] bg-surface-1 px-5 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-40"
         >
           Reset to defaults
         </button>
@@ -441,7 +453,7 @@ function MatrixView({
           type="button"
           onClick={() => { void onSaveAll() }}
           disabled={!hasPending || savingAll}
-          className="rounded-lg bg-gray-900 px-6 py-2.5 text-sm font-medium text-white transition-colors hover:bg-gray-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md bg-brand px-5 py-2 text-caption font-emphasis text-text-inverse transition-colors hover:bg-brand-hover disabled:cursor-not-allowed disabled:opacity-40"
         >
           {savingAll ? 'Saving…' : 'Save changes'}
         </button>
@@ -455,59 +467,59 @@ function UsersView({ currentUser, users, loading, deactivatingUserId, onOpenInvi
   return (
     <>
       <div className="mb-4 flex items-center justify-between">
-        <p className="text-sm text-gray-500">{users.length} users</p>
+        <p className="text-caption text-text-tertiary">{users.length} users</p>
         <button
           type="button"
           onClick={onOpenInvite}
-          className="flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+          className="flex items-center rounded-md bg-brand px-3.5 py-1.5 text-caption font-emphasis text-text-inverse hover:bg-brand-hover"
         >
           <Plus className="mr-2 h-4 w-4" />
           Add user
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
         {loading ? (
-          <div className="p-12 text-center text-gray-400">
+          <div className="p-12 text-center text-text-quaternary">
             <SpinCenter text="Loading users…" />
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
             <thead>
-              <tr className="border-b border-gray-200 bg-gray-50/80">
-                <th className="px-6 py-3 text-left font-medium text-gray-600">Name</th>
-                <th className="px-6 py-3 text-left font-medium text-gray-600">Email</th>
-                <th className="px-6 py-3 text-left font-medium text-gray-600">Login method</th>
-                <th className="px-6 py-3 text-left font-medium text-gray-600">Status</th>
-                <th className="px-6 py-3 text-left font-medium text-gray-600">Last login</th>
-                <th className="px-6 py-3" />
+              <tr className="bg-surface-2">
+                <th className="px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Name</th>
+                <th className="px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Email</th>
+                <th className="px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Login method</th>
+                <th className="px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Status</th>
+                <th className="px-5 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Last login</th>
+                <th className="px-5 py-3" />
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-100">
+            <tbody className="divide-y divide-[rgb(var(--border-line))]">
               {users.map((user) => {
                 const isSelf = currentUser?.id === user.id
                 return (
-                  <tr key={user.id} className="transition-colors hover:bg-gray-50">
-                    <td className="px-6 py-3 font-medium text-gray-900">{user.full_name}</td>
-                    <td className="px-6 py-3 text-gray-600">{user.email}</td>
-                    <td className="px-6 py-3 text-gray-600">
-                      <span className="inline-flex items-center rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700">
+                  <tr key={user.id} className="transition-colors hover:bg-surface-2">
+                    <td className="px-5 py-3 font-emphasis text-text-primary">{user.full_name}</td>
+                    <td className="px-5 py-3 text-text-secondary">{user.email}</td>
+                    <td className="px-5 py-3 text-text-secondary">
+                      <span className="inline-flex items-center rounded-full bg-surface-3 px-2.5 py-0.5 text-tiny font-emphasis text-text-secondary">
                         {getAuthMethodLabel(user.auth_provider)}
                       </span>
                     </td>
-                    <td className="px-6 py-3">
-                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium capitalize ${STATUS_COLORS[user.status] || 'bg-gray-100 text-gray-700'}`}>
+                    <td className="px-5 py-3">
+                      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-tiny font-emphasis capitalize ${STATUS_COLORS[user.status] || 'bg-surface-3 text-text-secondary'}`}>
                         {user.status}
                       </span>
                     </td>
-                    <td className="px-6 py-3 text-gray-500">{formatDate(user.last_login_at)}</td>
-                    <td className="px-6 py-3">
+                    <td className="px-5 py-3 text-text-tertiary">{formatDate(user.last_login_at)}</td>
+                    <td className="px-5 py-3">
                       <div className="flex items-center justify-end space-x-2">
                         <button
                           type="button"
                           onClick={() => onEdit(user)}
                           disabled={isSelf}
-                          className="rounded p-1.5 text-gray-400 hover:bg-blue-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+                          className="rounded p-1.5 text-text-quaternary hover:bg-brand/10 hover:text-brand disabled:cursor-not-allowed disabled:opacity-40"
                           title="Edit"
                         >
                           <Edit2 className="h-4 w-4" />
@@ -517,7 +529,7 @@ function UsersView({ currentUser, users, loading, deactivatingUserId, onOpenInvi
                             type="button"
                             onClick={() => { void onDeactivate(user.id) }}
                             disabled={Boolean(deactivatingUserId) || isSelf}
-                            className="rounded p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="rounded p-1.5 text-text-quaternary hover:bg-danger/10 hover:text-danger disabled:cursor-not-allowed disabled:opacity-40"
                             title="Deactivate"
                           >
                             <UserX className="h-4 w-4" />
@@ -544,15 +556,15 @@ function PresetsView({ presets, loading }) {
 
   return (
     <div className="space-y-6">
-      <p className="text-sm text-gray-500">
+      <p className="text-caption text-text-tertiary">
         Presets are pre-defined permission sets that can be applied quickly from the Permission matrix tab.
       </p>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         {Object.entries(presets || {}).map(([name, permissions]) => (
-          <div key={name} className="rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+          <div key={name} className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5">
             <div className="mb-3 flex items-center gap-2">
-              <span className={`rounded-full border px-3 py-1 text-sm font-semibold capitalize ${PRESET_COLORS[name] || 'border-gray-300 bg-gray-100 text-gray-700'}`}>
+              <span className={`rounded-full border px-3 py-1 text-caption font-strong capitalize ${PRESET_COLORS[name] || 'border-[rgb(var(--border-strong))] bg-surface-2 text-text-secondary'}`}>
                 {PRESET_LABELS[name] || name}
               </span>
             </div>
@@ -562,8 +574,8 @@ function PresetsView({ presets, loading }) {
                 const style = LEVEL_STYLES[level] || LEVEL_STYLES.none
                 return (
                   <div key={module} className="flex items-center gap-1 text-xs">
-                    <span className="text-gray-500">{MODULE_LABELS[module] || module}:</span>
-                    <span className={`rounded px-1.5 py-0.5 font-medium ${style.bg} ${style.text}`}>
+                    <span className="text-text-tertiary">{MODULE_LABELS[module] || module}:</span>
+                    <span className={`rounded px-1.5 py-0.5 font-emphasis ${style.bg} ${style.text}`}>
                       {LEVEL_LABELS[level] || level}
                     </span>
                   </div>
@@ -634,14 +646,35 @@ const PermissionSettingsPanel = ({ view = 'matrix' }) => {
     }
   }, [view, loadPermissionData, loadUsers])
 
+  const getBasePermissionsForUser = useCallback((userId) => {
+    const user = matrix?.users?.find((item) => item.user_id === userId)
+    return {
+      ...DEFAULT_MATRIX_PERMISSIONS,
+      ...(user?.permissions || {}),
+    }
+  }, [matrix])
+
   const handleLevelChange = (userId, module, level) => {
-    setPendingChanges((prev) => ({
-      ...prev,
-      [userId]: {
-        ...(prev[userId] || {}),
-        [module]: level,
-      },
-    }))
+    const basePermissions = getBasePermissionsForUser(userId)
+    const resolvedPermissions = resolvePermissionDependencies({
+      ...basePermissions,
+      ...(pendingChanges[userId] || {}),
+      [module]: level,
+    })
+
+    const nextPendingForUser = Object.fromEntries(
+      Object.entries(resolvedPermissions).filter(([permissionModule, permissionLevel]) => permissionLevel !== basePermissions[permissionModule])
+    )
+
+    setPendingChanges((prev) => {
+      const next = { ...prev }
+      if (Object.keys(nextPendingForUser).length === 0) {
+        delete next[userId]
+      } else {
+        next[userId] = nextPendingForUser
+      }
+      return next
+    })
   }
 
   const handleSaveAll = async () => {

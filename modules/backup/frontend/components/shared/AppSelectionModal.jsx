@@ -7,7 +7,7 @@ const AppSelectionModal = ({ open, onCancel, selectedApp, onSelect }) => (
   open ? (
   <AppModalShell
     title="Choose application"
-    description="Select the source application that this backup flow should follow. The remaining wizard steps adapt automatically to the app you choose."
+    description="Select the data source for this flow."
     icon={<Workflow className="h-5 w-5" />}
     onClose={onCancel}
     maxWidthClass="max-w-4xl"
@@ -17,18 +17,18 @@ const AppSelectionModal = ({ open, onCancel, selectedApp, onSelect }) => (
         <button
           key={app.id}
           onClick={() => onSelect(app.id)}
-          className={`flex gap-4 items-start p-4 rounded-lg border-2 text-left transition-all hover:shadow-md ${
-            selectedApp === app.id ? 'border-current shadow-sm' : 'border-gray-200 hover:border-gray-300'
+          className={`flex gap-4 items-start p-4 rounded-md border-2 text-left transition-all hover:shadow-linear-md ${
+            selectedApp === app.id ? 'border-current' : 'border-[rgb(var(--border-line))] hover:border-[rgb(var(--border-strong))]'
           }`}
           style={selectedApp === app.id ? { borderColor: app.color, backgroundColor: app.bg } : {}}
         >
-          <div className="p-2.5 rounded-lg shrink-0" style={{ backgroundColor: app.bg, color: app.color }}>{app.icon}</div>
+          <div className="p-2.5 rounded-md shrink-0" style={{ backgroundColor: app.bg, color: app.color }}>{app.icon}</div>
           <div className="flex-1 min-w-0">
-            <div className="font-semibold text-sm mb-1" style={{ color: app.color }}>{app.name}</div>
-            <p className="text-xs text-gray-500 mb-2">{app.description}</p>
+            <div className="font-strong text-caption mb-1" style={{ color: app.color }}>{app.name}</div>
+            <p className="text-tiny text-text-tertiary mb-2">{app.description}</p>
             <div className="flex flex-wrap gap-1">
               {app.objects.map(obj => (
-                <span key={obj} className="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium" style={{ backgroundColor: app.bg, color: app.color }}>
+                <span key={obj} className="inline-flex items-center px-1.5 py-0.5 rounded text-tiny font-emphasis" style={{ backgroundColor: app.bg, color: app.color }}>
                   {app.objectLabels[obj]}
                 </span>
               ))}

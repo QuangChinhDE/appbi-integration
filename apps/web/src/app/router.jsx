@@ -1,8 +1,6 @@
 import React from 'react'
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
-import AppConnectionsPage from '@modules/apps/frontend/pages/AppConnectionsPage'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import AppsPage from '@modules/apps/frontend/pages/AppsPage'
-import StorageAppsPage from '@modules/apps/frontend/pages/StorageAppsPage'
 import BackupFlowPage from '@modules/backup/frontend/pages/BackupFlowPage'
 import AutomationPage from '@modules/automation/frontend/pages/AutomationPage'
 import { getFirstAccessibleRoute } from '@modules/identity/frontend/lib/permissions'
@@ -27,20 +25,15 @@ function HomeRedirect() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-gray-50 px-6">
-      <div className="max-w-lg rounded-2xl border border-gray-200 bg-white px-6 py-8 text-center shadow-sm">
-        <h1 className="text-lg font-semibold text-gray-900">No modules assigned</h1>
-        <p className="mt-2 text-sm leading-6 text-gray-500">
+    <div className="flex min-h-screen items-center justify-center bg-surface-0 px-6">
+      <div className="max-w-lg rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 px-6 py-8 text-center shadow-linear">
+        <h1 className="text-lg font-strong text-text-primary">No modules assigned</h1>
+        <p className="mt-2 text-caption leading-6 text-text-tertiary">
           Ask an administrator to grant at least one module permission for this account.
         </p>
       </div>
     </div>
   )
-}
-
-function LegacyRedirect({ to }) {
-  const location = useLocation()
-  return <Navigate to={`${to}${location.search || ''}`} replace />
 }
 
 function SettingsPage() {
@@ -50,23 +43,23 @@ function SettingsPage() {
     <AppLayout>
       <div className="w-full max-w-[1400px] px-8 py-6">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">Permissions</h1>
-          <p className="mt-1 text-sm text-gray-500">
+          <h1 className="text-h1 font-strong text-text-primary">Permissions</h1>
+          <p className="mt-1 text-caption text-text-tertiary">
             Set per-module access level for each user.
           </p>
         </div>
 
-        <div className="mb-6 border-b border-gray-200">
+        <div className="mb-6 border-b border-[rgb(var(--border-line))]">
           <nav className="flex flex-wrap gap-6">
             {SETTINGS_TABS.map((tab) => (
               <button
                 key={tab.key}
                 type="button"
                 onClick={() => setActiveTab(tab.key)}
-                className={`border-b-2 pb-3 text-sm font-medium transition-colors ${
+                className={`border-b-2 pb-3 text-caption font-emphasis transition-colors ${
                   activeTab === tab.key
-                    ? 'border-blue-600 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                    ? 'border-brand text-brand'
+                    : 'border-transparent text-text-tertiary hover:text-text-secondary'
                 }`}
               >
                 {tab.label}
@@ -99,54 +92,6 @@ function AppRouter() {
           element={
             <ProtectedRoute module="apps">
               <AppsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apps/connections"
-          element={
-            <ProtectedRoute module="apps">
-              <AppConnectionsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apps/storage"
-          element={
-            <ProtectedRoute module="apps">
-              <StorageAppsPage />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apps/sources"
-          element={
-            <ProtectedRoute module="apps">
-              <LegacyRedirect to="/apps/connections" />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/apps/destinations"
-          element={
-            <ProtectedRoute module="apps">
-              <LegacyRedirect to="/apps/storage" />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/sources"
-          element={
-            <ProtectedRoute module="apps">
-              <LegacyRedirect to="/apps/connections" />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/destinations"
-          element={
-            <ProtectedRoute module="apps">
-              <LegacyRedirect to="/apps/storage" />
             </ProtectedRoute>
           }
         />

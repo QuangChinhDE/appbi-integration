@@ -14,20 +14,20 @@ const StepConnection = ({ wizard }) => {
 
   return (
     <div className="w-full max-w-none space-y-6">
-      <div className="border border-blue-100 rounded-2xl p-6 bg-blue-50/40">
+      <div className="border border-brand/20 rounded-xl p-6 bg-brand/10">
         <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 text-blue-600" />
-          <h4 className="text-sm font-bold text-blue-800">Request System Connection</h4>
+          <Globe className="w-5 h-5 text-brand" />
+          <h4 className="text-caption font-strong text-brand">Request System Connection</h4>
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-2">
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Domain <span className="text-red-500">*</span></label>
-            <p className="text-xs text-gray-400 mb-2">
-              Your system address, e.g. <code className="bg-white px-1 rounded border border-gray-200">company.base.com.vn</code>
+            <label className="block text-caption font-strong text-text-secondary mb-1">Domain <span className="text-danger">*</span></label>
+            <p className="text-tiny text-text-quaternary mb-2">
+              Your system address, e.g. <code className="bg-surface-1 px-1 rounded border border-[rgb(var(--border-line))]">company.base.com.vn</code>
             </p>
             <input
-              className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+              className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
               placeholder="e.g. company.base.com.vn"
               value={domain}
               onChange={e => { clearAppliedSourceConnection(); setDomain(e.target.value) }}
@@ -35,18 +35,18 @@ const StepConnection = ({ wizard }) => {
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">Access Token (V2) <span className="text-red-500">*</span></label>
-            <p className="text-xs text-gray-400 mb-2">From <strong>Settings</strong> → <strong>API Keys</strong> → copy your Base Account <em>access_token_v2</em></p>
+            <label className="block text-caption font-strong text-text-secondary mb-1">Access Token (V2) <span className="text-danger">*</span></label>
+            <p className="text-tiny text-text-quaternary mb-2">From <strong>Settings</strong> → <strong>API Keys</strong> → copy your Base Account <em>access_token_v2</em></p>
             <div className="relative">
               <input
                 type={showTokenV2 ? 'text' : 'password'}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 pr-12 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
                 placeholder="Paste your access token here…"
                 value={accessTokenV2}
                 onChange={e => { clearAppliedSourceConnection(); setAccessTokenV2(e.target.value) }}
               />
               <button type="button" onClick={() => setShowTokenV2(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-quaternary hover:text-text-secondary p-1"
                 title={showTokenV2 ? 'Hide' : 'Show'}>
                 {showTokenV2 ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
@@ -55,9 +55,9 @@ const StepConnection = ({ wizard }) => {
         </div>
       </div>
 
-      <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
-        <Info className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-        <div className="text-xs text-amber-700 leading-relaxed">
+      <div className="bg-warning/10 border border-warning/20 rounded-md p-4 flex gap-3">
+        <Info className="w-4 h-4 text-warning shrink-0 mt-0.5" />
+        <div className="text-tiny text-warning leading-relaxed">
           <strong>Security note:</strong> Your access token is encrypted and stored securely. Never share it with others.
         </div>
       </div>

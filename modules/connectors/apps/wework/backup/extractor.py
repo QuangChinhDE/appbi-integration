@@ -604,7 +604,9 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
     await persist_progress("starting", current_step_label, 5)
 
     try:
-        source = flow.source or {}
+        from modules.apps.backend.services.app_credential_service import AppCredentialService
+        credential_service = AppCredentialService(db)
+        source = await credential_service.build_source_runtime(flow.source_credential_id)
         encrypted_access_token = source.get("access_token_encrypted")
         if not encrypted_access_token:
             raise ValueError("No encrypted WeWork access token found in flow source")
@@ -619,7 +621,10 @@ async def _execute_wework_backup(flow_id: str, run_id: str, db: AsyncSession) ->
         wework_access_token = decrypt_value(encrypted_access_token)
         credentials = WeworkCredentials(domain=wework_domain, access_token=wework_access_token)
 
-        destination = flow.destination or {}
+        destination = await credential_service.build_destination_runtime(
+            flow.destination_credential_id,
+            dict(flow.destination_target or {}) or None,
+        )
         destination_type = str(destination.get("type") or "gdrive").strip().lower()
         auth = destination.get("auth") or {}
         validate_service_account_drive_destination(auth)

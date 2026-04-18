@@ -4,18 +4,55 @@ import {
   Inbox, Building2, Headphones, CheckCircle, Info, Loader2,
 } from 'lucide-react'
 import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
-import { Tag, Alert, SpinCenter, Empty } from '@packages/ui/src/components/common/ui'
+import { Alert, Badge, Button, Empty, Progress, SpinCenter } from '@packages/ui/src/components/common/ui'
 import { APPS, APP_META, formatDateTime } from '../constants'
 
-const runStatusColors = { completed: '#16a34a', failed: '#dc2626', running: '#2563eb', pending: '#d97706' }
-const runStatusLabels = { completed: 'Completed', failed: 'Failed', running: 'Running', pending: 'Pending' }
-const runStatusBg = { completed: '#f0fdf4', failed: '#fef2f2', running: '#eff6ff', pending: '#fffbeb' }
+const RUN_STATUS_VARIANT = {
+  completed: 'success',
+  failed: 'danger',
+  running: 'info',
+  pending: 'warning',
+}
+
+const RUN_STATUS_PROGRESS = {
+  completed: 'success',
+  failed: 'exception',
+  running: 'active',
+  pending: 'normal',
+}
+
+const RUN_STATUS_LABEL = {
+  completed: 'Completed',
+  failed: 'Failed',
+  running: 'Running',
+  pending: 'Pending',
+}
+
+const RUN_STATUS_ICON = {
+  completed: CheckCircle,
+  failed: Info,
+  running: Loader2,
+  pending: Clock,
+}
+
+const RUN_STATUS_ICON_COLOR = {
+  completed: 'text-success',
+  failed: 'text-danger',
+  running: 'text-info',
+  pending: 'text-warning',
+}
 
 const appIcons = {
   request:  <Inbox className="w-4 h-4" />,
   workflow: <FolderKanban className="w-4 h-4" />,
   wework:   <Building2 className="w-4 h-4" />,
   service:  <Headphones className="w-4 h-4" />,
+}
+
+const BACKUP_TYPE_LABEL = {
+  structured: 'Structured',
+  unstructured: 'Files & Attachments',
+  all: 'Complete',
 }
 
 function getHistoryRunProgressPercent(run) {
@@ -28,43 +65,52 @@ function getHistoryRunProgressPercent(run) {
 
 function getHistoryRunStepLabel(run) {
   if (run?.execution_details?.step_label) return run.execution_details.step_label
-  if (run?.status === 'pending') return 'Queued to start'
-  if (run?.status === 'running') return 'Backup is running'
-  if (run?.status === 'failed') return run?.error_message || 'Backup failed'
+  if (run?.status === 'pending') return 'Queued'
+  if (run?.status === 'running') return 'Running'
+  if (run?.status === 'failed') return run?.error_message || 'Failed'
   return 'Completed'
 }
 
 function getHistoryRunSummary(run) {
-  const details = run?.execution_details || {}
-  if (details.app === 'service') {
-    return `${details.completed_services || 0}/${details.total_services || 0} services, ${details.total_tickets || 0} tickets, ${details.attachments_downloaded || 0} attachments`
-  }
-  if (details.app === 'request') {
-    return `${details.completed_groups || 0}/${details.total_groups || 0} groups, ${details.total_requests || 0} requests`
-  }
-  if (details.app === 'workflow') {
-    return `${details.completed_workflows || 0}/${details.total_workflows || 0} workflows, ${details.completed_jobs || 0}/${details.total_jobs || 0} jobs`
-  }
-  if (details.app === 'wework') {
-    return `${details.completed_projects || 0}/${details.total_projects || 0} projects, ${details.completed_tasks || 0}/${details.total_tasks || 0} tasks`
-  }
-  return details.structure_path || 'No execution summary yet'
+  const d = run?.execution_details || {}
+  if (d.app === 'service') return `${d.completed_services || 0}/${d.total_services || 0} services · ${d.total_tickets || 0} tickets · ${d.attachments_downloaded || 0} attachments`
+  if (d.app === 'request') return `${d.completed_groups || 0}/${d.total_groups || 0} groups · ${d.total_requests || 0} requests`
+  if (d.app === 'workflow') return `${d.completed_workflows || 0}/${d.total_workflows || 0} workflows · ${d.completed_jobs || 0}/${d.total_jobs || 0} jobs`
+  if (d.app === 'wework') return `${d.completed_projects || 0}/${d.total_projects || 0} projects · ${d.completed_tasks || 0}/${d.total_tasks || 0} tasks`
+  return d.structure_path || ''
 }
 
 function getDestinationIdentityLabel(auth = {}) {
   return auth.service_account_email || auth.client_email || auth.email || null
 }
 
-function renderServiceArchiveNotice(appId, destinationType) {
+function ServiceArchiveNotice({ appId, destinationType }) {
   if (appId !== 'service' || destinationType !== 'gdrive') return null
   return (
     <Alert
       type="info"
-      message="Re-run will move old folder to Trash"
-      description="Each time a new Service backup runs, the old Base Service folder will be moved to Google Drive Trash before re-creating."
+      message="Old folder moves to Trash on re-run"
+      description="Previous Service backup folder is trashed before the next run."
     />
   )
 }
+
+const ConfigField = ({ label, children }) => (
+  <div>
+    <div className="text-[10px] text-text-quaternary mb-0.5 uppercase tracking-wider font-emphasis">{label}</div>
+    <div className="text-caption text-text-secondary">{children}</div>
+  </div>
+)
+
+const ConfigColumn = ({ icon: Icon, label, children }) => (
+  <div className="px-5 py-4">
+    <div className="mb-3 flex items-center gap-1.5 text-text-tertiary">
+      <Icon className="h-3.5 w-3.5" />
+      <span className="text-tiny font-strong uppercase tracking-wider">{label}</span>
+    </div>
+    <div className="space-y-2">{children}</div>
+  </div>
+)
 
 const FlowDetailView = ({
   detailsFlow,
@@ -80,6 +126,8 @@ const FlowDetailView = ({
   onDelete,
   stoppingFlowId,
   canEdit,
+  canConfigure,
+  configurationBlockedMessage,
 }) => {
   const source = detailsFlow?.source || {}
   const destination = detailsFlow?.destination || {}
@@ -99,54 +147,47 @@ const FlowDetailView = ({
     || ['pending', 'running'].includes(detailsFlow?.last_run_status || detailsFlowRecord?.last_run_status)
   const runDisabled = !supportsRun || !isPublished || Boolean(runBlockedReason) || hasActiveRun
   const isStopping = stoppingFlowId === (detailsFlowId || detailsFlowRecord?.id)
+
   const footer = (
     <div className="flex w-full items-center justify-between gap-3">
       <div>
         {canEdit && (
-          <button
-            onClick={onDelete}
-            className="inline-flex items-center gap-2 rounded-xl border border-red-200 bg-white px-4 py-2.5 text-sm font-medium text-red-600 transition-colors hover:bg-red-50"
-          >
-            <Trash2 className="h-4 w-4" /> Delete flow
-          </button>
+          <Button variant="ghost" size="md" leadingIcon={<Trash2 className="h-4 w-4" />} onClick={onDelete} className="text-danger hover:bg-danger/10">
+            Delete flow
+          </Button>
         )}
       </div>
-
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <button
+        <Button
+          variant="secondary"
+          size="md"
           onClick={onRefresh}
           disabled={loadingFlowDetails}
-          className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          leadingIcon={loadingFlowDetails ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
         >
-          {loadingFlowDetails ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
           Refresh
-        </button>
-        {canEdit && (
-          <button
-            onClick={onEdit}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
-          >
-            <Pencil className="h-4 w-4" /> Edit
-          </button>
+        </Button>
+        {canConfigure && (
+          <Button variant="secondary" size="md" onClick={onEdit} leadingIcon={<Pencil className="h-4 w-4" />}>
+            Edit
+          </Button>
         )}
         {canEdit && hasActiveRun && (
-          <button
-            onClick={onStop}
-            disabled={isStopping}
-            className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Square className="h-4 w-4" /> {isStopping ? 'Stopping…' : 'Stop current run'}
-          </button>
+          <Button variant="danger" size="md" onClick={onStop} disabled={isStopping} leadingIcon={<Square className="h-4 w-4" />}>
+            {isStopping ? 'Stopping…' : 'Stop run'}
+          </Button>
         )}
         {canEdit && (
-          <button
+          <Button
+            variant="primary"
+            size="md"
             disabled={runDisabled}
             onClick={onRun}
-            title={runBlockedReason || (hasActiveRun ? 'A backup is already running for this flow' : !supportsRun ? 'This app type does not support running' : !isPublished ? 'Must publish flow first' : undefined)}
-            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            title={runBlockedReason || (hasActiveRun ? 'A backup is already running' : !supportsRun ? 'App type does not support run' : !isPublished ? 'Publish the flow first' : undefined)}
+            leadingIcon={<Play className="h-4 w-4" />}
           >
-            <Play className="h-4 w-4" /> Run backup now
-          </button>
+            Run now
+          </Button>
         )}
       </div>
     </div>
@@ -157,24 +198,20 @@ const FlowDetailView = ({
       variant="page"
       onClose={onBack}
       leadingAction={(
-        <button
-          onClick={onBack}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 px-3 py-2 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Back to list</span>
-        </button>
+        <Button variant="ghost" size="sm" onClick={onBack} leadingIcon={<ArrowLeft className="h-4 w-4" />}>
+          Back
+        </Button>
       )}
-      title={detailsFlow?.name || detailsFlowRecord?.name || 'Backup flow detail'}
+      title={detailsFlow?.name || detailsFlowRecord?.name || 'Backup flow'}
       description={(
-        <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
+        <div className="flex flex-wrap items-center gap-2 text-caption text-text-tertiary">
           <span>{source.app_name || source.app || 'Unknown source'}</span>
-          {(destination.name || destination.type) && <span>• {destination.name || destination.type}</span>}
-          {detailsFlow?.last_run_at && <span>• Last run {formatDateTime(detailsFlow.last_run_at)}</span>}
+          {(destination.name || destination.type) && <span>· {destination.name || destination.type}</span>}
+          {detailsFlow?.last_run_at && <span>· Last run {formatDateTime(detailsFlow.last_run_at)}</span>}
         </div>
       )}
       icon={React.cloneElement(icon, { className: 'h-5 w-5' })}
-      iconClassName="bg-gray-50 text-gray-700"
+      iconClassName="bg-surface-2 text-text-secondary"
       bodyClassName="px-6 py-6 lg:px-8 xl:px-10"
       footer={footer}
     >
@@ -182,201 +219,197 @@ const FlowDetailView = ({
         <div className="flex items-center justify-center py-20"><SpinCenter text="Loading…" /></div>
       ) : (
         <div className="flex flex-col gap-5">
-            {/* Overview card */}
-            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-              {/* Hero header */}
-              <div className="px-6 pt-5 pb-4 border-b border-gray-100"
-                style={{ background: `linear-gradient(135deg, ${meta.color}08 0%, white 70%)` }}>
-                <div className="flex items-start gap-4 flex-wrap">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center shrink-0"
-                      style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}>
-                      <span className="scale-150">{icon}</span>
-                    </div>
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <h2 className="text-lg font-bold text-gray-900 leading-tight">
-                          {detailsFlow?.name || <span className="italic text-gray-400">Untitled draft</span>}
-                        </h2>
-                        {isDraft
-                          ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700">Draft</span>
-                          : <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-700">Ready</span>}
-                        {isPublished
-                          ? <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-100 text-green-700">Published</span>
-                          : <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-gray-100 text-gray-500">Unpublished</span>}
-                        {detailsFlow?.backup_type && (
-                          <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-700">
-                            {{ structured: 'Structured', unstructured: 'Files & Attachments', all: 'Complete' }[detailsFlow.backup_type] || detailsFlow.backup_type}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-sm text-gray-500">
-                        <span style={{ color: meta.color }} className="font-medium">{source.app_name || source.app || '—'}</span>
-                        {source.domain && <span className="ml-2 text-gray-400 font-mono text-xs">· {source.domain}</span>}
-                      </p>
-                    </div>
-                  </div>
+          {/* Overview card */}
+          <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
+            <div className="border-b border-[rgb(var(--border-line))] bg-surface-2/40 px-6 pt-5 pb-4">
+              <div className="flex flex-wrap items-start gap-4">
+                <div
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl"
+                  style={{ backgroundColor: `${meta.color}1a`, color: meta.color }}
+                >
+                  <span className="scale-150">{icon}</span>
                 </div>
-
-                {runBlockedReason && (
-                  <div className="mt-3 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
-                    <Info className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-                    <p className="text-xs text-amber-700 leading-relaxed">{runBlockedReason}</p>
-                  </div>
-                )}
-              </div>
-
-              {/* Config grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-0 divide-x divide-y divide-gray-100">
-                {/* Source */}
-                <div className="px-5 py-4">
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <Globe className="w-3.5 h-3.5 text-orange-500" />
-                    <span className="text-[10px] font-bold text-orange-600 uppercase tracking-wider">Data Source</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">App</div><div className="text-sm font-semibold" style={{ color: meta.color }}>{source.app_name || source.app || '—'}</div></div>
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Domain</div><div className="text-xs font-mono text-gray-700 break-all">{source.domain || '—'}</div></div>
-                    <div>
-                      <div className="text-[10px] text-gray-400 mb-1">Backup Data</div>
-                      <div className="flex flex-wrap gap-1">
-                        {detailObjects.length > 0
-                          ? detailObjects.map(o => <span key={o} className="px-1.5 py-0.5 rounded text-[11px] font-semibold bg-blue-100 text-blue-700">{o}</span>)
-                          : <span className="text-xs text-gray-400">—</span>}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Destination */}
-                <div className="px-5 py-4">
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <Cloud className="w-3.5 h-3.5 text-blue-500" />
-                    <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">Storage</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Backup Type</div>
-                      <div className="text-sm font-semibold text-gray-800">
-                        {{ structured: 'Structured', unstructured: 'Files & Attachments', all: 'Complete' }[detailsFlow?.backup_type] || detailsFlow?.backup_type || '—'}
-                      </div>
-                    </div>
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Destination</div><div className="text-sm text-gray-700">{destination.name || destination.type || '—'}</div></div>
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Account</div><div className="text-xs text-gray-700 break-all">{getDestinationIdentityLabel(auth) || '—'}</div></div>
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Folder</div><div className="text-xs text-gray-700">{auth.folder_name || auth.folder_id || <span className="text-gray-400">My Drive (default)</span>}</div></div>
-                  </div>
-                </div>
-
-                {/* Schedule */}
-                <div className="px-5 py-4">
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <Clock className="w-3.5 h-3.5 text-purple-500" />
-                    <span className="text-[10px] font-bold text-purple-600 uppercase tracking-wider">Schedule</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Type</div><div className="text-sm font-semibold text-gray-800">{schedule.type || <span className="text-gray-400 font-normal text-xs">Manual</span>}</div></div>
-                    {schedule.type && (
-                      <div><div className="text-[10px] text-gray-400 mb-0.5">Time</div><div className="text-sm text-gray-700">{schedule.time || '—'}</div></div>
-                    )}
-                    <div>
-                      <div className="text-[10px] text-gray-400 mb-1">Status</div>
-                      {schedule.enabled === false
-                        ? <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-gray-100 text-gray-500">Disabled</span>
-                        : <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold bg-green-100 text-green-700">Enabled</span>}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Meta */}
-                <div className="px-5 py-4">
-                  <div className="flex items-center gap-1.5 mb-3">
-                    <FolderKanban className="w-3.5 h-3.5 text-gray-400" />
-                    <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">Info</span>
-                  </div>
-                  <div className="space-y-2">
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Created</div><div className="text-xs text-gray-700">{formatDateTime(detailsFlow?.created_at) || '—'}</div></div>
-                    <div><div className="text-[10px] text-gray-400 mb-0.5">Updated</div><div className="text-xs text-gray-700">{formatDateTime(detailsFlow?.updated_at) || '—'}</div></div>
-                    {detailsFlow?.last_run_at && (
-                      <div><div className="text-[10px] text-gray-400 mb-0.5">Last Run</div><div className="text-xs text-gray-700">{formatDateTime(detailsFlow.last_run_at)}</div></div>
+                <div className="min-w-0">
+                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                    <h2 className="text-small font-strong leading-tight text-text-primary">
+                      {detailsFlow?.name || <span className="italic text-text-quaternary">Untitled draft</span>}
+                    </h2>
+                    <Badge variant={isDraft ? 'warning' : 'info'} size="sm">
+                      {isDraft ? 'Draft' : 'Ready'}
+                    </Badge>
+                    <Badge variant={isPublished ? 'success' : 'neutral'} size="sm">
+                      {isPublished ? 'Published' : 'Unpublished'}
+                    </Badge>
+                    {detailsFlow?.backup_type && (
+                      <Badge variant="brand" size="sm">
+                        {BACKUP_TYPE_LABEL[detailsFlow.backup_type] || detailsFlow.backup_type}
+                      </Badge>
                     )}
                   </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Run history */}
-            <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
-              <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-gray-900">Run History</h3>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {detailsRuns.length > 0 ? `${detailsRuns.length} most recent runs` : 'No runs yet'}
-                    {detailsFlow?.last_run_at && <span className="ml-2">· Last: {formatDateTime(detailsFlow.last_run_at)}</span>}
+                  <p className="text-caption text-text-tertiary">
+                    <span className="font-emphasis" style={{ color: meta.color }}>{source.app_name || source.app || '—'}</span>
+                    {source.domain && <span className="ml-2 font-mono text-tiny text-text-quaternary">· {source.domain}</span>}
                   </p>
                 </div>
-                {renderServiceArchiveNotice(detailsFlowRecord?.app || source.app, destination.type)}
               </div>
 
-              {detailsRuns.length === 0 ? (
-                <div className="py-16"><Empty description="No runs have been recorded yet" /></div>
-              ) : (
-                <div className="divide-y divide-gray-50">
-                  {detailsRuns.map((run, idx) => {
-                    const pct = getHistoryRunProgressPercent(run)
-                    const isLatest = idx === 0
-                    const statusColor = runStatusColors[run.status] || '#64748b'
-                    const statusBgColor = runStatusBg[run.status] || '#f9fafb'
-                    return (
-                      <div key={run.id}
-                        className="px-6 py-4 hover:bg-gray-50/70 transition-colors flex items-start gap-4"
-                        style={isLatest ? { borderLeft: `3px solid ${statusColor}` } : { borderLeft: '3px solid transparent' }}>
-                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 mt-0.5" style={{ background: statusBgColor }}>
-                          {run.status === 'completed' && <CheckCircle style={{ width: 18, height: 18, color: '#16a34a' }} />}
-                          {run.status === 'failed' && <Info style={{ width: 18, height: 18, color: '#dc2626' }} />}
-                          {run.status === 'running' && <Loader2 style={{ width: 18, height: 18, color: '#2563eb' }} className="animate-spin" />}
-                          {run.status === 'pending' && <Clock style={{ width: 18, height: 18, color: '#d97706' }} />}
-                        </div>
+              {runBlockedReason && (
+                <div className="mt-3">
+                  <Alert type="warning" message="Run blocked" description={runBlockedReason} />
+                </div>
+              )}
 
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap mb-1.5">
-                            <span className="text-sm font-semibold" style={{ color: statusColor }}>
-                              {runStatusLabels[run.status] || run.status}
-                            </span>
-                            {isLatest && <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-600 uppercase">Latest</span>}
-                            <span className="text-xs text-gray-400">{formatDateTime(run.started_at)}</span>
-                            {run.completed_at && <span className="text-xs text-gray-400">→ {formatDateTime(run.completed_at)}</span>}
-                          </div>
-
-                          <div className="flex items-center gap-3 mb-1.5">
-                            <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full rounded-full transition-all duration-500"
-                                style={{ width: `${pct}%`, background: run.status === 'failed' ? '#ef4444' : run.status === 'running' ? '#3b82f6' : '#22c55e' }} />
-                            </div>
-                            <span className="text-xs font-semibold shrink-0 w-8 text-right" style={{ color: statusColor }}>{pct}%</span>
-                          </div>
-
-                          <div className="flex flex-wrap gap-x-4 text-xs">
-                            <span className="font-medium text-gray-600">{getHistoryRunStepLabel(run)}</span>
-                            {getHistoryRunSummary(run) && <span className="text-gray-400">{getHistoryRunSummary(run)}</span>}
-                          </div>
-
-                          {run.error_message && (
-                            <div className="mt-2 flex items-start gap-1.5 bg-red-50 rounded-lg px-3 py-2">
-                              <Info style={{ width: 13, height: 13, color: '#f87171', flexShrink: 0, marginTop: 1 }} />
-                              <span className="text-xs text-red-600 leading-relaxed">{run.error_message}</span>
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="shrink-0 text-right space-y-1">
-                          <div className="text-[11px] text-gray-400">{run.triggered_by || 'manual'}</div>
-                          <div className="text-[10px] text-gray-300">#{run.id}</div>
-                        </div>
-                      </div>
-                    )
-                  })}
+              {canEdit && !canConfigure && configurationBlockedMessage && (
+                <div className="mt-3">
+                  <Alert
+                    type="warning"
+                    message="Apps view required to edit"
+                    description={configurationBlockedMessage}
+                  />
                 </div>
               )}
             </div>
+
+            <div className="grid grid-cols-2 divide-x divide-y divide-[rgb(var(--border-line))] lg:grid-cols-4">
+              <ConfigColumn icon={Globe} label="Data source">
+                <ConfigField label="App">
+                  <span className="font-strong" style={{ color: meta.color }}>{source.app_name || source.app || '—'}</span>
+                </ConfigField>
+                <ConfigField label="Domain">
+                  <span className="break-all font-mono text-tiny">{source.domain || '—'}</span>
+                </ConfigField>
+                <div>
+                  <div className="text-[10px] text-text-quaternary mb-1 uppercase tracking-wider font-emphasis">Objects</div>
+                  <div className="flex flex-wrap gap-1">
+                    {detailObjects.length > 0
+                      ? detailObjects.map(o => <Badge key={o} variant="brand" size="xs">{o}</Badge>)
+                      : <span className="text-tiny text-text-quaternary">—</span>}
+                  </div>
+                </div>
+              </ConfigColumn>
+
+              <ConfigColumn icon={Cloud} label="Storage">
+                <ConfigField label="Backup type">
+                  <span className="font-strong text-text-primary">
+                    {BACKUP_TYPE_LABEL[detailsFlow?.backup_type] || detailsFlow?.backup_type || '—'}
+                  </span>
+                </ConfigField>
+                <ConfigField label="Destination">{destination.name || destination.type || '—'}</ConfigField>
+                <ConfigField label="Account">
+                  <span className="break-all text-tiny">{getDestinationIdentityLabel(auth) || '—'}</span>
+                </ConfigField>
+                <ConfigField label="Folder">
+                  <span className="text-tiny">{auth.folder_name || auth.folder_id || <span className="text-text-quaternary">My Drive (default)</span>}</span>
+                </ConfigField>
+              </ConfigColumn>
+
+              <ConfigColumn icon={Clock} label="Schedule">
+                <ConfigField label="Type">
+                  <span className="font-strong text-text-primary">{schedule.type || <span className="font-normal text-tiny text-text-quaternary">Manual</span>}</span>
+                </ConfigField>
+                {schedule.type && <ConfigField label="Time">{schedule.time || '—'}</ConfigField>}
+                <div>
+                  <div className="text-[10px] text-text-quaternary mb-1 uppercase tracking-wider font-emphasis">Status</div>
+                  <Badge variant={schedule.enabled === false ? 'neutral' : 'success'} size="sm">
+                    {schedule.enabled === false ? 'Disabled' : 'Enabled'}
+                  </Badge>
+                </div>
+              </ConfigColumn>
+
+              <ConfigColumn icon={FolderKanban} label="Info">
+                <ConfigField label="Created">
+                  <span className="text-tiny">{formatDateTime(detailsFlow?.created_at) || '—'}</span>
+                </ConfigField>
+                <ConfigField label="Updated">
+                  <span className="text-tiny">{formatDateTime(detailsFlow?.updated_at) || '—'}</span>
+                </ConfigField>
+                {detailsFlow?.last_run_at && (
+                  <ConfigField label="Last run">
+                    <span className="text-tiny">{formatDateTime(detailsFlow.last_run_at)}</span>
+                  </ConfigField>
+                )}
+              </ConfigColumn>
+            </div>
+          </div>
+
+          {/* Run history */}
+          <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
+            <div className="flex items-center justify-between border-b border-[rgb(var(--border-line))] px-6 py-4">
+              <div>
+                <h3 className="text-caption font-strong text-text-primary">Run history</h3>
+                <p className="mt-0.5 text-tiny text-text-quaternary">
+                  {detailsRuns.length > 0 ? `${detailsRuns.length} recent runs` : 'No runs yet'}
+                  {detailsFlow?.last_run_at && <span className="ml-2">· Last: {formatDateTime(detailsFlow.last_run_at)}</span>}
+                </p>
+              </div>
+              <ServiceArchiveNotice appId={detailsFlowRecord?.app || source.app} destinationType={destination.type} />
+            </div>
+
+            {detailsRuns.length === 0 ? (
+              <div className="py-16"><Empty description="No runs recorded" /></div>
+            ) : (
+              <div className="divide-y divide-[rgb(var(--border-line))]">
+                {detailsRuns.map((run, idx) => {
+                  const pct = getHistoryRunProgressPercent(run)
+                  const isLatest = idx === 0
+                  const variant = RUN_STATUS_VARIANT[run.status] || 'neutral'
+                  const StatusIcon = RUN_STATUS_ICON[run.status] || Info
+                  const iconSpin = run.status === 'running' ? 'animate-spin' : ''
+                  return (
+                    <div
+                      key={run.id}
+                      className={`flex items-start gap-4 px-6 py-4 transition-colors hover:bg-surface-2/70 ${
+                        isLatest ? 'border-l-2 border-l-brand' : 'border-l-2 border-l-transparent'
+                      }`}
+                    >
+                      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-surface-2 ${RUN_STATUS_ICON_COLOR[run.status] || 'text-text-tertiary'}`}>
+                        <StatusIcon className={`h-4 w-4 ${iconSpin}`} />
+                      </div>
+
+                      <div className="min-w-0 flex-1">
+                        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                          <Badge variant={variant} size="sm" dot>
+                            {RUN_STATUS_LABEL[run.status] || run.status}
+                          </Badge>
+                          {isLatest && <Badge variant="brand" size="xs">Latest</Badge>}
+                          <span className="text-tiny text-text-quaternary">{formatDateTime(run.started_at)}</span>
+                          {run.completed_at && <span className="text-tiny text-text-quaternary">→ {formatDateTime(run.completed_at)}</span>}
+                        </div>
+
+                        <div className="mb-1.5 flex items-center gap-3">
+                          <div className="flex-1">
+                            <Progress
+                              percent={pct}
+                              status={RUN_STATUS_PROGRESS[run.status] || 'normal'}
+                              size="small"
+                            />
+                          </div>
+                          <span className="w-8 shrink-0 text-right text-tiny font-strong text-text-secondary">{pct}%</span>
+                        </div>
+
+                        <div className="flex flex-wrap gap-x-4 text-tiny">
+                          <span className="font-emphasis text-text-secondary">{getHistoryRunStepLabel(run)}</span>
+                          {getHistoryRunSummary(run) && <span className="text-text-quaternary">{getHistoryRunSummary(run)}</span>}
+                        </div>
+
+                        {run.error_message && (
+                          <div className="mt-2 flex items-start gap-1.5 rounded-md bg-danger/10 px-3 py-2">
+                            <Info className="mt-0.5 h-3 w-3 shrink-0 text-danger" />
+                            <span className="text-tiny leading-relaxed text-danger">{run.error_message}</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="shrink-0 space-y-1 text-right">
+                        <div className="text-tiny text-text-quaternary">{run.triggered_by || 'manual'}</div>
+                        <div className="text-[10px] text-text-quaternary">#{run.id}</div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </AppModalShell>

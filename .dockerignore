@@ -3,8 +3,6 @@
 node_modules
 apps/web/node_modules
 apps/web/dist
-demo/.venv
-demo/__pycache__
 **/__pycache__
 **/.pytest_cache
 **/.mypy_cache

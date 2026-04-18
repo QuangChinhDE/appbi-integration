@@ -22,15 +22,15 @@ const GoogleConfigModal = ({ wizard }) => {
       title="Configure Google OAuth"
       description="Enter the OAuth client details used by the integration workspace, then connect the Google account directly from this flow."
       icon={<Globe className="h-5 w-5" />}
-      iconClassName="bg-blue-50 text-blue-600"
+      iconClassName="bg-brand/10 text-brand"
       onClose={() => { if (googleConfigSaving) return; setGoogleConfigModalOpen(false); setGoogleConfigError('') }}
       maxWidthClass="max-w-xl"
       footer={
         <>
           <button onClick={() => { setGoogleConfigModalOpen(false); setGoogleConfigError('') }} disabled={googleConfigSaving}
-            className="rounded-lg border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+            className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">Cancel</button>
           <button onClick={handleSaveGoogleConfigAndConnect} disabled={googleConfigSaving}
-            className="flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50">
+            className="flex items-center gap-2 rounded-md bg-brand px-4 py-2 text-caption font-strong text-white transition-colors hover:bg-brand-hover disabled:opacity-50">
             {googleConfigSaving && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
             Save & Connect Google
           </button>
@@ -41,21 +41,21 @@ const GoogleConfigModal = ({ wizard }) => {
       {googleConfigLoading ? <SpinCenter /> : (
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Client ID <span className="text-red-500">*</span></label>
+            <label className="block text-caption font-emphasis text-text-secondary mb-1">Client ID <span className="text-danger">*</span></label>
             <input value={gcClientId} onChange={e => setGcClientId(e.target.value)} placeholder="123456789-abc.apps.googleusercontent.com"
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Client Secret</label>
+            <label className="block text-caption font-emphasis text-text-secondary mb-1">Client Secret</label>
             <input type="password" value={gcClientSecret} onChange={e => setGcClientSecret(e.target.value)}
               placeholder={googleSecretSet ? 'Leave blank to keep current secret' : 'GOCSPX-xxxxxxxxxxxxxxxx'}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-            <p className="text-xs text-gray-400 mt-1">{googleSecretSet ? 'A secret is already stored. Leave blank to keep it.' : 'Stored encrypted in the database.'}</p>
+              className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors" />
+            <p className="text-tiny text-text-quaternary mt-1">{googleSecretSet ? 'A secret is already stored. Leave blank to keep it.' : 'Stored encrypted in the database.'}</p>
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Redirect URI <span className="text-red-500">*</span></label>
+            <label className="block text-caption font-emphasis text-text-secondary mb-1">Redirect URI <span className="text-danger">*</span></label>
             <input value={gcRedirectUri} onChange={e => setGcRedirectUri(e.target.value)} placeholder={DEFAULT_GOOGLE_REDIRECT}
-              className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors" />
           </div>
           <Alert type="info" message="Google Cloud Console reminder" description={`Authorized redirect URI must include ${googleRedirectUri || DEFAULT_GOOGLE_REDIRECT}`} />
         </div>

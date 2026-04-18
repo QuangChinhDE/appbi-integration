@@ -5,6 +5,11 @@ from typing import Dict, List
 
 LEVEL_ORDER: Dict[str, int] = {'none': 0, 'view': 1, 'edit': 2, 'full': 3}
 
+BACKUP_APPS_PERMISSION_MESSAGE = (
+    'Backup edit and full access require Apps view or higher because Backup reuses saved '
+    'sources and destinations from Apps.'
+)
+
 MODULES: List[str] = [
     'backup',
     'apps',
@@ -106,3 +111,12 @@ def validate_permissions(permissions: Dict[str, str]) -> None:
             raise ValueError(
                 f"Invalid level '{level}' for module '{module}'. Allowed: {MODULE_ALLOWED_LEVELS[module]}"
             )
+
+
+def validate_permission_dependencies(permissions: Dict[str, str]) -> None:
+    normalized = normalize_permissions(permissions)
+    backup_level = normalized.get('backup', 'none')
+    apps_level = normalized.get('apps', 'none')
+
+    if LEVEL_ORDER.get(backup_level, 0) >= LEVEL_ORDER['edit'] and LEVEL_ORDER.get(apps_level, 0) < LEVEL_ORDER['view']:
+        raise ValueError(BACKUP_APPS_PERMISSION_MESSAGE)

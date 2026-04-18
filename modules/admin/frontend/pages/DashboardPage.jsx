@@ -1,38 +1,32 @@
 import React, { useEffect, useState } from 'react'
-import api from '@shared/api/client'
-import {
-  Layout,
-  Card,
-  Row,
-  Col,
-  Statistic,
-  Table,
-  Tag,
-  Progress,
-  Space,
-  Typography,
-  Empty,
-} from 'antd'
-import {
-  CloudServerOutlined,
-  CheckCircleOutlined,
-  ClockCircleOutlined,
-  SyncOutlined,
-} from '@ant-design/icons'
-import Sidebar from '@packages/ui/src/components/layout/Sidebar'
-import Topbar from '@packages/ui/src/components/layout/Topbar'
 import dayjs from 'dayjs'
-
-const { Content } = Layout
-const { Text, Title } = Typography
+import {
+  Activity,
+  CheckCircle2,
+  Clock,
+  CloudCog,
+  LayoutDashboard,
+  Loader2,
+} from 'lucide-react'
+import api from '@shared/api/client'
+import AppLayout from '@packages/ui/src/components/layout/AppLayout'
+import PageListLayout from '@packages/ui/src/components/common/PageListLayout'
+import ModuleOverview from '@packages/ui/src/components/common/ModuleOverview'
+import {
+  Badge,
+  Card,
+  Empty,
+  Progress,
+  Spinner,
+} from '@packages/ui/src/components/common/ui'
 
 const REFRESH_INTERVAL_MS = 5000
 
-const STATUS_COLORS = {
+const STATUS_VARIANT = {
   completed: 'success',
   pending: 'warning',
-  running: 'processing',
-  failed: 'error',
+  running: 'info',
+  failed: 'danger',
 }
 
 const PROGRESS_STATUS = {
@@ -42,52 +36,147 @@ const PROGRESS_STATUS = {
   failed: 'exception',
 }
 
+const STAT_ICON = {
+  configuredApps: CloudCog,
+  completedFlows: CheckCircle2,
+  pendingFlows: Clock,
+  runningFlows: Activity,
+}
+
 const getRunProgressPercent = (run) => {
   const value = run?.execution_details?.progress_percent
-  if (typeof value === 'number') {
-    return Math.max(0, Math.min(100, Math.round(value)))
-  }
-  if (run?.status === 'completed') return 100
-  if (run?.status === 'failed') return 100
+  if (typeof value === 'number') return Math.max(0, Math.min(100, Math.round(value)))
+  if (run?.status === 'completed' || run?.status === 'failed') return 100
   if (run?.status === 'running') return 15
   return 0
 }
 
 const getRunStepLabel = (run) => {
   if (run?.execution_details?.step_label) return run.execution_details.step_label
-  if (run?.status === 'pending') return 'Queued to start'
-  if (run?.status === 'running') return run?.latest_log_line || 'Backup is running'
-  if (run?.status === 'failed') return run?.error_message || 'Backup failed'
+  if (run?.status === 'pending') return 'Queued'
+  if (run?.status === 'running') return run?.latest_log_line || 'Running'
+  if (run?.status === 'failed') return run?.error_message || 'Failed'
   return run?.latest_log_line || 'Completed'
 }
 
-const getRunStructurePath = (run) => {
-  return run?.execution_details?.structure_path || 'Structure path not reported yet'
-}
+const getRunStructurePath = (run) =>
+  run?.execution_details?.structure_path || '—'
 
 const getRunSummary = (run) => {
-  const details = run?.execution_details || {}
-  if (details.app === 'service') {
-    const completedServices = details.completed_services || 0
-    const totalServices = details.total_services || 0
-    const totalTickets = details.total_tickets || 0
-    const attachmentsDownloaded = details.attachments_downloaded || 0
-    return `${completedServices}/${totalServices} services, ${totalTickets} tickets, ${attachmentsDownloaded} attachments`
+  const d = run?.execution_details || {}
+  if (d.app === 'service') {
+    return `${d.completed_services || 0}/${d.total_services || 0} services · ${d.total_tickets || 0} tickets · ${d.attachments_downloaded || 0} attachments`
   }
-
-  if (details.app === 'request') {
-    const completedGroups = details.completed_groups || 0
-    const totalGroups = details.total_groups || 0
-    const totalRequests = details.total_requests || 0
-    return `${completedGroups}/${totalGroups} groups, ${totalRequests} requests`
+  if (d.app === 'request') {
+    return `${d.completed_groups || 0}/${d.total_groups || 0} groups · ${d.total_requests || 0} requests`
   }
+  if (run?.status === 'failed') return run?.error_message || 'Failed'
+  return run?.latest_log_line || '—'
+}
 
-  if (run?.status === 'failed') return run?.error_message || 'Run failed'
-  return run?.latest_log_line || 'Waiting for updates'
+const StatCard = ({ label, value, icon: Icon, loading }) => (
+  <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-4">
+    <div className="flex items-center justify-between">
+      <p className="text-tiny uppercase tracking-[0.14em] text-text-quaternary font-emphasis">{label}</p>
+      <Icon className="h-4 w-4 text-text-quaternary" />
+    </div>
+    <div className="mt-2.5 text-xl font-strong text-text-primary">
+      {loading ? <Loader2 className="h-5 w-5 animate-spin text-text-tertiary" /> : value}
+    </div>
+  </div>
+)
+
+const ActiveRunCard = ({ run }) => {
+  const status = run.status || 'pending'
+  return (
+    <Card elevation="flat" className="p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-small font-strong text-text-primary truncate">
+            {run.flow_name || 'Unnamed flow'}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+            <Badge variant="info" size="sm">{run.app_name || run.app || 'Unknown'}</Badge>
+            <Badge variant={STATUS_VARIANT[status] || 'neutral'} size="sm" dot>
+              {status}
+            </Badge>
+            <span className="text-caption text-text-tertiary">
+              Started {dayjs(run.started_at).format('DD/MM HH:mm:ss')}
+            </span>
+          </div>
+        </div>
+        <div className="min-w-[240px] flex-1">
+          <Progress
+            percent={getRunProgressPercent(run)}
+            status={PROGRESS_STATUS[status] || 'normal'}
+          />
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        {[
+          ['Current step', getRunStepLabel(run)],
+          ['Structure', getRunStructurePath(run)],
+          ['Scope', getRunSummary(run)],
+        ].map(([label, value]) => (
+          <div key={label}>
+            <p className="text-tiny uppercase tracking-[0.14em] text-text-quaternary font-emphasis">{label}</p>
+            <p className="mt-1 text-caption text-text-primary font-emphasis truncate">{value}</p>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+const RecentRunsTable = ({ rows }) => {
+  if (rows.length === 0) return <Empty description="No backup runs yet" />
+  return (
+    <div className="overflow-hidden rounded-lg border border-[rgb(var(--border-line))] bg-surface-1">
+      <table className="w-full text-caption">
+        <thead className="bg-surface-2 text-text-tertiary">
+          <tr>
+            {['Flow', 'Started', 'Status', 'Step', 'Structure', 'Progress'].map((h) => (
+              <th key={h} className="px-3 py-2 text-left font-emphasis">{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-linear">
+          {rows.map((row) => {
+            const status = row.status || 'pending'
+            return (
+              <tr key={row.run_id} className="hover:bg-surface-2/60">
+                <td className="px-3 py-2">
+                  <div className="font-emphasis text-text-primary truncate">{row.flow_name || 'Unnamed flow'}</div>
+                  <div className="text-tiny text-text-tertiary">{row.app_name || row.app || 'Unknown'}</div>
+                </td>
+                <td className="px-3 py-2 text-text-secondary whitespace-nowrap">
+                  {dayjs(row.started_at).format('DD/MM HH:mm:ss')}
+                </td>
+                <td className="px-3 py-2">
+                  <Badge variant={STATUS_VARIANT[status] || 'neutral'} size="sm" dot>
+                    {status}
+                  </Badge>
+                </td>
+                <td className="px-3 py-2 text-text-primary">{getRunStepLabel(row)}</td>
+                <td className="px-3 py-2 text-text-secondary">{getRunStructurePath(row)}</td>
+                <td className="px-3 py-2 w-[220px]">
+                  <Progress
+                    percent={getRunProgressPercent(row)}
+                    status={PROGRESS_STATUS[status] || 'normal'}
+                    size="small"
+                  />
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
 }
 
 const DashboardPage = () => {
-  const [collapsed, setCollapsed] = useState(false)
   const [activeRuns, setActiveRuns] = useState([])
   const [recentRuns, setRecentRuns] = useState([])
   const [stats, setStats] = useState({
@@ -101,216 +190,86 @@ const DashboardPage = () => {
 
   useEffect(() => {
     let active = true
-    let intervalId = null
-
-    const loadDashboard = async () => {
+    const load = async () => {
       if (active) setLoading(true)
       try {
-        const response = await api.get(`/api/backup-flows/dashboard`, {
-          params: {
-            recent_limit: 8,
-            active_limit: 6,
-          },
+        const { data } = await api.get(`/api/backup-flows/dashboard`, {
+          params: { recent_limit: 8, active_limit: 6 },
         })
-
         if (!active) return
-
         setStats({
-          configuredApps: response.data.configured_apps || 0,
-          completedFlows: response.data.completed_flows || 0,
-          pendingFlows: response.data.pending_flows || 0,
-          runningFlows: response.data.running_flows || 0,
+          configuredApps: data.configured_apps || 0,
+          completedFlows: data.completed_flows || 0,
+          pendingFlows: data.pending_flows || 0,
+          runningFlows: data.running_flows || 0,
         })
-        setActiveRuns(response.data.active_runs || [])
-        setRecentRuns(response.data.recent_runs || [])
+        setActiveRuns(data.active_runs || [])
+        setRecentRuns(data.recent_runs || [])
         setLastUpdated(dayjs())
       } catch (error) {
         if (!active) return
         console.error('Failed to load dashboard data', error)
-        setStats({
-          configuredApps: 0,
-          completedFlows: 0,
-          pendingFlows: 0,
-          runningFlows: 0,
-        })
-        setActiveRuns([])
-        setRecentRuns([])
       } finally {
         if (active) setLoading(false)
       }
     }
-
-    loadDashboard()
-    intervalId = window.setInterval(loadDashboard, REFRESH_INTERVAL_MS)
-
-    return () => {
-      active = false
-      if (intervalId) window.clearInterval(intervalId)
-    }
+    load()
+    const id = window.setInterval(load, REFRESH_INTERVAL_MS)
+    return () => { active = false; window.clearInterval(id) }
   }, [])
 
-  const columns = [
-    {
-      title: 'Flow',
-      key: 'flow',
-      render: (_, record) => (
-        <div>
-          <div style={{ fontWeight: 600 }}>{record.flow_name || 'Unnamed flow'}</div>
-          <Text type="secondary" style={{ fontSize: 12 }}>
-            {record.app_name || record.app || 'Unknown app'}
-          </Text>
-        </div>
-      ),
-    },
-    {
-      title: 'Started',
-      dataIndex: 'started_at',
-      key: 'started_at',
-      width: 150,
-      render: (value) => dayjs(value).format('DD/MM/YYYY HH:mm:ss'),
-    },
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      key: 'status',
-      width: 120,
-      render: (status) => {
-        const normalizedStatus = status || 'pending'
-        return <Tag color={STATUS_COLORS[normalizedStatus] || 'default'}>{normalizedStatus.toUpperCase()}</Tag>
-      },
-    },
-    {
-      title: 'Current Step',
-      key: 'step',
-      render: (_, record) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{getRunStepLabel(record)}</div>
-          {record.latest_log_line && (
-            <Text type="secondary" style={{ fontSize: 12 }}>{record.latest_log_line}</Text>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: 'Structure Progress',
-      key: 'structure',
-      render: (_, record) => (
-        <div>
-          <div style={{ fontWeight: 500 }}>{getRunStructurePath(record)}</div>
-          <Text type="secondary" style={{ fontSize: 12 }}>{getRunSummary(record)}</Text>
-        </div>
-      ),
-    },
-    {
-      title: 'Progress',
-      key: 'progress',
-      width: 220,
-      render: (_, record) => (
-        <Progress
-          percent={getRunProgressPercent(record)}
-          status={PROGRESS_STATUS[record.status] || 'normal'}
-          size="small"
-        />
-      ),
-    },
-  ]
-
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sidebar collapsed={collapsed} />
-      <Layout style={{ marginLeft: collapsed ? 80 : 240, transition: 'all 0.2s' }}>
-        <Topbar collapsed={collapsed} toggleCollapsed={() => setCollapsed(!collapsed)} />
-        <Content style={{ margin: 24 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 24 }}>
-            <div>
-              <Title level={2} style={{ margin: 0 }}>Dashboard</Title>
-              <Text type="secondary">Monitor active backup flows, current execution step, and structure creation progress.</Text>
+    <AppLayout>
+      <PageListLayout
+        title="Dashboard"
+        description="Live backup flow activity and structure progress."
+        overview={(
+          <ModuleOverview
+            icon={LayoutDashboard}
+            title="Operations overview"
+            description="Auto-refreshes every 5 seconds."
+            badges={['Live', 'Auto-refresh']}
+            stats={[
+              { label: 'Configured apps', value: stats.configuredApps, helper: 'Across all sources.' },
+              { label: 'Completed', value: stats.completedFlows, helper: 'Finished flows.' },
+              { label: 'Running', value: stats.runningFlows, helper: 'In progress now.' },
+            ]}
+          />
+        )}
+        searchable={false}
+        viewToggle={false}
+        toolbarExtra={() => (
+          <span className="text-caption text-text-tertiary">
+            {lastUpdated ? `Updated ${lastUpdated.format('HH:mm:ss')}` : 'Loading…'}
+          </span>
+        )}
+      >
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <StatCard label="Configured apps" value={stats.configuredApps} icon={STAT_ICON.configuredApps} loading={loading} />
+          <StatCard label="Completed" value={stats.completedFlows} icon={STAT_ICON.completedFlows} loading={loading} />
+          <StatCard label="Pending" value={stats.pendingFlows} icon={STAT_ICON.pendingFlows} loading={loading} />
+          <StatCard label="Running" value={stats.runningFlows} icon={STAT_ICON.runningFlows} loading={loading} />
+        </div>
+
+        <section className="mt-6">
+          <h2 className="mb-3 text-small font-strong text-text-primary">Active flows</h2>
+          {loading && activeRuns.length === 0 ? (
+            <div className="flex justify-center py-8"><Spinner /></div>
+          ) : activeRuns.length === 0 ? (
+            <Empty description="No flows running" />
+          ) : (
+            <div className="flex flex-col gap-2.5">
+              {activeRuns.map((run) => <ActiveRunCard key={run.run_id} run={run} />)}
             </div>
-            <Text type="secondary" style={{ whiteSpace: 'nowrap' }}>
-              {lastUpdated ? `Auto refresh every 5s. Last updated ${lastUpdated.format('HH:mm:ss')}` : 'Loading dashboard...'}
-            </Text>
-          </div>
+          )}
+        </section>
 
-          <Row gutter={[16, 16]} style={{ marginBottom: 24 }}>
-            <Col xs={24} sm={12} lg={6}>
-              <Card loading={loading}>
-                <Statistic title="Configured Apps" value={stats.configuredApps} prefix={<CloudServerOutlined />} valueStyle={{ color: '#3b82f6' }} />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card loading={loading}>
-                <Statistic title="Completed Flows" value={stats.completedFlows} prefix={<CheckCircleOutlined />} valueStyle={{ color: '#10b981' }} />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card loading={loading}>
-                <Statistic title="Pending Flows" value={stats.pendingFlows} prefix={<ClockCircleOutlined />} valueStyle={{ color: '#f59e0b' }} />
-              </Card>
-            </Col>
-            <Col xs={24} sm={12} lg={6}>
-              <Card loading={loading}>
-                <Statistic title="Running Flows" value={stats.runningFlows} prefix={<SyncOutlined spin />} valueStyle={{ color: '#6366f1' }} />
-              </Card>
-            </Col>
-          </Row>
-
-          <Card title="Active Flow Progress" style={{ marginBottom: 24 }} loading={loading}>
-            {activeRuns.length === 0 ? (
-              <Empty description="No backup flows are running right now" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-            ) : (
-              <Space direction="vertical" size={12} style={{ width: '100%' }}>
-                {activeRuns.map((run) => (
-                  <Card key={run.run_id} size="small">
-                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, flexWrap: 'wrap', marginBottom: 12 }}>
-                      <div>
-                        <div style={{ fontSize: 16, fontWeight: 700 }}>{run.flow_name || 'Unnamed flow'}</div>
-                        <Space size={8} wrap style={{ marginTop: 4 }}>
-                          <Tag color="blue">{run.app_name || run.app || 'Unknown app'}</Tag>
-                          <Tag color={STATUS_COLORS[run.status] || 'default'}>{(run.status || 'pending').toUpperCase()}</Tag>
-                          <Text type="secondary">Started {dayjs(run.started_at).format('DD/MM/YYYY HH:mm:ss')}</Text>
-                        </Space>
-                      </div>
-                      <div style={{ minWidth: 260, flex: 1 }}>
-                        <Progress
-                          percent={getRunProgressPercent(run)}
-                          status={PROGRESS_STATUS[run.status] || 'normal'}
-                        />
-                      </div>
-                    </div>
-
-                    <Row gutter={[16, 12]}>
-                      <Col xs={24} md={8}>
-                        <Text type="secondary">Current step</Text>
-                        <div style={{ fontWeight: 600, marginTop: 4 }}>{getRunStepLabel(run)}</div>
-                      </Col>
-                      <Col xs={24} md={8}>
-                        <Text type="secondary">Current structure</Text>
-                        <div style={{ fontWeight: 600, marginTop: 4 }}>{getRunStructurePath(run)}</div>
-                      </Col>
-                      <Col xs={24} md={8}>
-                        <Text type="secondary">Scope summary</Text>
-                        <div style={{ fontWeight: 600, marginTop: 4 }}>{getRunSummary(run)}</div>
-                      </Col>
-                    </Row>
-                  </Card>
-                ))}
-              </Space>
-            )}
-          </Card>
-
-          <Card title="Recent Backup History">
-            <Table
-              columns={columns}
-              dataSource={recentRuns}
-              rowKey="run_id"
-              pagination={false}
-              loading={loading}
-              locale={{ emptyText: 'No backup runs yet' }}
-            />
-          </Card>
-        </Content>
-      </Layout>
-    </Layout>
+        <section className="mt-6">
+          <h2 className="mb-3 text-small font-strong text-text-primary">Recent history</h2>
+          <RecentRunsTable rows={recentRuns} />
+        </section>
+      </PageListLayout>
+    </AppLayout>
   )
 }
 

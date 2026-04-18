@@ -1,5 +1,7 @@
 import React, { useState } from 'react'
 import { LayoutGrid, List as ListIcon, Loader2, Search } from 'lucide-react'
+import { cn } from '../../lib/utils'
+import { Input } from './ui'
 
 const PageListLayout = ({
   title,
@@ -10,76 +12,116 @@ const PageListLayout = ({
   loadingText = 'Loading…',
   searchable = true,
   searchPlaceholder = 'Search',
+  searchValue,
+  onSearchValueChange,
   viewToggle = true,
   defaultView = 'grid',
+  toolbarExtra,
+  activeFilters,
   children,
 }) => {
   const [viewMode, setViewMode] = useState(defaultView)
-  const [filterText, setFilterText] = useState('')
+  const [internalFilterText, setInternalFilterText] = useState('')
+
+  const filterText = searchValue ?? internalFilterText
+  const setFilterText = onSearchValueChange ?? setInternalFilterText
 
   if (isLoading) {
     return (
-      <div className="flex min-h-[60vh] items-center justify-center">
+      <div className="flex h-full items-center justify-center">
         <div className="text-center">
-          <Loader2 className="mx-auto mb-3 h-8 w-8 animate-spin text-blue-600" />
-          <p className="text-sm text-gray-600">{loadingText}</p>
+          <Loader2 className="mx-auto mb-3 h-7 w-7 animate-spin text-brand" />
+          <p className="text-caption text-text-tertiary">{loadingText}</p>
         </div>
       </div>
     )
   }
 
-  const showToolbar = searchable || viewToggle
   const toolbarContext = { viewMode, filterText }
+  const toolbarExtraContent = typeof toolbarExtra === 'function' ? toolbarExtra(toolbarContext) : toolbarExtra
+  const activeFiltersContent = typeof activeFilters === 'function' ? activeFilters(toolbarContext) : activeFilters
+  const showToolbar = searchable || viewToggle || Boolean(toolbarExtraContent) || Boolean(activeFiltersContent)
 
   return (
-    <div className="px-6 py-6 lg:px-8 xl:px-10">
-      <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          {description && <p className="mt-2 max-w-3xl text-sm leading-6 text-gray-600">{description}</p>}
+    <div className="px-8 py-6">
+      <div className="mb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h1 className="text-h1 text-text-primary font-emphasis">{title}</h1>
+            {description && (
+              <p className="mt-1 text-caption text-text-tertiary max-w-2xl">
+                {description}
+              </p>
+            )}
+          </div>
+          {action && <div className="flex-shrink-0">{action}</div>}
         </div>
-        {action && <div className="shrink-0">{action}</div>}
       </div>
 
-      {overview && <div className="mb-6">{overview}</div>}
+      {overview && <div className="mb-4">{overview}</div>}
 
       {showToolbar && (
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center">
-          {searchable && (
-            <div className="relative max-w-xl flex-1">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-              <input
-                type="text"
-                value={filterText}
-                onChange={(event) => setFilterText(event.target.value)}
-                placeholder={searchPlaceholder}
-                className="w-full rounded-lg border border-gray-200 bg-white py-2.5 pl-10 pr-3 text-sm text-gray-900 shadow-sm transition-colors placeholder:text-gray-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          )}
-
-          {viewToggle && (
-            <div className="inline-flex items-center overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm sm:ml-auto">
-              <button
-                type="button"
-                onClick={() => setViewMode('grid')}
-                className={`p-2.5 transition-colors ${
-                  viewMode === 'grid' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-                }`}
-                title="Grid view"
+        <div className="mb-4 flex flex-wrap items-center gap-2.5">
+          <div className="flex min-w-0 flex-1 items-center gap-2.5">
+            {searchable && (
+              <div className="min-w-[240px] max-w-xl flex-[0_1_320px]">
+                <Input
+                  size="sm"
+                  value={filterText}
+                  onChange={(event) => setFilterText(event.target.value)}
+                  placeholder={searchPlaceholder}
+                  leadingIcon={<Search />}
+                />
+              </div>
+            )}
+            {activeFiltersContent && (
+              <div
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-2 overflow-x-auto whitespace-nowrap',
+                  '[scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden',
+                )}
               >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => setViewMode('list')}
-                className={`p-2.5 transition-colors ${
-                  viewMode === 'list' ? 'bg-blue-600 text-white' : 'bg-white text-gray-500 hover:bg-gray-50'
-                }`}
-                title="List view"
-              >
-                <ListIcon className="h-4 w-4" />
-              </button>
+                {activeFiltersContent}
+              </div>
+            )}
+          </div>
+          {(toolbarExtraContent || viewToggle) && (
+            <div className="ml-auto flex items-center gap-2">
+              {toolbarExtraContent && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {toolbarExtraContent}
+                </div>
+              )}
+              {viewToggle && (
+                <div className="inline-flex items-center overflow-hidden rounded-md border border-[rgb(var(--border-strong))] bg-surface-1 p-0.5">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('grid')}
+                    className={cn(
+                      'inline-flex items-center justify-center h-7 w-7 rounded-sm transition-colors',
+                      viewMode === 'grid'
+                        ? 'bg-surface-3 text-text-primary'
+                        : 'text-text-tertiary hover:text-text-primary',
+                    )}
+                    title="Grid view"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('list')}
+                    className={cn(
+                      'inline-flex items-center justify-center h-7 w-7 rounded-sm transition-colors',
+                      viewMode === 'list'
+                        ? 'bg-surface-3 text-text-primary'
+                        : 'text-text-tertiary hover:text-text-primary',
+                    )}
+                    title="List view"
+                  >
+                    <ListIcon className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>

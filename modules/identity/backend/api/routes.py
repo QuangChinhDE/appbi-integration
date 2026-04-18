@@ -4,7 +4,7 @@ import os
 from datetime import datetime, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from packages.auth.src import (
     get_user_permissions,
     hash_password,
     require_permission,
+    validate_permission_dependencies,
     validate_permissions,
     verify_password,
 )
@@ -32,6 +33,30 @@ def _env_flag(name: str, default: bool = False) -> bool:
     if raw_value is None:
         return default
     return raw_value.strip().lower() in {'1', 'true', 'yes', 'on'}
+
+
+def _access_token_max_age_seconds() -> int:
+    try:
+        minutes = int(os.getenv('AUTH_JWT_EXPIRE_MINUTES', '480'))
+    except ValueError:
+        minutes = 480
+    return max(60, minutes * 60)
+
+
+def _set_access_token_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key='access_token',
+        value=token,
+        httponly=True,
+        samesite='lax',
+        secure=_env_flag('COOKIE_SECURE', False),
+        max_age=_access_token_max_age_seconds(),
+        path='/',
+    )
+
+
+def _clear_access_token_cookie(response: Response) -> None:
+    response.delete_cookie(key='access_token', path='/')
 
 
 class LoginRequest(BaseModel):
@@ -201,7 +226,7 @@ async def _create_user(
 
 
 @router.post('/api/auth/login', response_model=LoginResponse)
-async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(body: LoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
     if not _env_flag('AUTH_PASSWORD_LOGIN_ENABLED', True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Password login is disabled.')
 
@@ -218,8 +243,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
+    token = create_access_token(str(user.id), user.email)
+    _set_access_token_cookie(response, token)
+
     return LoginResponse(
-        access_token=create_access_token(str(user.id), user.email),
+        access_token=token,
         user=_serialize_user(user),
         permissions=get_user_permissions(user),
         module_levels=MODULE_ALLOWED_LEVELS,
@@ -237,7 +265,10 @@ async def me(current_user: User = Depends(get_current_user)):
 
 
 @router.post('/api/auth/logout', status_code=status.HTTP_200_OK)
-async def logout(_: User = Depends(get_current_user)):
+async def logout(response: Response):
+    # Clear the session cookie unconditionally — works whether or not the
+    # caller still has a valid token (matches appbi-ai behaviour).
+    _clear_access_token_cookie(response)
     return {'status': 'ok'}
 
 
@@ -372,6 +403,13 @@ async def update_user_permissions(
 
     next_permissions = get_user_permissions(target)
     next_permissions.update(body.permissions)
+
+    try:
+        validate_permissions(next_permissions)
+        validate_permission_dependencies(next_permissions)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+
     target.permissions = next_permissions
     await db.commit()
 
@@ -387,6 +425,12 @@ async def apply_preset(
 ):
     if body.preset not in PRESETS:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f'Unknown preset: {body.preset}')
+
+    try:
+        validate_permissions(PRESETS[body.preset])
+        validate_permission_dependencies(PRESETS[body.preset])
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
 
     result = await db.execute(select(User).where(User.id == user_id))
     target = result.scalar_one_or_none()

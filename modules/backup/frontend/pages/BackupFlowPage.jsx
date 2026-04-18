@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { useLocation } from 'react-router-dom'
 import { Cloud } from 'lucide-react'
-import { Alert } from '@packages/ui/src/components/common/ui'
+import { Alert, Button, FilterTag } from '@packages/ui/src/components/common/ui'
 import ConfirmDialog from '@packages/ui/src/components/common/ConfirmDialog'
 import AppLayout from '@packages/ui/src/components/layout/AppLayout'
 import ModuleOverview from '@packages/ui/src/components/common/ModuleOverview'
+import PaginatedCollection from '@packages/ui/src/components/common/PaginatedCollection'
 import PageListLayout from '@packages/ui/src/components/common/PageListLayout'
-import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { BACKUP_APPS_PERMISSION_MESSAGE, hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
 import useBackupFlows from '../hooks/useBackupFlows'
 import useWizardState from '../hooks/useWizardState'
-import { DEFAULT_GOOGLE_REDIRECT } from '../constants'
+import { BACKUP_TYPE_TAG, DEFAULT_GOOGLE_REDIRECT } from '../constants'
 
 import FlowListView from '../components/FlowListView'
 import FlowDetailView from '../components/FlowDetailView'
@@ -24,9 +25,16 @@ import ServiceSelectorModal from '../components/shared/ServiceSelectorModal'
 import WorkflowSelectorModal from '../components/shared/WorkflowSelectorModal'
 import WeworkSelectorModal from '../components/shared/WeworkSelectorModal'
 
+const BACKUP_TYPE_TONE = {
+  blue: 'info',
+  orange: 'warning',
+  purple: 'brand',
+}
+
 const BackupFlowPage = () => {
   // ── View mode ─────────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState('list') // list | detail | create | edit
+  const [listFilters, setListFilters] = useState({})
 
   // ── Detail view extras ────────────────────────────────────────────────
   const [detailsFlowId, setDetailsFlowId] = useState(null)
@@ -42,6 +50,8 @@ const BackupFlowPage = () => {
   // ── Hooks ─────────────────────────────────────────────────────────────
   const backupFlows = useBackupFlows()
   const wizard = useWizardState()
+  const canConfigureBackup = wizard.canConfigureBackup
+  const backupAppsPermissionConflict = wizard.backupAppsPermissionConflict
   const { setDetailsFlow, setDetailsRuns } = backupFlows
   const { resetAll } = wizard
 
@@ -110,11 +120,23 @@ const BackupFlowPage = () => {
   const totalFlows = backupFlows.flows.length
   const publishedFlows = backupFlows.flows.filter((item) => item.is_published === 1).length
   const activeRunFlows = backupFlows.flows.filter((item) => ['pending', 'running'].includes(item.last_run_status)).length
+  const activeListFilterCount = Object.values(listFilters).filter(Boolean).length
+
+  const toggleListFilter = useCallback((key, value) => {
+    setListFilters((current) => ({
+      ...current,
+      [key]: current[key] === value ? undefined : value,
+    }))
+  }, [])
+
+  const clearListFilters = useCallback(() => {
+    setListFilters({})
+  }, [])
 
   // ── Handlers ──────────────────────────────────────────────────────────
 
   const handleCreateDraft = async () => {
-    if (!canEditBackup) return
+    if (!canConfigureBackup) return
     resetAll()
     const id = await backupFlows.createDraft()
     if (!id) return
@@ -140,7 +162,7 @@ const BackupFlowPage = () => {
   }
 
   const handleEditFromDetail = async () => {
-    if (!canEditBackup) return
+    if (!canConfigureBackup) return
     const id = detailsFlowId || detailsFlowRecord?.id
     if (!id) return
     const loaded = await wizard.loadFlowForEdit(id)
@@ -254,66 +276,141 @@ const BackupFlowPage = () => {
       {viewMode === 'list' ? (
         <PageListLayout
           title="Backup Flows"
-          description="Build, publish, and operate backup flows with the same list-page structure used across AppBI AI modules."
+          description="Create, publish, and run backup flows."
           overview={(
             <ModuleOverview
               icon={Cloud}
-              title="Backup operations hub"
-              description="Draft a flow, connect a reusable source and destination, then publish and monitor executions from one standardized page shell."
-              badges={['Draft-first flow', 'Reusable sources', 'Execution tracking']}
+              title="Backup operations"
+              description="Draft, connect, publish, and monitor backup executions."
+              badges={['Draft-first', 'Reusable sources', 'Execution tracking']}
               stats={[
-                {
-                  label: 'Flows',
-                  value: totalFlows,
-                  helper: 'Total backup flows currently configured.',
-                },
-                {
-                  label: 'Published',
-                  value: publishedFlows,
-                  helper: 'Flows ready for scheduled or manual runs.',
-                },
-                {
-                  label: 'Running now',
-                  value: activeRunFlows,
-                  helper: 'Flows with an active or queued execution.',
-                },
+                { label: 'Flows', value: totalFlows, helper: 'Total configured.' },
+                { label: 'Published', value: publishedFlows, helper: 'Ready to run.' },
+                { label: 'Running', value: activeRunFlows, helper: 'Active now.' },
               ]}
             />
           )}
           action={canEditBackup ? (
-            <button
+            <Button
+              variant="primary"
+              size="md"
               onClick={handleCreateDraft}
-              className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
+              disabled={!canConfigureBackup}
+              title={!canConfigureBackup ? BACKUP_APPS_PERMISSION_MESSAGE : undefined}
+              leadingIcon={<Cloud className="h-4 w-4" />}
             >
-              <Cloud className="h-4 w-4" />
-              New Backup Flow
-            </button>
+              New flow
+            </Button>
           ) : null}
           isLoading={backupFlows.loadingFlows}
           loadingText="Loading backup flows…"
           searchPlaceholder="Search flows, apps, destinations, or status"
           defaultView="list"
+          activeFilters={activeListFilterCount > 0 ? (
+            <>
+              {listFilters.state && (
+                <FilterTag
+                  tone={listFilters.state === 'draft' ? 'warning' : 'info'}
+                  active
+                  onClick={() => toggleListFilter('state', listFilters.state)}
+                >
+                  {listFilters.state === 'draft' ? 'Draft' : 'Ready'}
+                </FilterTag>
+              )}
+              {listFilters.publish && (
+                <FilterTag
+                  tone={listFilters.publish === 'published' ? 'success' : 'neutral'}
+                  active
+                  onClick={() => toggleListFilter('publish', listFilters.publish)}
+                >
+                  {listFilters.publish === 'published' ? 'Published' : 'Unpublished'}
+                </FilterTag>
+              )}
+              {listFilters.backupType && (
+                <FilterTag
+                  tone={BACKUP_TYPE_TONE[BACKUP_TYPE_TAG[listFilters.backupType]?.color] || 'neutral'}
+                  active
+                  onClick={() => toggleListFilter('backupType', listFilters.backupType)}
+                >
+                  {BACKUP_TYPE_TAG[listFilters.backupType]?.label || listFilters.backupType}
+                </FilterTag>
+              )}
+              <Button variant="ghost" size="xs" onClick={clearListFilters}>
+                Clear filters
+              </Button>
+            </>
+          ) : null}
         >
           {({ viewMode: pageViewMode, filterText }) => (
             <div className="space-y-6">
-              <Alert
-                type="info"
-                message="Draft first, publish when the flow is ready"
-                description={canEditBackup
-                  ? 'The landing page now follows the same overview, toolbar, and collection states used in AppBI AI while keeping the existing create, detail, and run flows intact.'
-                  : 'Your account currently has read-only access in Backup. You can inspect flow details and run history, but cannot change configurations.'}
-              />
+              {(() => {
+                const needle = filterText.trim().toLowerCase()
+                const filteredFlows = backupFlows.flows.filter((record) => {
+                  const stateValue = record.is_draft === 1 ? 'draft' : 'ready'
+                  const publishValue = record.is_published === 1 ? 'published' : 'unpublished'
+                  const matchesSearch = (
+                    needle.length === 0 ||
+                    [
+                      record.name,
+                      record.app,
+                      record.app_name,
+                      record.destination_name,
+                      record.destination_type,
+                      record.last_run_status,
+                      BACKUP_TYPE_TAG[record.backup_type]?.label,
+                    ]
+                      .filter(Boolean)
+                      .some((value) => String(value).toLowerCase().includes(needle))
+                  )
+
+                  return (
+                    matchesSearch &&
+                    (!listFilters.state || stateValue === listFilters.state) &&
+                    (!listFilters.publish || publishValue === listFilters.publish) &&
+                    (!listFilters.backupType || record.backup_type === listFilters.backupType)
+                  )
+                })
+
+                return (
+                  <PaginatedCollection
+                    items={filteredFlows}
+                    viewMode={pageViewMode}
+                    resetKey={JSON.stringify({ filterText, pageViewMode, listFilters })}
+                  >
+                    {({ pageItems, pagination }) => (
+                      <div className="space-y-6">
+              {backupAppsPermissionConflict && (
+                <Alert
+                  type="warning"
+                  message="Apps view required to configure flows"
+                  description={BACKUP_APPS_PERMISSION_MESSAGE}
+                />
+              )}
+
+              {!canEditBackup && (
+                <Alert
+                  type="info"
+                  message="Read-only access"
+                  description="You can inspect flows and run history."
+                />
+              )}
 
               <FlowListView
-                flows={backupFlows.flows}
+                flows={pageItems}
+                hasFlows={backupFlows.flows.length > 0}
                 filterText={filterText}
                 viewMode={pageViewMode}
                 canEdit={canEditBackup}
+                canConfigure={canConfigureBackup}
+                configurationBlockedMessage={BACKUP_APPS_PERMISSION_MESSAGE}
+                activeFilters={listFilters}
+                onFilterClick={toggleListFilter}
                 stoppingFlowId={backupFlows.stoppingFlowId}
                 onCreateDraft={handleCreateDraft}
                 onOpenDetails={handleOpenDetails}
                 onPublish={(record) => backupFlows.publishFlow(record)}
                 onEdit={async (record) => {
+                  if (!canConfigureBackup) return
                   const loaded = await wizard.loadFlowForEdit(record.id)
                   if (loaded) {
                     void wizard.loadSavedSourceConnections(null)
@@ -325,6 +422,13 @@ const BackupFlowPage = () => {
                 onStop={(record) => requestStopFlow(record)}
                 onDelete={(record) => requestDeleteFlow(record)}
               />
+
+              {pagination}
+                      </div>
+                    )}
+                  </PaginatedCollection>
+                )
+              })()}
             </div>
           )}
         </PageListLayout>
@@ -343,8 +447,10 @@ const BackupFlowPage = () => {
           onStop={handleStopFromDetail}
           onDelete={handleDeleteFromDetail}
           canEdit={canEditBackup}
+          canConfigure={canConfigureBackup}
+          configurationBlockedMessage={BACKUP_APPS_PERMISSION_MESSAGE}
         />
-      ) : canEditBackup ? (
+      ) : canConfigureBackup ? (
         <FlowWizard
           wizard={wizard}
           viewMode={viewMode}
@@ -352,21 +458,25 @@ const BackupFlowPage = () => {
           onSaved={handleWizardSaved}
           backLabel={viewMode === 'edit' && detailsFlowId ? 'Back to details' : 'Back to list'}
         />
-      ) : (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-6 py-5">
+      ) : canEditBackup ? (
+        <div className="px-8 py-6">
           <Alert
             type="warning"
-            message="Backup edit access is required"
-            description="This account can view backup data but cannot create or edit backup flows."
+            message="Apps view required to configure flows"
+            description={BACKUP_APPS_PERMISSION_MESSAGE}
+          />
+        </div>
+      ) : (
+        <div className="px-8 py-6">
+          <Alert
+            type="warning"
+            message="Backup edit access required"
+            description="This account cannot create or edit backup flows."
           />
           <div className="mt-4">
-            <button
-              type="button"
-              onClick={resetToBackupList}
-              className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-medium text-amber-800 transition-colors hover:bg-amber-100"
-            >
-              Back to backup list
-            </button>
+            <Button variant="secondary" size="md" onClick={resetToBackupList}>
+              Back to list
+            </Button>
           </div>
         </div>
       )}

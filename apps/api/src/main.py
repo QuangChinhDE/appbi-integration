@@ -8,11 +8,10 @@ from modules.backup.backend.api.routes import router as backup_router
 from modules.backup.backend.services.backup_flow_service import BackupFlowService
 from modules.connectors.backend.api.routes import router as connectors_router
 from modules.credentials.backend.api.routes import router as credentials_router
-from modules.destinations.backend.api.routes import router as destinations_router
 from modules.identity.backend.api.routes import router as identity_router
-from modules.sources.backend.api.routes import router as sources_router
 from packages.auth.src.bootstrap import ensure_bootstrap_admin
 from packages.database.src import Base, async_session, engine, get_db
+from packages.database.src.schema_migrations import run_startup_schema_migrations
 
 # Create FastAPI app
 app = FastAPI(
@@ -38,6 +37,7 @@ async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
+        await run_startup_schema_migrations(db)
         await ensure_bootstrap_admin(db)
         await BackupFlowService(db).interrupt_incomplete_runs()
 
@@ -51,8 +51,6 @@ app.include_router(identity_router)
 app.include_router(credentials_router)
 app.include_router(apps_router)
 app.include_router(connectors_router)
-app.include_router(sources_router)
-app.include_router(destinations_router)
 
 
 if __name__ == "__main__":

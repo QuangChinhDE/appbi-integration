@@ -17,13 +17,27 @@ def _env_flag(name: str, default: bool = False) -> bool:
     return raw_value.strip().lower() in {'1', 'true', 'yes', 'on'}
 
 
+def _first_env(*names: str, default: str = '') -> str:
+    """Return the first non-empty env var among the given names."""
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value
+    return default
+
+
 async def ensure_bootstrap_admin(db: AsyncSession) -> None:
+    # Accept the appbi-ai style names (ADMIN_*) and fall back to the
+    # legacy AUTH_BOOTSTRAP_* names so existing .env files keep working.
     if not _env_flag('AUTH_BOOTSTRAP_ENABLED', True):
         return
 
-    email = os.getenv('AUTH_BOOTSTRAP_EMAIL', 'admin@appbi.local').strip().lower()
-    password = os.getenv('AUTH_BOOTSTRAP_PASSWORD', 'Admin123!').strip()
-    full_name = os.getenv('AUTH_BOOTSTRAP_NAME', 'Platform Admin').strip() or 'Platform Admin'
+    email = _first_env('ADMIN_EMAIL', 'AUTH_BOOTSTRAP_EMAIL', default='admin@appbi.local').strip().lower()
+    password = _first_env('ADMIN_PASSWORD', 'AUTH_BOOTSTRAP_PASSWORD', default='Admin123!').strip()
+    full_name = (
+        _first_env('ADMIN_NAME', 'AUTH_BOOTSTRAP_NAME', default='Platform Admin').strip()
+        or 'Platform Admin'
+    )
 
     if not email or not password:
         return

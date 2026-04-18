@@ -67,40 +67,36 @@ class GoogleConnection(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
-class SourceConnection(Base):
-    __tablename__ = "source_connections"
+class AppCredential(Base):
+    """Unified credential registry for every integration.
+
+    Apps module owns this table: it is a role-neutral store of reusable
+    credentials. A Backup flow decides which credential plays the source role
+    and which plays the destination role at configuration time.
+    """
+
+    __tablename__ = "app_credentials"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=False)
     description = Column(String(500), nullable=True)
     app_id = Column(String(50), nullable=False)
     app_name = Column(String(100), nullable=False)
-    domain = Column(String(255), nullable=True)
-    access_token_encrypted = Column(Text, nullable=False)
+    auth_mode = Column(String(50), nullable=False)
+    auth = Column(JSONB, nullable=False)
     config = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
     __table_args__ = (
-        CheckConstraint("app_id IN ('request', 'workflow', 'wework', 'service')", name='check_source_connection_app_id'),
-    )
-
-
-class DestinationProfile(Base):
-    __tablename__ = "destination_profiles"
-
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(255), nullable=False)
-    description = Column(String(500), nullable=True)
-    destination_type = Column(String(50), nullable=False)
-    auth_mode = Column(String(50), nullable=False)
-    auth = Column(JSONB, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
-
-    __table_args__ = (
-        CheckConstraint("destination_type IN ('gdrive', 'gsheets')", name='check_destination_profile_type'),
-        CheckConstraint("auth_mode IN ('google_oauth', 'service_account')", name='check_destination_profile_auth_mode'),
+        CheckConstraint(
+            "app_id IN ('request', 'workflow', 'wework', 'service', 'gdrive', 'gsheets')",
+            name='check_app_credential_app_id',
+        ),
+        CheckConstraint(
+            "auth_mode IN ('access_token', 'google_oauth', 'service_account')",
+            name='check_app_credential_auth_mode',
+        ),
     )
 
 
@@ -116,50 +112,47 @@ class BackupSourceApp(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
+
 class BackupFlow(Base):
     __tablename__ = "backup_flows"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(255), nullable=True)
-    
+
     # Draft / publish flags
     is_draft = Column(Integer, default=1, nullable=False)
     is_published = Column(Integer, default=0, nullable=False)
 
-    # Source information (JSONB)
-    # Structure: {"app": "request", "app_name": "Request", "domain": "company.vn", "access_token_hash": "..."}
-    source = Column(JSONB, nullable=True)
-    
-    # Backup type: structured, unstructured, all
+    # Role assignment: which saved credential plays which role for this flow
+    source_credential_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey('app_credentials.id', ondelete='RESTRICT'),
+        nullable=True,
+    )
+    destination_credential_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey('app_credentials.id', ondelete='RESTRICT'),
+        nullable=True,
+    )
+
+    # Per-flow destination target selection (folder/drive picked for this backup)
+    destination_target = Column(JSONB, nullable=True)
+
     backup_type = Column(String(50), nullable=True)
-    
-    # Destination information (JSONB)
-    # Structure: {"type": "gdrive", "name": "Google Drive", "auth": {...}}
-    destination = Column(JSONB, nullable=True)
-    
-    # Backup structure (JSONB) - optional
-    # Structure: {"objects": [...], "custom_fields": [...], "export_formats": {...}}
     structure = Column(JSONB, nullable=True)
-    
-    # Schedule information (JSONB) - optional
-    # Structure: {"type": "daily", "time": "02:00", "enabled": true}
     schedule = Column(JSONB, nullable=True)
-    
-    # Status: active, paused, archived
+
     status = Column(String(20), default='active', nullable=False)
-    
-    # Last run information
+
     last_run_at = Column(DateTime(timezone=True), nullable=True)
     last_run_status = Column(String(20), nullable=True)
     last_run_message = Column(Text, nullable=True)
-    
-    # Audit fields
+
     created_by = Column(String(100), nullable=True)
     updated_by = Column(String(100), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    # Check constraints
     __table_args__ = (
         CheckConstraint("backup_type IS NULL OR backup_type IN ('structured', 'unstructured', 'all')", name='check_backup_type'),
         CheckConstraint("status IN ('active', 'paused', 'archived')", name='check_status'),
@@ -174,25 +167,19 @@ class BackupFlowRun(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     flow_id = Column(UUID(as_uuid=True), ForeignKey('backup_flows.id', ondelete='CASCADE'), nullable=False)
-    
-    # Run status: pending, running, completed, failed
+
     status = Column(String(20), nullable=False)
     started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     completed_at = Column(DateTime(timezone=True), nullable=True)
-    
-    # Execution details (JSONB)
-    # Structure: {"total_records": 1000, "processed_records": 1000, "output_files": [...], ...}
+
     execution_details = Column(JSONB, nullable=True)
-    
-    # Logs and errors
+
     logs = Column(Text, nullable=True)
     error_message = Column(Text, nullable=True)
-    
-    # Audit
+
     triggered_by = Column(String(100), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
-    # Check constraint
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed')", name='check_run_status'),
     )

@@ -18,10 +18,10 @@ const StepDataSelection = ({ wizard }) => {
   return (
     <div className="w-full max-w-none space-y-6">
       <div>
-        <label className="block text-sm font-semibold text-gray-800 mb-1">
-          Select data types to back up <span className="text-red-500">*</span>
+        <label className="block text-caption font-strong text-text-primary mb-1">
+          Select data types to back up <span className="text-danger">*</span>
         </label>
-        <p className="text-xs text-gray-400 mb-4">
+        <p className="text-tiny text-text-quaternary mb-4">
           Choose the data types from <strong>{currentApp.name}</strong> you want to include in the backup
         </p>
 
@@ -29,17 +29,17 @@ const StepDataSelection = ({ wizard }) => {
           {/* Select all */}
           <div
             onClick={handleSelectAllObjects}
-            className="border-2 border-dashed border-gray-200 rounded-xl px-4 py-3.5 cursor-pointer hover:border-blue-300 hover:bg-blue-50/30 flex items-center gap-3 transition-all"
+            className="border-2 border-dashed border-[rgb(var(--border-line))] rounded-md px-4 py-3.5 cursor-pointer hover:border-brand/30 hover:bg-brand/10 flex items-center gap-3 transition-all"
           >
             <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all ${
               selectedObjects.length === currentApp.objects.length
-                ? 'bg-blue-600 border-blue-600'
-                : 'border-gray-300'
+                ? 'bg-brand border-brand'
+                : 'border-[rgb(var(--border-strong))]'
             }`}>
               {selectedObjects.length === currentApp.objects.length && <Check className="w-3 h-3 text-white" />}
             </div>
-            <span className="font-semibold text-sm text-gray-700">Select all data types</span>
-            <span className="text-xs text-gray-400 ml-auto">{currentApp.objects.length} types</span>
+            <span className="font-strong text-caption text-text-secondary">Select all data types</span>
+            <span className="text-tiny text-text-quaternary ml-auto">{currentApp.objects.length} types</span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
@@ -47,7 +47,7 @@ const StepDataSelection = ({ wizard }) => {
               <div
                 key={obj}
                 onClick={() => handleObjectToggle(obj)}
-                className="border-2 rounded-xl px-4 py-4 cursor-pointer transition-all flex items-center gap-3"
+                className="border-2 rounded-md px-4 py-4 cursor-pointer transition-all flex items-center gap-3"
                 style={{
                   borderColor: selectedObjects.includes(obj) ? currentApp.color : '#e5e7eb',
                   backgroundColor: selectedObjects.includes(obj) ? currentApp.bg : '#fff',
@@ -63,10 +63,10 @@ const StepDataSelection = ({ wizard }) => {
                   {selectedObjects.includes(obj) && <Check className="w-3 h-3 text-white" />}
                 </div>
                 <div className="flex-1">
-                  <div className="font-semibold text-sm" style={{ color: selectedObjects.includes(obj) ? currentApp.color : '#374151' }}>
+                  <div className="font-strong text-caption" style={{ color: selectedObjects.includes(obj) ? currentApp.color : '#374151' }}>
                     {currentApp.objectLabels[obj]}
                   </div>
-                  <div className="text-xs text-gray-400 mt-0.5">{currentApp.name} › {currentApp.objectLabels[obj]}</div>
+                  <div className="text-tiny text-text-quaternary mt-0.5">{currentApp.name} › {currentApp.objectLabels[obj]}</div>
                 </div>
                 {selectedObjects.includes(obj) && (
                   <CheckCircle className="w-4 h-4 shrink-0" style={{ color: currentApp.color }} />
@@ -94,10 +94,10 @@ export const StepGenericConnection = ({ wizard }) => {
 
   return (
     <div className="w-full max-w-none space-y-6">
-      <div className="border border-blue-100 rounded-2xl p-6 bg-blue-50/40">
+      <div className="border border-brand/20 rounded-xl p-6 bg-brand/10">
         <div className="flex items-center gap-2">
-          <Lock className="w-5 h-5 text-blue-600" />
-          <h4 className="text-sm font-bold text-blue-800">
+          <Lock className="w-5 h-5 text-brand" />
+          <h4 className="text-caption font-strong text-brand">
             {connectionConfig?.stepTitle || `Connect to ${currentApp?.name}`}
           </h4>
         </div>
@@ -105,12 +105,12 @@ export const StepGenericConnection = ({ wizard }) => {
         <div className={`mt-5 grid gap-5 ${connectionConfig?.requiresDomain ? 'xl:grid-cols-2' : ''}`}>
           {connectionConfig?.requiresDomain && (
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-1">
-                {connectionConfig.domainLabel || 'Domain'} <span className="text-red-500">*</span>
+              <label className="block text-caption font-strong text-text-secondary mb-1">
+                {connectionConfig.domainLabel || 'Domain'} <span className="text-danger">*</span>
               </label>
-              <p className="text-xs text-gray-400 mb-2">{connectionConfig.domainHelp}</p>
+              <p className="text-tiny text-text-quaternary mb-2">{connectionConfig.domainHelp}</p>
               <input
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
                 placeholder={connectionConfig.domainPlaceholder}
                 value={domain}
                 onChange={e => { clearAppliedSourceConnection(); setDomain(e.target.value); if (isServiceApp) setServicePreview(null) }}
@@ -119,22 +119,22 @@ export const StepGenericConnection = ({ wizard }) => {
           )}
 
           <div>
-            <label className="block text-sm font-semibold text-gray-700 mb-1">
-              {connectionConfig?.tokenLabel || 'API Access Token'} <span className="text-red-500">*</span>
+            <label className="block text-caption font-strong text-text-secondary mb-1">
+              {connectionConfig?.tokenLabel || 'API Access Token'} <span className="text-danger">*</span>
             </label>
-            <p className="text-xs text-gray-400 mb-2">
+            <p className="text-tiny text-text-quaternary mb-2">
               {connectionConfig?.tokenHelp || `Found in ${currentApp?.name} → Settings → API Keys`}
             </p>
             <div className="relative">
               <input
                 type={showToken ? 'text' : 'password'}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 pr-12 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 pr-12 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
                 placeholder="Paste your access token here…"
                 value={accessToken}
                 onChange={e => { clearAppliedSourceConnection(); setAccessToken(e.target.value); if (isServiceApp) setServicePreview(null) }}
               />
               <button type="button" onClick={() => setShowToken(v => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 p-1">
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-quaternary hover:text-text-secondary p-1">
                 {showToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>
             </div>

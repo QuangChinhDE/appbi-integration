@@ -1,10 +1,16 @@
 import React, { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Workflow, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react'
+import { Workflow, Mail, Lock, Eye, EyeOff } from 'lucide-react'
 import api from '@shared/api/client'
 import { getFirstAccessibleRoute } from '@modules/identity/frontend/lib/permissions'
-import { useAuthStore } from '@modules/identity/frontend/store/authStore'
+import { Button, Input, Alert } from '@packages/ui/src/components/common/ui'
 
+/**
+ * Cookie-based login flow (aligned with appbi-ai):
+ * 1. POST /api/auth/login → backend sets httpOnly `access_token` cookie.
+ * 2. `window.location.replace(...)` does a full reload so every subsequent
+ *    request picks up the fresh cookie, and ProtectedRoute re-hydrates
+ *    session via /api/auth/me. No client-side token management.
+ */
 const LoginPage = () => {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -12,8 +18,6 @@ const LoginPage = () => {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const navigate = useNavigate()
-  const login = useAuthStore((state) => state.login)
   const passwordLoginEnabled = String(import.meta.env.VITE_AUTH_PASSWORD_ENABLED ?? 'true').toLowerCase() !== 'false'
 
   const handleSubmit = async (e) => {
@@ -30,116 +34,87 @@ const LoginPage = () => {
     setLoading(true)
     try {
       const res = await api.post('/api/auth/login', { email, password })
-      login({
-        token: res.data.access_token,
-        user: res.data.user,
-        permissions: res.data.permissions,
-      })
-      navigate(getFirstAccessibleRoute(res.data.permissions) || '/', { replace: true })
+      const dest = getFirstAccessibleRoute(res.data?.permissions) || '/'
+      window.location.replace(dest)
     } catch (err) {
       setError(err.response?.data?.detail || 'Login failed. Please try again.')
-    } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-600 via-blue-700 to-purple-700 px-4">
-      <div className="w-full max-w-md">
-        {/* Card */}
-        <div className="bg-white rounded-xl shadow-2xl overflow-hidden">
-          {/* Header */}
-          <div className="px-8 pt-8 pb-6 text-center border-b border-gray-100">
+    <div className="min-h-screen flex items-center justify-center bg-surface-0 px-4">
+      <div className="w-full max-w-sm">
+        <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 shadow-linear-lg overflow-hidden">
+          <div className="px-8 pt-8 pb-5 text-center border-b border-[rgb(var(--border-line))]">
             <div className="flex items-center justify-center mb-4">
-              <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-md">
-                <Workflow className="w-6 h-6 text-white" />
+              <div className="w-10 h-10 rounded-lg bg-brand flex items-center justify-center">
+                <Workflow className="w-5 h-5 text-text-inverse" />
               </div>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">IntegrationHub</h1>
-            <p className="mt-1 text-sm text-gray-500">Sign in to your account</p>
+            <h1 className="text-h2 text-text-primary">IntegrationHub</h1>
+            <p className="mt-1 text-caption text-text-tertiary">Sign in to your account</p>
           </div>
 
-          {/* Form */}
-          <form onSubmit={handleSubmit} className="px-8 py-6 space-y-5">
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-md px-4 py-3">
-                {error}
-              </div>
-            )}
+          <form onSubmit={handleSubmit} className="px-8 py-6 space-y-4">
+            {error && <Alert type="error" message={error} />}
 
             {!passwordLoginEnabled && (
-              <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
-                Password sign-in is disabled. Ask an administrator to enable it or provision another sign-in method.
-              </div>
+              <Alert type="warning" message="Password sign-in is disabled for this workspace." />
             )}
 
-            {/* Email */}
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-gray-700">
-                Email
-              </label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@company.com"
-                  disabled={!passwordLoginEnabled || loading}
-                  className="w-full pl-9 pr-4 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-              </div>
+              <label className="block text-caption font-emphasis text-text-secondary">Email</label>
+              <Input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@company.com"
+                disabled={!passwordLoginEnabled || loading}
+                leadingIcon={<Mail />}
+                autoComplete="email"
+                required
+              />
             </div>
 
-            {/* Password */}
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
+              <label className="block text-caption font-emphasis text-text-secondary">Password</label>
               <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <input
+                <Input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   disabled={!passwordLoginEnabled || loading}
-                  className="w-full pl-9 pr-10 py-2.5 border border-gray-300 rounded-md text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
+                  leadingIcon={<Lock />}
+                  autoComplete="current-password"
+                  required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
                   disabled={!passwordLoginEnabled || loading}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 text-text-quaternary hover:text-text-secondary transition-colors"
                 >
-                  {showPassword ? (
-                    <EyeOff className="w-4 h-4" />
-                  ) : (
-                    <Eye className="w-4 h-4" />
-                  )}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            {/* Submit */}
-            <button
+            <Button
               type="submit"
-              disabled={loading || !passwordLoginEnabled}
-              className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors"
+              variant="primary"
+              size="md"
+              fullWidth
+              disabled={!passwordLoginEnabled}
+              loading={loading}
             >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Signing in…
-                </>
-              ) : (
-                'Sign in'
-              )}
-            </button>
+              Sign in
+            </Button>
           </form>
         </div>
 
-        <p className="mt-6 text-center text-xs text-blue-200">
+        <p className="mt-5 text-center text-tiny text-text-quaternary">
           AppBI Data Platform · IntegrationHub
         </p>
       </div>

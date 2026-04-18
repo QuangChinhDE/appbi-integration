@@ -1,7 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import api from '@shared/api/client'
 import { message } from '@packages/ui/src/components/common/ui'
-import { hasPermission } from '@modules/identity/frontend/lib/permissions'
+import { BACKUP_APPS_PERMISSION_MESSAGE, hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 import { APPS, APP_CONNECTION_CONFIG, MOCK_FIELDS, DEFAULT_GOOGLE_REDIRECT, SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE } from '../constants'
 
@@ -15,7 +15,11 @@ const CONNECTOR_PREVIEW_TIMEOUT_MS = 60000
 export default function useWizardState() {
   const permissions = useAuthStore((state) => state.permissions)
   const canEditBackup = hasPermission(permissions, 'backup', 'edit')
+  const canViewApps = hasPermission(permissions, 'apps', 'view')
+  const canConfigureBackup = canEditBackup && canViewApps
   const canManageSettings = hasPermission(permissions, 'settings', 'full')
+  const backupAppsPermissionConflict = canEditBackup && !canViewApps
+  const backupAppsPermissionMessage = BACKUP_APPS_PERMISSION_MESSAGE
 
   // ── Core ────────────────────────────────────────────────────────────────
   const [currentStep, setCurrentStep] = useState(0)
@@ -30,6 +34,7 @@ export default function useWizardState() {
   const [sourceConnectionId, setSourceConnectionId] = useState(null)
   const [savedSourceConnections, setSavedSourceConnections] = useState([])
   const [loadingSavedSourceConnections, setLoadingSavedSourceConnections] = useState(false)
+  const [savedSourceConnectionsError, setSavedSourceConnectionsError] = useState('')
   const [domain, setDomain] = useState('')
   const [accessTokenV2, setAccessTokenV2] = useState('')
   const [showTokenV2, setShowTokenV2] = useState(false)
@@ -42,6 +47,7 @@ export default function useWizardState() {
   const [destinationProfileId, setDestinationProfileId] = useState(null)
   const [savedDestinationProfiles, setSavedDestinationProfiles] = useState([])
   const [loadingSavedDestinationProfiles, setLoadingSavedDestinationProfiles] = useState(false)
+  const [savedDestinationProfilesError, setSavedDestinationProfilesError] = useState('')
   const [storageDestination, setStorageDestination] = useState(null)
 
   // ── Google auth ───────────────────────────────────────────────────────
@@ -211,43 +217,86 @@ export default function useWizardState() {
     if (!canEditBackup) {
       setSavedSourceConnections([])
       setLoadingSavedSourceConnections(false)
+      setSavedSourceConnectionsError('')
+      return
+    }
+
+    if (backupAppsPermissionConflict) {
+      setSavedSourceConnections([])
+      setLoadingSavedSourceConnections(false)
+      setSavedSourceConnectionsError(backupAppsPermissionMessage)
       return
     }
 
     const normalizedAppId = typeof appId === 'string' && appId.trim() ? appId : null
     setLoadingSavedSourceConnections(true)
+    setSavedSourceConnectionsError('')
     try {
-      const res = await api.get('/api/apps/connections', {
+      const res = await api.get('/api/apps/credentials', {
         params: normalizedAppId ? { app_id: normalizedAppId } : undefined,
       })
-      setSavedSourceConnections(Array.isArray(res.data) ? res.data : [])
-    } catch {
+      const rawItems = Array.isArray(res.data) ? res.data : []
+      const SOURCE_APPS = new Set(['request', 'workflow', 'wework', 'service'])
+      const items = rawItems
+        .filter((item) => SOURCE_APPS.has(item.app_id))
+        .map((item) => ({ ...item, domain: item.preview?.domain || item.config?.domain || '' }))
+      setSavedSourceConnections(items)
+      setSavedSourceConnectionsError('')
+    } catch (err) {
       setSavedSourceConnections([])
+      setSavedSourceConnectionsError(err.response?.data?.detail || 'Failed to load saved sources from the Apps module.')
     } finally {
       setLoadingSavedSourceConnections(false)
     }
-  }, [canEditBackup])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, canEditBackup])
 
   const loadSavedDestinationProfiles = useCallback(async (destinationType = null) => {
     if (!canEditBackup) {
       setSavedDestinationProfiles([])
       setLoadingSavedDestinationProfiles(false)
+      setSavedDestinationProfilesError('')
+      return
+    }
+
+    if (backupAppsPermissionConflict) {
+      setSavedDestinationProfiles([])
+      setLoadingSavedDestinationProfiles(false)
+      setSavedDestinationProfilesError(backupAppsPermissionMessage)
       return
     }
 
     const normalizedDestinationType = typeof destinationType === 'string' && destinationType.trim() ? destinationType : null
     setLoadingSavedDestinationProfiles(true)
+    setSavedDestinationProfilesError('')
     try {
-      const res = await api.get('/api/apps/storage', {
-        params: normalizedDestinationType ? { destination_type: normalizedDestinationType } : undefined,
+      const res = await api.get('/api/apps/credentials', {
+        params: normalizedDestinationType ? { app_id: normalizedDestinationType } : undefined,
       })
-      setSavedDestinationProfiles(Array.isArray(res.data) ? res.data : [])
-    } catch {
+      const rawItems = Array.isArray(res.data) ? res.data : []
+      const DEST_APPS = new Set(['gdrive', 'gsheets'])
+      const items = rawItems
+        .filter((item) => DEST_APPS.has(item.app_id))
+        .map((item) => {
+          const preview = item.preview || {}
+          const config = item.config || {}
+          return {
+            ...item,
+            destination_type: item.app_id,
+            destination_name: item.app_name,
+            connection_label: preview.display_name || preview.email || '',
+            folder_name: preview.folder_name || config.folder_name || '',
+            drive_name: preview.drive_name || config.drive_name || '',
+          }
+        })
+      setSavedDestinationProfiles(items)
+      setSavedDestinationProfilesError('')
+    } catch (err) {
       setSavedDestinationProfiles([])
+      setSavedDestinationProfilesError(err.response?.data?.detail || 'Failed to load saved destination profiles from the Apps module.')
     } finally {
       setLoadingSavedDestinationProfiles(false)
     }
-  }, [canEditBackup])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, canEditBackup])
 
   useEffect(() => {
     if (!canEditBackup) {
@@ -394,10 +443,23 @@ export default function useWizardState() {
 
   const applySourceConnection = useCallback(async (sourceId) => {
     if (!sourceId) return
+    if (backupAppsPermissionConflict) {
+      message.warning(backupAppsPermissionMessage)
+      return
+    }
     try {
-      const res = await api.get(`/api/apps/connections/${sourceId}/apply`)
-      const nextSource = res.data?.source || {}
-      const nextAppId = nextSource.app || selectedApp
+      const res = await api.get(`/api/apps/credentials/${sourceId}/apply`)
+      const data = res.data || {}
+      const nextAppId = data.app_id || selectedApp
+      const config = data.config || {}
+      const auth = data.auth || {}
+      const nextSource = {
+        credential_id: String(data.id || sourceId),
+        app: nextAppId,
+        app_name: data.app_name,
+        domain: config.domain || '',
+        access_token: auth.access_token || '',
+      }
       if (!nextAppId) {
         message.error('Saved source is missing the app type')
         return
@@ -408,7 +470,7 @@ export default function useWizardState() {
       }
 
       setSelectedApp(nextAppId)
-      setSourceConnectionId(String(res.data?.id || nextSource.source_connection_id || sourceId))
+      setSourceConnectionId(nextSource.credential_id)
       setDomain(nextSource.domain || '')
 
       if (nextAppId === 'request') {
@@ -434,14 +496,16 @@ export default function useWizardState() {
       setDraftSelectedProjectIds([])
 
       if (draftFlowId) {
-        await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, { source: nextSource }).catch(() => {})
+        await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
+          source: { credential_id: nextSource.credential_id },
+        }).catch(() => {})
       }
 
       message.success('Saved source applied to this backup flow')
     } catch (err) {
       message.error(err.response?.data?.detail || 'Failed to apply saved source')
     }
-  }, [draftFlowId, handleAppSelection, selectedApp])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, draftFlowId, handleAppSelection, selectedApp])
 
   const selectSavedGoogleConnection = useCallback((connection) => {
     if (!connection) return
@@ -468,11 +532,29 @@ export default function useWizardState() {
 
   const applyDestinationProfile = useCallback(async (profileId) => {
     if (!profileId) return
+    if (backupAppsPermissionConflict) {
+      message.warning(backupAppsPermissionMessage)
+      return
+    }
     try {
-      const res = await api.get(`/api/apps/storage/${profileId}/apply`)
-      const nextDestination = res.data?.destination || {}
-      const auth = nextDestination.auth || {}
-      const resolvedProfileId = String(res.data?.id || nextDestination.destination_profile_id || profileId)
+      const res = await api.get(`/api/apps/credentials/${profileId}/apply`)
+      const data = res.data || {}
+      const resolvedProfileId = String(data.id || profileId)
+      const config = data.config || {}
+      const mergedAuth = { ...(data.auth || {}) }
+      for (const key of ['folder_id', 'folder_name', 'drive_id', 'drive_name', 'uses_platform_service_account']) {
+        if (config[key] !== undefined && mergedAuth[key] === undefined) {
+          mergedAuth[key] = config[key]
+        }
+      }
+      mergedAuth.auth_mode = data.auth_mode
+      const nextDestination = {
+        credential_id: resolvedProfileId,
+        type: data.app_id,
+        name: data.app_name,
+        auth: mergedAuth,
+      }
+      const auth = mergedAuth
 
       setDestinationProfileId(resolvedProfileId)
       setStorageDestination(nextDestination.type || storageDestination)
@@ -531,14 +613,24 @@ export default function useWizardState() {
       }
 
       if (draftFlowId) {
-        await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, { destination: nextDestination }).catch(() => {})
+        await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
+          destination: {
+            credential_id: resolvedProfileId,
+            target: {
+              folder_id: auth.folder_id || null,
+              folder_name: auth.folder_name || null,
+              drive_id: auth.drive_id || null,
+              drive_name: auth.drive_name || null,
+            },
+          },
+        }).catch(() => {})
       }
 
       message.success('Saved destination applied to this backup flow')
     } catch (err) {
       message.error(err.response?.data?.detail || 'Failed to apply saved destination')
     }
-  }, [draftFlowId, storageDestination])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, draftFlowId, storageDestination])
 
   // ── Google auth helpers ───────────────────────────────────────────────
   const buildGoogleDestinationAuth = useCallback((
@@ -622,35 +714,47 @@ export default function useWizardState() {
     return null
   }, [googleAuth, resolvedGoogleAuthMethod, serviceAccountAnalysis, storageDestination, buildGoogleDestinationAuth])
 
-  // ── Autosave destination ──────────────────────────────────────────────
+  // ── Autosave destination (per-flow target overrides) ──────────────────
   const autosaveDestinationAuth = useCallback(async (
     googleAuthState = googleAuth,
     authMethod = googleAuthMethod,
     saAnalysis = serviceAccountAnalysis,
   ) => {
-    if (!draftFlowId || !storageDestination) return
+    if (!draftFlowId || !destinationProfileId) return
+    const built = buildGoogleDestinationAuth(googleAuthState, authMethod, saAnalysis)
     await api.patch(`/api/backup-flows/${draftFlowId}/autosave`, {
       destination: {
-        type: storageDestination,
-        name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
-        auth: buildGoogleDestinationAuth(googleAuthState, authMethod, saAnalysis),
+        credential_id: destinationProfileId,
+        target: {
+          folder_id: built?.folder_id || null,
+          folder_name: built?.folder_name || null,
+          drive_id: built?.drive_id || null,
+          drive_name: built?.drive_name || null,
+        },
       },
     }).catch(() => {})
-  }, [draftFlowId, storageDestination, googleAuth, googleAuthMethod, serviceAccountAnalysis, buildGoogleDestinationAuth])
+  }, [draftFlowId, destinationProfileId, googleAuth, googleAuthMethod, serviceAccountAnalysis, buildGoogleDestinationAuth])
 
   // ── Build autosave payload per step ───────────────────────────────────
+  // Apps module owns credentials, so autosave only records which saved
+  // credential the flow is pointing at plus per-flow target overrides.
   const buildAutosavePayload = useCallback((step) => {
+    const sourceRef = sourceConnectionId ? { source: { credential_id: sourceConnectionId } } : {}
+    const destTarget = googleAuth ? {
+      folder_id: googleAuth.folder_id || null,
+      folder_name: googleAuth.folder_name || null,
+      drive_id: googleAuth.drive_id || null,
+      drive_name: googleAuth.drive_name || null,
+    } : null
+    const destRef = destinationProfileId ? {
+      destination: { credential_id: destinationProfileId, target: destTarget },
+    } : {}
+
     if (usesCondensedServiceWizard && totalSteps === 3) {
       if (step === 0) {
         return {
           name: flowName.trim() || undefined,
-          source: selectedApp ? {
-            source_connection_id: sourceConnectionId || undefined,
-            app: selectedApp,
-            app_name: currentApp?.name,
-            domain: connectionConfig?.requiresDomain ? domain : selectedApp,
-            access_token: isRequestApp ? accessTokenV2 : accessToken,
-          } : undefined,
+          ...sourceRef,
           structure: {
             objects: selectedObjects,
             ...(isRequestApp ? { group_ids: selectedGroupIds } : {}),
@@ -661,62 +765,35 @@ export default function useWizardState() {
         }
       }
       if (step === 1) {
-        return {
-          backup_type: backupType,
-          destination: {
-            destination_profile_id: destinationProfileId || undefined,
-            type: storageDestination,
-            name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
-            auth: buildGoogleDestinationAuth(),
-          },
-        }
+        return { backup_type: backupType, ...destRef }
       }
     }
 
     if (step === 0) {
-      return {
-        name: flowName.trim() || undefined,
-        source: selectedApp ? { app: selectedApp, app_name: currentApp?.name } : undefined,
-      }
+      return { name: flowName.trim() || undefined }
     }
     if (isRequestApp) {
-      if (step === 1) return { source: { source_connection_id: sourceConnectionId || undefined, app: 'request', app_name: 'Request', domain, access_token: accessTokenV2 } }
-      if (step === 2) {
-        return {
-          backup_type: backupType,
-          destination: {
-            destination_profile_id: destinationProfileId || undefined,
-            type: storageDestination,
-            name: storageDestination === 'gdrive' ? 'Google Drive' : 'Google Sheets',
-            auth: buildGoogleDestinationAuth(),
-          },
-        }
-      }
+      if (step === 1) return { ...sourceRef }
+      if (step === 2) return { backup_type: backupType, ...destRef }
     } else {
       if (step === 1) return { structure: { objects: selectedObjects } }
       if (step === 2) {
         if (isServiceApp) {
-          return {
-            source: { app: selectedApp, app_name: currentApp?.name, domain, access_token: accessToken },
-            backup_type: backupType,
-            destination: {
-              destination_profile_id: destinationProfileId || undefined,
-              type: storageDestination,
-              name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
-              auth: buildGoogleDestinationAuth(),
-            },
-          }
+          return { ...sourceRef, backup_type: backupType, ...destRef }
         }
-        return {
-          source: { source_connection_id: sourceConnectionId || undefined, app: selectedApp, app_name: currentApp?.name, domain: isServiceApp ? domain : selectedApp, access_token: accessToken },
-        }
+        return { ...sourceRef }
       }
     }
     return {}
-  }, [usesCondensedServiceWizard, totalSteps, flowName, selectedApp, sourceConnectionId, currentApp, connectionConfig, domain, accessToken, selectedObjects, selectedGroupIds, selectedProjectIds, selectedServiceIds, selectedWorkflowIds, isServiceApp, isWorkflowApp, isWeworkApp, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, isRequestApp, accessTokenV2])
+  }, [usesCondensedServiceWizard, totalSteps, flowName, sourceConnectionId, destinationProfileId, googleAuth, selectedObjects, selectedGroupIds, selectedProjectIds, selectedServiceIds, selectedWorkflowIds, isServiceApp, isWorkflowApp, isWeworkApp, backupType, isRequestApp])
 
   // ── Navigation ────────────────────────────────────────────────────────
   const next = useCallback(async () => {
+    if (backupAppsPermissionConflict) {
+      message.warning(backupAppsPermissionMessage)
+      return
+    }
+
     // Step 0 validation
     if (currentStep === 0) {
       if (!flowName.trim()) { message.warning('Please enter a name for this backup flow'); return }
@@ -790,13 +867,18 @@ export default function useWizardState() {
     }
 
     setCurrentStep(prev => prev + 1)
-  }, [currentStep, flowName, selectedApp, usesCondensedServiceWizard, isServiceApp, isWorkflowApp, isWeworkApp, totalSteps, connectionConfig, currentApp, domain, accessToken, selectedObjects, backupType, storageDestination, googleAuthMethod, googleAuth, isRequestApp, accessTokenV2, hasServiceAccountStep, draftFlowId, buildAutosavePayload, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, hasReadyServiceAccountAuth, platformServiceAccount])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, currentStep, flowName, selectedApp, usesCondensedServiceWizard, isServiceApp, isWorkflowApp, isWeworkApp, totalSteps, connectionConfig, currentApp, domain, accessToken, selectedObjects, backupType, storageDestination, googleAuthMethod, googleAuth, isRequestApp, accessTokenV2, hasServiceAccountStep, draftFlowId, buildAutosavePayload, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, hasReadyServiceAccountAuth, platformServiceAccount])
 
   const prev = useCallback(() => setCurrentStep(s => s - 1), [])
 
   // ── Finish (save/publish) ─────────────────────────────────────────────
   const handleFinish = useCallback(async (runAfterSave = false, viewMode = 'create') => {
     if (!draftFlowId) { message.error('No draft flow found. Please try again.'); return }
+
+    if (backupAppsPermissionConflict) {
+      message.warning(backupAppsPermissionMessage)
+      return
+    }
 
     if (!sourceConnectionId) {
       message.warning(`Please select a saved ${currentApp?.name || 'source'} connection before saving this flow`)
@@ -861,16 +943,18 @@ export default function useWizardState() {
       if (blocked) { message.error(blocked); return }
     }
 
+    const builtDestAuth = buildGoogleDestinationAuth()
+    const destinationTarget = {
+      folder_id: builtDestAuth?.folder_id || null,
+      folder_name: builtDestAuth?.folder_name || null,
+      drive_id: builtDestAuth?.drive_id || null,
+      drive_name: builtDestAuth?.drive_name || null,
+    }
     const savePayload = isRequestApp ? {
       name: flowName.trim() || undefined,
-      source: { source_connection_id: sourceConnectionId || undefined, app: 'request', app_name: 'Request', domain, access_token: accessTokenV2 },
+      source: { credential_id: sourceConnectionId },
       backup_type: backupType,
-      destination: {
-        destination_profile_id: destinationProfileId || undefined,
-        type: storageDestination,
-        name: storageDestination === 'gdrive' ? 'Google Drive' : 'Google Sheets',
-        auth: buildGoogleDestinationAuth(),
-      },
+      destination: { credential_id: destinationProfileId, target: destinationTarget },
       structure: {
         objects: selectedObjects.length ? selectedObjects : ['group', 'request'],
         group_ids: selectedGroupIds,
@@ -878,24 +962,9 @@ export default function useWizardState() {
       updated_by: 'current_user',
     } : {
       name: flowName.trim() || undefined,
-      source: {
-        source_connection_id: sourceConnectionId || undefined,
-        app: selectedApp,
-        app_name: currentApp.name,
-        domain: connectionConfig?.requiresDomain ? domain : selectedApp,
-        access_token: accessToken,
-      },
+      source: { credential_id: sourceConnectionId },
       backup_type: usesCondensedServiceWizard ? backupType : 'all',
-      destination: usesCondensedServiceWizard ? {
-        destination_profile_id: destinationProfileId || undefined,
-        type: storageDestination,
-        name: storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive',
-        auth: buildGoogleDestinationAuth(),
-      } : {
-        type: 'gdrive',
-        name: 'Google Drive',
-        auth: { email: 'user@gmail.com' },
-      },
+      destination: { credential_id: destinationProfileId, target: destinationTarget },
       structure: {
         objects: selectedObjects,
         custom_fields: selectedFieldIds,
@@ -962,7 +1031,7 @@ export default function useWizardState() {
       console.error(err)
       return false
     }
-  }, [draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, hasReadyServiceAccountAuth, platformServiceAccount])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, hasReadyServiceAccountAuth, platformServiceAccount])
 
   // ── Load flow for editing ─────────────────────────────────────────────
   const loadFlowForEdit = useCallback(async (flowId) => {
@@ -972,14 +1041,50 @@ export default function useWizardState() {
 
       resetAll()
 
-      const src = f.source || {}
-      const dest = f.destination || {}
+      // Flow only stores credential FKs. Hydrate full source/destination
+      // dicts by snapshotting the referenced AppCredential records.
+      let src = {}
+      let dest = {}
+      if (f.source_credential_id) {
+        try {
+          const r = await api.get(`/api/apps/credentials/${f.source_credential_id}/apply`)
+          const d = r.data || {}
+          src = {
+            source_connection_id: String(d.id || f.source_credential_id),
+            app: d.app_id,
+            app_name: d.app_name,
+            domain: d.config?.domain || '',
+            access_token: d.auth?.access_token || '',
+          }
+        } catch { src = { source_connection_id: String(f.source_credential_id) } }
+      }
+      if (f.destination_credential_id) {
+        try {
+          const r = await api.get(`/api/apps/credentials/${f.destination_credential_id}/apply`)
+          const d = r.data || {}
+          const target = f.destination_target || {}
+          const mergedAuth = { ...(d.auth || {}) }
+          for (const k of ['folder_id', 'folder_name', 'drive_id', 'drive_name', 'uses_platform_service_account']) {
+            if (d.config?.[k] !== undefined && mergedAuth[k] === undefined) mergedAuth[k] = d.config[k]
+          }
+          for (const k of ['folder_id', 'folder_name', 'drive_id', 'drive_name']) {
+            if (target[k]) mergedAuth[k] = target[k]
+          }
+          mergedAuth.auth_mode = d.auth_mode
+          dest = {
+            destination_profile_id: String(d.id || f.destination_credential_id),
+            type: d.app_id,
+            name: d.app_name,
+            auth: mergedAuth,
+          }
+        } catch { dest = { destination_profile_id: String(f.destination_credential_id) } }
+      }
       const struct = f.structure || {}
 
       if (f.name) setFlowName(f.name)
       if (src.app) setSelectedApp(src.app)
-  if (src.source_connection_id) setSourceConnectionId(src.source_connection_id)
-  if (dest.destination_profile_id) setDestinationProfileId(dest.destination_profile_id)
+      if (src.source_connection_id) setSourceConnectionId(src.source_connection_id)
+      if (dest.destination_profile_id) setDestinationProfileId(dest.destination_profile_id)
 
       if (src.app === 'request') {
         if (src.domain) setDomain(src.domain)
@@ -1672,12 +1777,15 @@ export default function useWizardState() {
     // App
     selectedApp, setSelectedApp, currentApp, isRequestApp, isServiceApp, isWorkflowApp, connectionConfig,
     isWeworkApp,
+    canEditBackup, canViewApps, canConfigureBackup, backupAppsPermissionConflict, backupAppsPermissionMessage,
     // Source
     sourceConnectionId, savedSourceConnections, loadingSavedSourceConnections,
+    savedSourceConnectionsError,
     domain, setDomain, accessTokenV2, setAccessTokenV2, showTokenV2, setShowTokenV2,
     accessToken, setAccessToken, showToken, setShowToken, selectedObjects, setSelectedObjects,
     // Backup config
     backupType, setBackupType, destinationProfileId, savedDestinationProfiles, loadingSavedDestinationProfiles,
+    savedDestinationProfilesError,
     storageDestination, setStorageDestination,
     // Google auth
     googleAuthMethod, setGoogleAuthMethod, googleAuth, setGoogleAuth,

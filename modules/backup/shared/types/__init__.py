@@ -3,36 +3,39 @@ from typing import Optional, Dict, Any, List
 from datetime import datetime
 from uuid import UUID
 
-# Source schema
-class SourceInfo(BaseModel):
-    source_connection_id: Optional[str] = Field(None, description="Reusable source connection ID")
-    app: str = Field(..., description="App identifier (request, workflow, wework, service)")
-    app_name: str = Field(..., description="Human-readable app name")
-    domain: str = Field(..., description="Domain for the app (e.g., company.vn)")
-    access_token: str = Field(..., description="Access token (will be hashed)")
+# ─── Credential role references ─────────────────────────────────────────────
+# The Backup module decides which saved AppCredential plays the source role
+# and which plays the destination role at flow-configuration time. Both are
+# just ids pointing into the Apps module's registry.
 
-# Destination schema
-class DestinationInfo(BaseModel):
-    destination_profile_id: Optional[str] = Field(None, description="Reusable destination profile ID")
-    type: str = Field(..., description="Destination type (gdrive, gsheets)")
-    name: str = Field(..., description="Human-readable destination name")
-    auth: Dict[str, Any] = Field(..., description="Authentication information")
 
-# Structure schema
+class SourceRoleRef(BaseModel):
+    credential_id: UUID = Field(..., description="AppCredential ID used as this flow's source")
+
+
+class DestinationRoleRef(BaseModel):
+    credential_id: UUID = Field(..., description="AppCredential ID used as this flow's destination")
+    target: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Per-flow target selection (e.g. folder_id, drive_id). Overrides credential defaults.",
+    )
+
+
+# ─── Structure / schedule ───────────────────────────────────────────────────
 class StructureInfo(BaseModel):
-    objects: Optional[List[str]] = Field(None, description="Selected objects to backup")
-    custom_fields: Optional[List[str]] = Field(None, description="Selected custom field IDs")
-    export_formats: Optional[Dict[str, str]] = Field(None, description="Export formats for fields")
-    group_ids: Optional[List[str]] = Field(None, description="Selected Request group identifiers for Request backups")
-    project_ids: Optional[List[str]] = Field(None, description="Selected WeWork project identifiers for WeWork backups")
-    service_ids: Optional[List[str]] = Field(None, description="Selected Service identifiers for Service backups")
-    workflow_ids: Optional[List[str]] = Field(None, description="Selected Workflow identifiers for Workflow backups")
-    ticket_limit_per_service: Optional[int] = Field(None, ge=1, description="Optional cap on tickets processed per selected service")
-    include_catalog: Optional[bool] = Field(None, description="Include group/compound/service catalog artifacts")
-    include_stages: Optional[bool] = Field(None, description="Include service stage metadata")
-    include_ticket_details: Optional[bool] = Field(None, description="Fetch ticket detail API for each ticket")
-    include_activity_logs: Optional[bool] = Field(None, description="Fetch ticket activity logs for each ticket")
-    activity_log_filters: Optional[Dict[str, Any]] = Field(None, description="Optional filters for Service ticket activity log extraction")
+    objects: Optional[List[str]] = None
+    custom_fields: Optional[List[str]] = None
+    export_formats: Optional[Dict[str, str]] = None
+    group_ids: Optional[List[str]] = None
+    project_ids: Optional[List[str]] = None
+    service_ids: Optional[List[str]] = None
+    workflow_ids: Optional[List[str]] = None
+    ticket_limit_per_service: Optional[int] = Field(None, ge=1)
+    include_catalog: Optional[bool] = None
+    include_stages: Optional[bool] = None
+    include_ticket_details: Optional[bool] = None
+    include_activity_logs: Optional[bool] = None
+    activity_log_filters: Optional[Dict[str, Any]] = None
 
     @field_validator('group_ids', 'project_ids', 'service_ids', 'workflow_ids', mode='before')
     def normalize_identifier_list(cls, value):
@@ -52,32 +55,33 @@ class StructureInfo(BaseModel):
             output.append(identifier)
         return output
 
-# Schedule schema
-class ScheduleInfo(BaseModel):
-    type: str = Field(..., description="Schedule type (manual, daily, weekly, monthly)")
-    time: Optional[str] = Field(None, description="Time to run (HH:MM)")
-    day_of_week: Optional[int] = Field(None, ge=0, le=6, description="Day of week (0=Monday)")
-    day_of_month: Optional[int] = Field(None, ge=1, le=31, description="Day of month")
-    enabled: bool = Field(True, description="Whether schedule is enabled")
 
-# Create draft (empty flow - only generates ID)
+class ScheduleInfo(BaseModel):
+    type: str
+    time: Optional[str] = None
+    day_of_week: Optional[int] = Field(None, ge=0, le=6)
+    day_of_month: Optional[int] = Field(None, ge=1, le=31)
+    enabled: bool = True
+
+
+# ─── Flow CRUD payloads ─────────────────────────────────────────────────────
 class BackupFlowDraftCreate(BaseModel):
     created_by: Optional[str] = None
 
-# Auto-save partial wizard data at each step transition
+
 class BackupFlowAutosave(BaseModel):
     name: Optional[str] = None
-    source: Optional[Dict[str, Any]] = None       # raw dict, validated/encrypted in service
+    source: Optional[SourceRoleRef] = None
     backup_type: Optional[str] = None
-    destination: Optional[Dict[str, Any]] = None  # raw dict
+    destination: Optional[DestinationRoleRef] = None
     structure: Optional[Dict[str, Any]] = None
 
-# Save/publish flow (fill in details on last wizard step)
+
 class BackupFlowSave(BaseModel):
-    name: Optional[str] = None  # user-provided name; auto-generated if omitted
-    source: SourceInfo
-    backup_type: str = Field(..., description="Backup type (structured, unstructured, all)")
-    destination: DestinationInfo
+    name: Optional[str] = None
+    source: SourceRoleRef
+    backup_type: str
+    destination: DestinationRoleRef
     structure: Optional[StructureInfo] = None
     schedule: Optional[ScheduleInfo] = None
     updated_by: Optional[str] = None
@@ -88,14 +92,14 @@ class BackupFlowSave(BaseModel):
             raise ValueError('backup_type must be one of: structured, unstructured, all')
         return v
 
-# Create backup flow request
+
 class BackupFlowCreate(BaseModel):
-    source: SourceInfo
-    backup_type: str = Field(..., description="Backup type (structured, unstructured, all)")
-    destination: DestinationInfo
+    source: SourceRoleRef
+    backup_type: str
+    destination: DestinationRoleRef
     structure: Optional[StructureInfo] = None
     schedule: Optional[ScheduleInfo] = None
-    created_by: str = Field(..., description="User who created this flow")
+    created_by: str
 
     @field_validator('backup_type')
     def validate_backup_type(cls, v):
@@ -103,15 +107,15 @@ class BackupFlowCreate(BaseModel):
             raise ValueError('backup_type must be one of: structured, unstructured, all')
         return v
 
-# Update backup flow request
+
 class BackupFlowUpdate(BaseModel):
-    source: Optional[SourceInfo] = None
+    source: Optional[SourceRoleRef] = None
     backup_type: Optional[str] = None
-    destination: Optional[DestinationInfo] = None
+    destination: Optional[DestinationRoleRef] = None
     structure: Optional[StructureInfo] = None
     schedule: Optional[ScheduleInfo] = None
     status: Optional[str] = None
-    updated_by: str = Field(..., description="User who updated this flow")
+    updated_by: str
 
     @field_validator('backup_type')
     def validate_backup_type(cls, v):
@@ -125,15 +129,29 @@ class BackupFlowUpdate(BaseModel):
             raise ValueError('status must be one of: active, paused, archived')
         return v
 
-# Backup flow response (full details)
+
+# ─── Flow responses ─────────────────────────────────────────────────────────
+class CredentialSummary(BaseModel):
+    """Hydrated view of the AppCredential a flow references, safe for API output."""
+    id: UUID
+    app_id: str
+    app_name: str
+    auth_mode: str
+    name: str
+    preview: Dict[str, Any] = Field(default_factory=dict)
+
+
 class BackupFlowResponse(BaseModel):
     id: UUID
     name: Optional[str] = None
     is_draft: int
     is_published: int
-    source: Optional[Dict[str, Any]] = None
+    source_credential_id: Optional[UUID] = None
+    destination_credential_id: Optional[UUID] = None
+    source: Optional[CredentialSummary] = None
+    destination: Optional[CredentialSummary] = None
+    destination_target: Optional[Dict[str, Any]] = None
     backup_type: Optional[str] = None
-    destination: Optional[Dict[str, Any]] = None
     structure: Optional[Dict[str, Any]] = None
     schedule: Optional[Dict[str, Any]] = None
     status: str
@@ -148,7 +166,7 @@ class BackupFlowResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Backup flow response for lists (lighter)
+
 class BackupFlowListResponse(BaseModel):
     id: UUID
     name: Optional[str] = None
@@ -168,7 +186,7 @@ class BackupFlowListResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Backup flow run response
+
 class BackupFlowRunResponse(BaseModel):
     id: UUID
     flow_id: UUID
@@ -206,7 +224,7 @@ class BackupDashboardResponse(BaseModel):
     active_runs: List[BackupDashboardRunResponse]
     recent_runs: List[BackupDashboardRunResponse]
 
-# Source app response
+
 class BackupSourceAppResponse(BaseModel):
     id: UUID
     app_id: str
@@ -220,7 +238,7 @@ class BackupSourceAppResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Google connection response (tokens omitted)
+
 class GoogleConnectionResponse(BaseModel):
     id: UUID
     email: str
@@ -234,13 +252,13 @@ class GoogleConnectionResponse(BaseModel):
     class Config:
         from_attributes = True
 
-# Google Drive item
+
 class GoogleDriveItem(BaseModel):
     id: str
     name: str
-    kind: str   # 'my_drive' | 'shared_drive'
+    kind: str
 
-# Google Folder item
+
 class GoogleFolderItem(BaseModel):
     id: str
     name: str

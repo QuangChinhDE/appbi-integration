@@ -1,33 +1,30 @@
-﻿import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
+import { create } from 'zustand'
 
-export const useAuthStore = create(
-  persist(
-    (set) => ({
-      user: null,
-      token: null,
-      permissions: {},
-      isAuthenticated: false,
-      hasHydrated: false,
-      login: ({ user, token, permissions }) => {
-        set({ user, token, permissions: permissions || {}, isAuthenticated: true, hasHydrated: true })
-      },
-      setSession: ({ user, token, permissions }) => {
-        set((state) => ({
-          user,
-          token: token || state.token,
-          permissions: permissions || {},
-          isAuthenticated: Boolean(token || state.token),
-          hasHydrated: true,
-        }))
-      },
-      markHydrated: () => {
-        set({ hasHydrated: true })
-      },
-      logout: () => {
-        set({ user: null, token: null, permissions: {}, isAuthenticated: false, hasHydrated: true })
-      },
+/**
+ * Session cache — NOT the source of truth.
+ *
+ * Authentication is managed by an httpOnly `access_token` cookie set by the
+ * backend on /api/auth/login. The browser attaches it to every request
+ * automatically (axios `withCredentials: true`).
+ *
+ * This store only caches the user + permissions payload returned by
+ * /api/auth/me so components can read them synchronously. There is no token
+ * here on purpose — we never read/write it from JS (no XSS surface, no
+ * rehydration races).
+ */
+export const useAuthStore = create((set) => ({
+  user: null,
+  permissions: {},
+  isAuthenticated: false,
+  hasHydrated: false,
+  setSession: ({ user, permissions }) =>
+    set({
+      user: user || null,
+      permissions: permissions || {},
+      isAuthenticated: Boolean(user),
+      hasHydrated: true,
     }),
-    { name: 'auth-storage' }
-  )
-)
+  clearSession: () =>
+    set({ user: null, permissions: {}, isAuthenticated: false, hasHydrated: true }),
+  markHydrated: () => set({ hasHydrated: true }),
+}))

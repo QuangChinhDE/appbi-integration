@@ -5,6 +5,8 @@ export const LEVEL_ORDER = {
   full: 3,
 }
 
+export const BACKUP_APPS_PERMISSION_MESSAGE = 'Backup edit and full access require Apps view or higher because Backup reuses saved sources and destinations from Apps.'
+
 const LEGACY_APP_MODULES = ['sources', 'destinations']
 
 export const MODULE_ROUTE_ORDER = [
@@ -24,13 +26,31 @@ function resolveAppsPermission(permissions) {
   ), 'none')
 }
 
-function normalizePermissions(permissions) {
+export function normalizePermissions(permissions) {
   return {
     backup: permissions?.backup || 'none',
     apps: resolveAppsPermission(permissions),
     automation: permissions?.automation || 'none',
     settings: permissions?.settings || 'none',
   }
+}
+
+function hasBackupAppsDependencyConflict(normalized) {
+  return (LEVEL_ORDER[normalized.backup] || 0) >= LEVEL_ORDER.edit && (LEVEL_ORDER[normalized.apps] || 0) < LEVEL_ORDER.view
+}
+
+export function hasBackupAppsPermissionConflict(permissions) {
+  return hasBackupAppsDependencyConflict(normalizePermissions(permissions))
+}
+
+export function resolvePermissionDependencies(permissions) {
+  const normalized = normalizePermissions(permissions)
+
+  if (hasBackupAppsDependencyConflict(normalized)) {
+    normalized.apps = 'view'
+  }
+
+  return normalized
 }
 
 export function hasPermission(permissions, module, minLevel = 'view') {

@@ -1,22 +1,24 @@
 import React from 'react'
 import { AlertTriangle, Info, Trash2 } from 'lucide-react'
-import AppModalShell from './AppModalShell'
+import { cn } from '../../lib/utils'
+import { Button, IconButton } from './ui'
+import { X } from 'lucide-react'
 
 const VARIANT_META = {
   danger: {
-    icon: <Trash2 className="h-5 w-5" />,
-    iconClassName: 'bg-red-50 text-red-600',
-    confirmClassName: 'bg-red-600 text-white hover:bg-red-700',
+    icon: <Trash2 className="h-4 w-4" />,
+    iconClassName: 'text-danger bg-danger/10',
+    confirmVariant: 'danger',
   },
   warning: {
-    icon: <AlertTriangle className="h-5 w-5" />,
-    iconClassName: 'bg-amber-50 text-amber-600',
-    confirmClassName: 'bg-amber-600 text-white hover:bg-amber-700',
+    icon: <AlertTriangle className="h-4 w-4" />,
+    iconClassName: 'text-warning bg-warning/10',
+    confirmVariant: 'primary',
   },
   info: {
-    icon: <Info className="h-5 w-5" />,
-    iconClassName: 'bg-blue-50 text-blue-600',
-    confirmClassName: 'bg-blue-600 text-white hover:bg-blue-700',
+    icon: <Info className="h-4 w-4" />,
+    iconClassName: 'text-info bg-info/10',
+    confirmVariant: 'primary',
   },
 }
 
@@ -35,38 +37,42 @@ const ConfirmDialog = ({
 
   const meta = VARIANT_META[variant] || VARIANT_META.danger
 
+  const handleConfirm = () => {
+    onConfirm()
+    onClose()
+  }
+
   return (
-    <AppModalShell
-      onClose={onClose}
-      title={title}
-      description={description}
-      icon={meta.icon}
-      iconClassName={meta.iconClassName}
-      maxWidthClass="max-w-md"
-      bodyClassName="px-6 py-2"
-      footer={(
-        <>
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isLoading}
-            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-          >
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlay/84 backdrop-blur-[3px] animate-fade-in">
+      <div className="relative mx-4 w-full max-w-md rounded-xl bg-surface-1 border border-[rgb(var(--border-strong))] shadow-linear-lg animate-slide-up">
+        <div className="flex items-start justify-between gap-3 px-5 pt-4 pb-3">
+          <div className="flex items-start gap-3">
+            <div className={cn('flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg', meta.iconClassName)}>
+              {meta.icon}
+            </div>
+            <h3 className="text-small font-strong text-text-primary pt-1">
+              {title}
+            </h3>
+          </div>
+          <IconButton aria-label="Close" variant="ghost" size="sm" onClick={onClose} disabled={isLoading}>
+            <X className="h-4 w-4" />
+          </IconButton>
+        </div>
+
+        <div className="px-5 pb-5 pl-16">
+          <p className="text-caption text-text-secondary">{description}</p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-[rgb(var(--border-line))] bg-surface-2 rounded-b-xl">
+          <Button variant="secondary" size="sm" onClick={onClose} disabled={isLoading}>
             {cancelLabel}
-          </button>
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={isLoading}
-            className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${meta.confirmClassName}`}
-          >
+          </Button>
+          <Button variant={meta.confirmVariant} size="sm" onClick={handleConfirm} loading={isLoading}>
             {confirmLabel}
-          </button>
-        </>
-      )}
-    >
-      <div className="pb-4 text-sm leading-6 text-gray-600">{description}</div>
-    </AppModalShell>
+          </Button>
+        </div>
+      </div>
+    </div>
   )
 }
 

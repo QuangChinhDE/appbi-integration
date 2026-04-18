@@ -936,7 +936,9 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
 
     try:
         # ── Decrypt access token ────────────────────────────────────────────
-        source = flow.source or {}
+        from modules.apps.backend.services.app_credential_service import AppCredentialService
+        credential_service = AppCredentialService(db)
+        source = await credential_service.build_source_runtime(flow.source_credential_id)
         enc_token = source.get("access_token_encrypted")
         if not enc_token:
             raise ValueError(
@@ -967,7 +969,10 @@ async def _execute_backup(flow_id: str, run_id: str, db: AsyncSession) -> None:
         credentials = RequestCredentials(domain=domain, access_token=access_token)
 
         # ── Get Google Drive access token ───────────────────────────────────
-        dest = flow.destination or {}
+        dest = await credential_service.build_destination_runtime(
+            flow.destination_credential_id,
+            dict(flow.destination_target or {}) or None,
+        )
         destination_type = str(dest.get("type") or "gdrive").strip().lower()
         auth = dest.get("auth") or {}
         from modules.credentials.backend.services.google_auth_service import (

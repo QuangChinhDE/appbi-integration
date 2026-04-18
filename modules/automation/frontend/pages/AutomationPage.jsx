@@ -9,42 +9,30 @@ const AutomationPage = () => {
     <AppLayout>
       <PageListLayout
         title="Automation"
-        description="Event-driven workflows, scheduled jobs, and orchestration rules will follow the same module structure used across AppBI AI."
+        description="Event-driven workflows and scheduled jobs."
         overview={(
           <ModuleOverview
             icon={Zap}
             title="Automation workspace"
-            description="This module is reserved for reusable automation flows that connect sources, destinations, and backup execution into one operational surface."
-            badges={['Shared shell', 'Workflow-ready', 'Coming next']}
+            description="Reusable automation flows across sources and destinations."
+            badges={['Planned', 'Workflow-ready']}
             stats={[
-              {
-                label: 'Status',
-                value: 'Planned',
-                helper: 'Module shell is ready for rollout.',
-              },
-              {
-                label: 'Target',
-                value: 'Flows',
-                helper: 'Scheduled and event-based automations.',
-              },
-              {
-                label: 'Design',
-                value: 'Aligned',
-                helper: 'Uses the same presentation pattern as other modules.',
-              },
+              { label: 'Status', value: 'Planned', helper: 'Module shell ready.' },
+              { label: 'Target', value: 'Flows', helper: 'Scheduled and event-based.' },
+              { label: 'Design', value: 'Aligned', helper: 'Shared module pattern.' },
             ]}
           />
         )}
         searchable={false}
         viewToggle={false}
       >
-        <div className="rounded-xl border border-dashed border-gray-200 bg-white px-8 py-14 text-center shadow-sm">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-50 text-blue-600">
-            <Bot className="h-6 w-6" />
+        <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] bg-surface-1 px-8 py-14 text-center">
+          <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-brand/10 text-brand">
+            <Bot className="h-5 w-5" />
           </div>
-          <h2 className="mt-4 text-lg font-semibold text-gray-900">Automation module is being standardized next</h2>
-          <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-gray-500">
-            The route is now attached to the same page shell, overview block, spacing, and empty-state treatment used by the AI application so future workflows land in a consistent UI.
+          <h2 className="mt-4 text-small font-strong text-text-primary">Coming soon</h2>
+          <p className="mx-auto mt-2 max-w-md text-caption leading-relaxed text-text-tertiary">
+            Automation flows will land here.
           </p>
         </div>
       </PageListLayout>
