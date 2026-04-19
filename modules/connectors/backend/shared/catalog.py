@@ -3,7 +3,8 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.database.src.models import AppCredential
+from packages.auth.src.resource_permissions import apply_resource_scope
+from packages.database.src.models import AppCredential, ResourceType, User
 
 from .contracts import (
     AuthSpec,
@@ -1072,12 +1073,12 @@ class ConnectorCatalogService:
 
     # ── New stream-level API ──────────────────────────────────────────────
 
-    async def list_connectors(self) -> list[dict[str, object]]:
-        counts = await self._load_credential_counts()
+    async def list_connectors(self, current_user: User | None = None) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts(current_user)
         return [c.to_payload(credential_count=counts.get(c.connector_key, 0)) for c in CONNECTOR_REGISTRY]
 
-    async def list_connectors_by_capability(self, capability: str) -> list[dict[str, object]]:
-        counts = await self._load_credential_counts()
+    async def list_connectors_by_capability(self, capability: str, current_user: User | None = None) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts(current_user)
         result: list[dict[str, object]] = []
         for c in CONNECTOR_REGISTRY:
             matching_streams = [s for s in c.streams if capability in s.capabilities]
@@ -1085,11 +1086,11 @@ class ConnectorCatalogService:
                 result.append(c.to_payload(credential_count=counts.get(c.connector_key, 0)))
         return result
 
-    async def get_connector_detail(self, connector_key: str) -> dict[str, object] | None:
+    async def get_connector_detail(self, connector_key: str, current_user: User | None = None) -> dict[str, object] | None:
         connector = get_connector(connector_key)
         if connector is None:
             return None
-        counts = await self._load_credential_counts()
+        counts = await self._load_credential_counts(current_user)
         return connector.to_payload(credential_count=counts.get(connector.connector_key, 0))
 
     async def get_stream_detail(self, connector_key: str, stream_key: str) -> dict[str, object] | None:
@@ -1103,8 +1104,8 @@ class ConnectorCatalogService:
 
     # ── Backward-compatible API (used by Pipeline overview and Backup) ────
 
-    async def list_source_readers(self) -> list[dict[str, object]]:
-        counts = await self._load_credential_counts()
+    async def list_source_readers(self, current_user: User | None = None) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts(current_user)
         return [
             c.as_source_reader_payload(
                 credential_count=counts.get(c.connector_key, 0),
@@ -1116,8 +1117,8 @@ class ConnectorCatalogService:
             and c.status != 'planned'
         ]
 
-    async def list_destination_writers(self) -> list[dict[str, object]]:
-        counts = await self._load_credential_counts()
+    async def list_destination_writers(self, current_user: User | None = None) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts(current_user)
         return [
             c.as_destination_writer_payload(
                 credential_count=counts.get(c.connector_key, 0),
@@ -1132,8 +1133,8 @@ class ConnectorCatalogService:
             and c.status != 'planned'
         ]
 
-    async def list_backup_sources(self) -> list[dict[str, object]]:
-        counts = await self._load_credential_counts()
+    async def list_backup_sources(self, current_user: User | None = None) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts(current_user)
         return [
             c.as_source_reader_payload(
                 credential_count=counts.get(c.connector_key, 0),
@@ -1145,9 +1146,9 @@ class ConnectorCatalogService:
             and c.status != 'planned'
         ]
 
-    async def build_pipeline_catalog(self) -> dict[str, object]:
-        sources = await self.list_source_readers()
-        destinations = await self.list_destination_writers()
+    async def build_pipeline_catalog(self, current_user: User | None = None) -> dict[str, object]:
+        sources = await self.list_source_readers(current_user)
+        destinations = await self.list_destination_writers(current_user)
         return {
             'sources': sources,
             'destinations': destinations,
@@ -1159,9 +1160,11 @@ class ConnectorCatalogService:
 
     # ── Internal helpers ──────────────────────────────────────────────────
 
-    async def _load_credential_counts(self) -> dict[str, int]:
-        result = await self.db.execute(
-            select(AppCredential.app_id, func.count(AppCredential.id))
-            .group_by(AppCredential.app_id)
-        )
+    async def _load_credential_counts(self, current_user: User | None = None) -> dict[str, int]:
+        stmt = select(AppCredential.app_id, func.count(AppCredential.id)).group_by(AppCredential.app_id)
+        if current_user is not None:
+            stmt = apply_resource_scope(
+                stmt, AppCredential, ResourceType.APP_CREDENTIAL, current_user, module='apps',
+            )
+        result = await self.db.execute(stmt)
         return {str(app_id): int(count or 0) for app_id, count in result.all()}

@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from packages.auth.src.jwt import decode_access_token
+from packages.auth.src.module_registry import get_module_definition
 from packages.auth.src.permissions import LEVEL_ORDER, get_user_permissions
 from packages.database.src import get_db
 from packages.database.src.models import User, UserStatus
@@ -51,6 +52,33 @@ async def get_current_user(
     return user
 
 
+def _enforce_module_dependencies(
+    permissions: dict, module: str, effective_level: str,
+) -> None:
+    """Check cross-module dependencies at runtime (defense-in-depth).
+
+    For example backup:edit requires apps:view.  The dependency is also
+    enforced when permissions are assigned, but we double-check here so a
+    stale or manually-edited permission set cannot bypass the constraint.
+    """
+    module_def = get_module_definition(module)
+    if module_def is None:
+        return
+    for dep in module_def.dependencies:
+        if LEVEL_ORDER.get(effective_level, 0) < LEVEL_ORDER.get(dep.when_min_level, 0):
+            continue
+        dep_level = permissions.get(dep.module, 'none')
+        if LEVEL_ORDER.get(dep_level, 0) >= LEVEL_ORDER.get(dep.min_level, 0):
+            continue
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=(
+                dep.message
+                or f"{module} {dep.when_min_level}+ requires {dep.module} {dep.min_level} or higher."
+            ),
+        )
+
+
 def require_permission(module: str, min_level: str = 'view'):
     async def _check(user: User = Depends(get_current_user)) -> User:
         permissions = get_user_permissions(user)
@@ -60,6 +88,7 @@ def require_permission(module: str, min_level: str = 'view'):
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Requires '{min_level}' permission on module '{module}'",
             )
+        _enforce_module_dependencies(permissions, module, level)
         return user
 
     return _check

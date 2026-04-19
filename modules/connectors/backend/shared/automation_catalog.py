@@ -4,7 +4,8 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.connectors.apps.service.common.manifest import SERVICE_CONNECTOR_MANIFEST
-from packages.database.src.models import AppCredential
+from packages.auth.src.resource_permissions import apply_resource_scope
+from packages.database.src.models import AppCredential, ResourceType, User
 
 from .validation import ConnectorBindingValidationService
 
@@ -30,8 +31,8 @@ class AutomationCatalogService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def list_connectors(self) -> list[dict[str, object]]:
-        counts = await self._load_credential_counts()
+    async def list_connectors(self, current_user: User | None = None) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts(current_user)
         payloads: list[dict[str, object]] = []
 
         for manifest in AUTOMATION_MANIFESTS:
@@ -82,8 +83,8 @@ class AutomationCatalogService:
 
         return payloads
 
-    async def build_automation_catalog(self) -> dict[str, object]:
-        connectors = await self.list_connectors()
+    async def build_automation_catalog(self, current_user: User | None = None) -> dict[str, object]:
+        connectors = await self.list_connectors(current_user)
         return {
             'connectors': connectors,
             'saved_binding_count': sum(int(item.get('credential_count') or 0) for item in connectors),
@@ -92,9 +93,11 @@ class AutomationCatalogService:
             'trigger_count': sum(int(item.get('trigger_count') or 0) for item in connectors),
         }
 
-    async def _load_credential_counts(self) -> dict[str, int]:
-        result = await self.db.execute(
-            select(AppCredential.app_id, func.count(AppCredential.id))
-            .group_by(AppCredential.app_id)
-        )
+    async def _load_credential_counts(self, current_user: User | None = None) -> dict[str, int]:
+        stmt = select(AppCredential.app_id, func.count(AppCredential.id)).group_by(AppCredential.app_id)
+        if current_user is not None:
+            stmt = apply_resource_scope(
+                stmt, AppCredential, ResourceType.APP_CREDENTIAL, current_user, module='apps',
+            )
+        result = await self.db.execute(stmt)
         return {str(app_id): int(count or 0) for app_id, count in result.all()}

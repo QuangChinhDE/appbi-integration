@@ -12,7 +12,9 @@ from modules.connectors.apps.wework.common import WeworkCredentials, WeworkManag
 from modules.connectors.apps.workflow.common import WorkflowCredentials, WorkflowManagementClient
 from modules.connectors.backend.services.source_app_service import BackupSourceAppService
 from packages.auth.src import require_any_permission
+from packages.auth.src.dependencies import get_current_user
 from packages.database.src import get_db
+from packages.database.src.models import User
 
 
 router = APIRouter(
@@ -727,26 +729,37 @@ async def get_source_app(
 # ── Stream-level connector catalog endpoints ──────────────────────────────────
 
 @router.get("/api/connectors/catalog")
-async def list_connectors(db: AsyncSession = Depends(get_db)):
+async def list_connectors(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """List all registered connectors with their streams and credential counts."""
     from modules.connectors.backend.shared.catalog import ConnectorCatalogService
     service = ConnectorCatalogService(db)
-    return await service.list_connectors()
+    return await service.list_connectors(current_user)
 
 
 @router.get("/api/connectors/catalog/{connector_key}")
-async def get_connector_detail(connector_key: str, db: AsyncSession = Depends(get_db)):
+async def get_connector_detail(
+    connector_key: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Get a single connector with its streams, operations, and credential count."""
     from modules.connectors.backend.shared.catalog import ConnectorCatalogService
     service = ConnectorCatalogService(db)
-    result = await service.get_connector_detail(connector_key)
+    result = await service.get_connector_detail(connector_key, current_user)
     if result is None:
         raise HTTPException(status_code=404, detail=f"Connector '{connector_key}' not found")
     return result
 
 
 @router.get("/api/connectors/catalog/{connector_key}/streams/{stream_key}")
-async def get_stream_detail(connector_key: str, stream_key: str, db: AsyncSession = Depends(get_db)):
+async def get_stream_detail(
+    connector_key: str,
+    stream_key: str,
+    db: AsyncSession = Depends(get_db),
+):
     """Get a single stream definition from a connector."""
     from modules.connectors.backend.shared.catalog import ConnectorCatalogService
     service = ConnectorCatalogService(db)

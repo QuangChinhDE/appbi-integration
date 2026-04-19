@@ -183,7 +183,7 @@ async def autosave_backup_flow(
     if not flow:
         raise HTTPException(status_code=404, detail="Backup flow not found")
     await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
-    ok = await service.autosave_flow(flow_id, data)
+    ok = await service.autosave_flow(flow_id, data, current_user=current_user)
     if not ok:
         raise HTTPException(status_code=404, detail="Backup flow not found")
     return {"saved": True}

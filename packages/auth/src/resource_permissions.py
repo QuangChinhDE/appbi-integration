@@ -278,7 +278,13 @@ async def require_credential_access(
     if credential is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail='Credential not found',
+            detail='Credential not found. You must create a credential in the Apps module first.',
+        )
+
+    if not credential.auth:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Credential has no authentication configured. Update it in the Apps module.',
         )
 
     if min_level == 'view':

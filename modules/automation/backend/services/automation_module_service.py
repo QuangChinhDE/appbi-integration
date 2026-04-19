@@ -4,15 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.connectors.backend.shared.automation_catalog import AutomationCatalogService
 from packages.auth.src.module_registry import get_module_definition
+from packages.database.src.models import User
 
 
 class AutomationModuleService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_overview(self) -> dict[str, object]:
+    async def get_overview(self, current_user: User | None = None) -> dict[str, object]:
         module_definition = get_module_definition('automation')
-        catalog = await AutomationCatalogService(self.db).build_automation_catalog()
+        catalog = await AutomationCatalogService(self.db).build_automation_catalog(current_user)
 
         return {
             'module': module_definition.to_frontend_payload() if module_definition else {
@@ -31,8 +32,8 @@ class AutomationModuleService:
             'connectors': catalog['connectors'],
         }
 
-    async def get_connector(self, connector_key: str) -> dict[str, object] | None:
-        catalog = await AutomationCatalogService(self.db).build_automation_catalog()
+    async def get_connector(self, connector_key: str, current_user: User | None = None) -> dict[str, object] | None:
+        catalog = await AutomationCatalogService(self.db).build_automation_catalog(current_user)
         normalized_key = str(connector_key or '').strip().lower()
         for connector in catalog['connectors']:
             if str(connector.get('key') or '').strip().lower() == normalized_key:

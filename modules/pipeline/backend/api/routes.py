@@ -63,7 +63,7 @@ async def get_pipeline_overview(
     current_user: User = Depends(get_current_user),
 ):
     module_service = PipelineModuleService(db)
-    overview = await module_service.get_overview()
+    overview = await module_service.get_overview(current_user)
     overview['pipelines'] = await PipelineService(db).list_pipelines(current_user)
     overview['pipeline_count'] = len(overview['pipelines'])
     return overview
@@ -161,6 +161,8 @@ async def discover_source_fields(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except HTTPException:
+        raise
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Discovery failed: {exc}") from exc
 

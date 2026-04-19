@@ -28,6 +28,7 @@ from packages.auth.src.resource_permissions import (
     batch_effective_permissions,
     fetch_owner_email_lookup,
     get_effective_permission,
+    require_credential_access,
 )
 from packages.database.src.models import AppCredential, BackupFlow, BackupFlowRun, ResourceType, User
 
@@ -162,14 +163,25 @@ class BackupFlowService:
         return await self.db.get(AppCredential, credential_id)
 
     async def _validate_role_assignment(
-        self, source_credential_id: UUID, destination_credential_id: UUID
+        self, source_credential_id: UUID, destination_credential_id: UUID,
+        current_user: Optional[User] = None,
     ) -> tuple[AppCredential, AppCredential]:
-        source = await self._load_credential(source_credential_id)
+        if current_user is not None:
+            source = await require_credential_access(
+                self.db, current_user, source_credential_id, min_level='view',
+            )
+        else:
+            source = await self._load_credential(source_credential_id)
         ConnectorBindingValidationService.validate_source_credential(
             source,
             module_key='backup',
         )
-        destination = await self._load_credential(destination_credential_id)
+        if current_user is not None:
+            destination = await require_credential_access(
+                self.db, current_user, destination_credential_id, min_level='view',
+            )
+        else:
+            destination = await self._load_credential(destination_credential_id)
         ConnectorBindingValidationService.validate_destination_credential(
             destination,
             module_key='backup',
@@ -325,6 +337,7 @@ class BackupFlowService:
         source, destination = await self._validate_role_assignment(
             save_data.source.credential_id,
             save_data.destination.credential_id,
+            current_user=current_user,
         )
 
         flow_name = self.generate_flow_name(
@@ -348,7 +361,7 @@ class BackupFlowService:
         await self.db.refresh(flow)
         return await self.build_flow_response(flow, current_user)
 
-    async def autosave_flow(self, flow_id: str, data: BackupFlowAutosave) -> bool:
+    async def autosave_flow(self, flow_id: str, data: BackupFlowAutosave, current_user: Optional[User] = None) -> bool:
         flow = await self.db.get(BackupFlow, flow_id)
         if not flow:
             return False
@@ -357,7 +370,12 @@ class BackupFlowService:
             flow.name = data.name.strip() or flow.name
 
         if data.source is not None:
-            source = await self._load_credential(data.source.credential_id)
+            if current_user is not None:
+                source = await require_credential_access(
+                    self.db, current_user, data.source.credential_id, min_level='view',
+                )
+            else:
+                source = await self._load_credential(data.source.credential_id)
             ConnectorBindingValidationService.validate_source_credential(
                 source,
                 module_key='backup',
@@ -368,7 +386,12 @@ class BackupFlowService:
             flow.backup_type = data.backup_type
 
         if data.destination is not None:
-            destination = await self._load_credential(data.destination.credential_id)
+            if current_user is not None:
+                destination = await require_credential_access(
+                    self.db, current_user, data.destination.credential_id, min_level='view',
+                )
+            else:
+                destination = await self._load_credential(data.destination.credential_id)
             ConnectorBindingValidationService.validate_destination_credential(
                 destination,
                 module_key='backup',
@@ -387,6 +410,7 @@ class BackupFlowService:
         source, destination = await self._validate_role_assignment(
             flow_data.source.credential_id,
             flow_data.destination.credential_id,
+            current_user=current_user,
         )
 
         flow_name = self.generate_flow_name(
@@ -516,7 +540,9 @@ class BackupFlowService:
             return None
 
         if flow_update.source is not None:
-            source = await self._load_credential(flow_update.source.credential_id)
+            source = await require_credential_access(
+                self.db, current_user, flow_update.source.credential_id, min_level='view',
+            )
             ConnectorBindingValidationService.validate_source_credential(
                 source,
                 module_key='backup',
@@ -527,7 +553,9 @@ class BackupFlowService:
             flow.backup_type = flow_update.backup_type
 
         if flow_update.destination is not None:
-            destination = await self._load_credential(flow_update.destination.credential_id)
+            destination = await require_credential_access(
+                self.db, current_user, flow_update.destination.credential_id, min_level='view',
+            )
             ConnectorBindingValidationService.validate_destination_credential(
                 destination,
                 module_key='backup',

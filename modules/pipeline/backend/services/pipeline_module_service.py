@@ -4,15 +4,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.connectors.backend.shared.catalog import ConnectorCatalogService
 from packages.auth.src.module_registry import get_module_definition
+from packages.database.src.models import User
 
 
 class PipelineModuleService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def get_overview(self) -> dict[str, object]:
+    async def get_overview(self, current_user: User | None = None) -> dict[str, object]:
         module_definition = get_module_definition('pipeline')
-        catalog = await ConnectorCatalogService(self.db).build_pipeline_catalog()
+        catalog = await ConnectorCatalogService(self.db).build_pipeline_catalog(current_user)
         sources = catalog['sources']
         destinations = catalog['destinations']
 
@@ -36,8 +37,8 @@ class PipelineModuleService:
             'destinations': destinations,
         }
 
-    async def get_capability(self, kind: str, capability_key: str) -> dict[str, object] | None:
-        catalog = await ConnectorCatalogService(self.db).build_pipeline_catalog()
+    async def get_capability(self, kind: str, capability_key: str, current_user: User | None = None) -> dict[str, object] | None:
+        catalog = await ConnectorCatalogService(self.db).build_pipeline_catalog(current_user)
         normalized_kind = str(kind or '').strip().lower()
         normalized_key = str(capability_key or '').strip().lower()
         items = catalog['sources'] if normalized_kind == 'source' else catalog['destinations']

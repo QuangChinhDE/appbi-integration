@@ -8,7 +8,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.automation.backend.services.automation_module_service import AutomationModuleService
 from packages.auth.src import require_permission
+from packages.auth.src.dependencies import get_current_user
 from packages.database.src import get_db
+from packages.database.src.models import User
 
 
 router = APIRouter(tags=['automation'], dependencies=[Depends(require_permission('automation', 'view'))])
@@ -56,15 +58,22 @@ class AutomationOverviewResponse(BaseModel):
 
 
 @router.get('/api/automation/overview', response_model=AutomationOverviewResponse)
-async def get_automation_overview(db: AsyncSession = Depends(get_db)):
+async def get_automation_overview(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     service = AutomationModuleService(db)
-    return await service.get_overview()
+    return await service.get_overview(current_user)
 
 
 @router.get('/api/automation/connectors/{connector_key}', response_model=AutomationConnectorItem)
-async def get_automation_connector(connector_key: str, db: AsyncSession = Depends(get_db)):
+async def get_automation_connector(
+    connector_key: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     service = AutomationModuleService(db)
-    connector = await service.get_connector(connector_key)
+    connector = await service.get_connector(connector_key, current_user)
     if connector is None:
         raise HTTPException(status_code=404, detail='Automation connector not found.')
     return connector
