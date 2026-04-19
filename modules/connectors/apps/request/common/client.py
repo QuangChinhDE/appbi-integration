@@ -207,3 +207,25 @@ class RequestManagementClient:
             {"hid": post_hid, "method": method, "position": position},
         )
         return _extract_named_list(payload, "comments", "data")
+
+    async def create_request(
+        self,
+        *,
+        username: str,
+        group_id: str,
+        name: str,
+        description: str | None = None,
+        followers: str | None = None,
+        assignees: str | None = None,
+        custom_fields: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = {
+            "username": username,
+            "group_id": group_id,
+            "name": name,
+            "description": description,
+            "followers": followers,
+            "assignees": assignees,
+            **clean_body(custom_fields),
+        }
+        return await self.request(ENDPOINTS["create_request"], body)

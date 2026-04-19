@@ -5,7 +5,7 @@ import { APP_CATALOG, getAppMeta } from '@modules/apps/frontend/constants'
 const PIPELINE_STEPS = [
   { key: 'source', label: 'Source' },
   { key: 'destination', label: 'Destination' },
-  { key: 'mapping', label: 'Field Mapping' },
+  { key: 'bindings', label: 'Stream Bindings' },
   { key: 'schedule', label: 'Schedule' },
   { key: 'review', label: 'Review & Create' },
 ]

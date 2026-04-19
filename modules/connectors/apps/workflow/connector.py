@@ -103,6 +103,34 @@ class WorkflowConnector(BaseConnector):
         *,
         config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        cfg = dict(config or {})
+        write_mode = str(cfg.get('write_mode') or 'append').lower()
+        if write_mode != 'append':
+            raise ValueError(f"Workflow connector only supports write_mode='append', got '{write_mode}'")
+
+        if stream_key == 'jobs':
+            client = await self._get_client()
+            default_workflow_id = str(cfg.get('workflow_id') or '')
+            written = 0
+            errors = 0
+            for record in records:
+                try:
+                    await client.create_job(
+                        creator_username=str(record.get('creator_username') or cfg.get('username') or ''),
+                        workflow_id=str(record.get('workflow_id') or default_workflow_id),
+                        name=str(record.get('name') or ''),
+                        assignees=record.get('assignees'),
+                        followers=record.get('followers'),
+                        managers=record.get('managers'),
+                        description=record.get('description'),
+                        deadline=record.get('deadline'),
+                        custom_fields=record.get('custom_fields'),
+                    )
+                    written += 1
+                except Exception:
+                    errors += 1
+            return {'written': written, 'errors': errors}
+
         stream = self.definition.get_stream(stream_key)
         if stream is None:
             raise ValueError(f"Stream '{stream_key}' not found")

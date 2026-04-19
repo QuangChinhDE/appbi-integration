@@ -54,12 +54,12 @@
       "key": "automation",
       "label": "Automation",
       "route": "/automation",
-      "description": "Reusable workflow automation and future orchestration surfaces.",
+      "description": "Reusable workflow automation. Parked until Pipeline and Backup stabilize on the new connector contract.",
       "icon": "Zap",
       "nav_order": 40,
       "levels": ["none", "view", "edit", "full"],
       "feature_flag": "FEATURE_MODULE_AUTOMATION_ENABLED",
-      "default_enabled": true,
+      "default_enabled": false,
       "dependencies": [
         {
           "module": "apps",

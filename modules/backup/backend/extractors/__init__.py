@@ -1,19 +1,9 @@
-"""
-Backup extractors — one module per Base app.
+"""Backup extractors.
 
-Each extractor defines a `run_<app>_backup(flow_id, run_id)` async entry point
-that the BackupFlowService dispatches to.
+All backups go through the generic connector extractor — it reads streams
+via the shared ConnectorRuntimeService and writes files through Google Drive.
+Per-app extractor modules were removed when the connector contract landed.
 """
-from modules.backup.backend.extractors.request_extractor import run_request_backup
-from modules.backup.backend.extractors.workflow_extractor import run_workflow_backup
-from modules.backup.backend.extractors.wework_extractor import run_wework_backup, WeworkBackupExtractor
-from modules.backup.backend.extractors.service_extractor import run_service_backup, ServiceBackupExtractor
+from modules.backup.backend.extractors.generic_connector_extractor import run_generic_connector_backup
 
-__all__ = [
-    "run_request_backup",
-    "run_workflow_backup",
-    "run_wework_backup",
-    "run_service_backup",
-    "WeworkBackupExtractor",
-    "ServiceBackupExtractor",
-]
+__all__ = ["run_generic_connector_backup"]

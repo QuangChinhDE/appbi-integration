@@ -173,7 +173,7 @@ class BackupFlowService:
         ConnectorBindingValidationService.validate_destination_credential(
             destination,
             module_key='backup',
-            require_tabular_destination=False,
+            pipeline_destination_only=False,
         )
         return source, destination
 
@@ -372,7 +372,7 @@ class BackupFlowService:
             ConnectorBindingValidationService.validate_destination_credential(
                 destination,
                 module_key='backup',
-                require_tabular_destination=False,
+                pipeline_destination_only=False,
             )
             flow.destination_credential_id = destination.id
             flow.destination_target = dict(data.destination.target or {}) or None
@@ -531,7 +531,7 @@ class BackupFlowService:
             ConnectorBindingValidationService.validate_destination_credential(
                 destination,
                 module_key='backup',
-                require_tabular_destination=False,
+                pipeline_destination_only=False,
             )
             flow.destination_credential_id = destination.id
             flow.destination_target = dict(flow_update.destination.target or {}) or None
@@ -595,22 +595,8 @@ class BackupFlowService:
         validation_view["auth_mode"] = destination.auth_mode
         validate_service_account_drive_destination(validation_view)
 
-        runner = None
-        if source.app_id == 'request':
-            from modules.backup.backend.extractors.request_extractor import run_request_backup
-            runner = run_request_backup
-        elif source.app_id == 'service':
-            from modules.backup.backend.extractors.service_extractor import run_service_backup
-            runner = run_service_backup
-        elif source.app_id == 'wework':
-            from modules.backup.backend.extractors.wework_extractor import run_wework_backup
-            runner = run_wework_backup
-        elif source.app_id == 'workflow':
-            from modules.backup.backend.extractors.workflow_extractor import run_workflow_backup
-            runner = run_workflow_backup
-        else:
-            from modules.backup.backend.extractors.generic_connector_extractor import run_generic_connector_backup
-            runner = run_generic_connector_backup
+        from modules.backup.backend.extractors.generic_connector_extractor import run_generic_connector_backup
+        runner = run_generic_connector_backup
 
         new_run = BackupFlowRun(
             flow_id=flow_id,

@@ -100,18 +100,25 @@ class ServiceConnector(BaseConnector):
         *,
         config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        cfg = dict(config or {})
+        write_mode = str(cfg.get('write_mode') or 'append').lower()
+        if write_mode != 'append':
+            raise ValueError(f"Service connector only supports write_mode='append', got '{write_mode}'")
+
         client = await self._get_client()
 
         if stream_key == 'tickets':
+            default_service_id = str(cfg.get('service_id') or '')
+            default_username = str(cfg.get('username') or '')
             created = 0
             errors = 0
             for record in records:
                 try:
                     await client.create_ticket(
-                        username=record['username'],
-                        service_id=record['service_id'],
-                        block_id=record['block_id'],
-                        name=record['name'],
+                        username=str(record.get('username') or default_username),
+                        service_id=str(record.get('service_id') or default_service_id),
+                        block_id=str(record.get('block_id') or ''),
+                        name=str(record.get('name') or ''),
                         assignees=record.get('assignees'),
                         followers=record.get('followers'),
                         managers=record.get('managers'),

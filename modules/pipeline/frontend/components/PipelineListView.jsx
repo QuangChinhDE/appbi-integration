@@ -38,7 +38,7 @@ function PipelineTitleButton({ children, onClick }) {
 
 function PipelineStatusTags({ record, activeFilters, onFilterClick }) {
   const statusVariant = PIPELINE_STATUS_VARIANT[record.status] || 'neutral'
-  const writeModeLabel = record.write_mode || 'append'
+  const bindingCount = (record.bindings || []).length
   const scheduleLabel = record.schedule?.type || 'manual'
 
   return (
@@ -50,12 +50,8 @@ function PipelineStatusTags({ record, activeFilters, onFilterClick }) {
       >
         {PIPELINE_STATUS_LABEL[record.status] || record.status}
       </FilterTag>
-      <FilterTag
-        tone="neutral"
-        active={activeFilters?.write_mode === writeModeLabel}
-        onClick={() => onFilterClick?.('write_mode', writeModeLabel)}
-      >
-        {writeModeLabel}
+      <FilterTag tone="neutral">
+        {bindingCount} binding{bindingCount === 1 ? '' : 's'}
       </FilterTag>
       <FilterTag
         tone="neutral"
@@ -160,7 +156,7 @@ function PipelineListView({
 }) {
   const hasFilterText = filterText.trim().length > 0
   const hasActiveFilters = Boolean(
-    activeFilters?.status || activeFilters?.write_mode || activeFilters?.schedule
+    activeFilters?.status || activeFilters?.schedule
   )
 
   if (!hasPipelines) {
@@ -240,7 +236,7 @@ function PipelineListView({
 
               <div className="mt-4 flex items-center justify-between gap-3 border-t border-[rgb(var(--border-line))] pt-3">
                 <div className="min-w-0 text-tiny text-text-tertiary">
-                  {(record.source_streams || []).length} stream(s) · {record.dest_stream_key}
+                  {(record.bindings || []).length} binding(s)
                 </div>
                 <span className="text-tiny text-text-tertiary" title={formatDateTitle(record.updated_at)}>
                   Updated {formatDateLabel(record.updated_at)}
@@ -299,7 +295,7 @@ function PipelineListView({
                       <span>{dstMeta?.title || record.dest_connector_key}</span>
                     </div>
                     <div className="mt-0.5 text-tiny text-text-tertiary">
-                      {(record.source_streams || []).length} stream(s) → {record.dest_stream_key}
+                      {(record.bindings || []).length} binding(s)
                     </div>
                   </td>
                   <td className="px-6 py-4">

@@ -249,3 +249,80 @@ class WeworkManagementClient:
 
     async def get_tasklist(self, tasklist_id: str) -> dict[str, Any]:
         return _extract_named_mapping(await self.request(ENDPOINTS["get_tasklist"], {"id": tasklist_id}), "tasklist", "data")
+
+    async def create_department(
+        self,
+        *,
+        username: str,
+        name: str,
+        description: str | None = None,
+        parent_id: str | None = None,
+    ) -> dict[str, Any]:
+        body = {
+            "username": username,
+            "name": name,
+            "description": description,
+            "parent_id": parent_id,
+        }
+        return await self.request(ENDPOINTS["create_department"], body)
+
+    async def create_project(
+        self,
+        *,
+        username: str,
+        metatype: str,
+        name: str,
+        external: str,
+        description: str | None = None,
+        parent_id: str | None = None,
+    ) -> dict[str, Any]:
+        body = {
+            "username": username,
+            "metatype": metatype,
+            "name": name,
+            "external": external,
+            "description": description,
+            "parent_id": parent_id,
+        }
+        return await self.request(ENDPOINTS["create_project"], body)
+
+    async def create_task(
+        self,
+        *,
+        username: str,
+        project_id: str,
+        name: str,
+        assignee: str | None = None,
+        description: str | None = None,
+        deadline: str | None = None,
+        tasklist_id: str | None = None,
+    ) -> dict[str, Any]:
+        # Note: WeWork task/create uses `id` as the project id.
+        body = {
+            "username": username,
+            "id": project_id,
+            "name": name,
+            "assignee": assignee,
+            "description": description,
+            "deadline": deadline,
+            "tasklist_id": tasklist_id,
+        }
+        return await self.request(ENDPOINTS["create_task"], body)
+
+    async def create_subtask(
+        self,
+        *,
+        username: str,
+        parent_id: str,
+        name: str,
+        assignee: str | None = None,
+        description: str | None = None,
+    ) -> dict[str, Any]:
+        body = {
+            "username": username,
+            "parent_id": parent_id,
+            "name": name,
+            "assignee": assignee,
+            "description": description,
+        }
+        return await self.request(ENDPOINTS["create_subtask"], body)

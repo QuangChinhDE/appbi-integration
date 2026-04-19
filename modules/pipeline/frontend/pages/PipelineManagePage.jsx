@@ -72,7 +72,7 @@ function TabOverview({ pipeline, runs }) {
             </div>
           )}
           <div className="text-caption font-emphasis text-text-primary">{sourceMeta?.title || pipeline.source_connector_key}</div>
-          <div className="text-tiny text-text-tertiary">{pipeline.source_streams?.length || 0} stream(s)</div>
+          <div className="text-tiny text-text-tertiary">{pipeline.bindings?.length || 0} binding(s)</div>
         </div>
 
         <div className="flex items-center gap-1 text-text-quaternary">
@@ -88,15 +88,15 @@ function TabOverview({ pipeline, runs }) {
             </div>
           )}
           <div className="text-caption font-emphasis text-text-primary">{destMeta?.title || pipeline.dest_connector_key}</div>
-          <div className="text-tiny text-text-tertiary">{pipeline.dest_stream_key}</div>
+          <div className="text-tiny text-text-tertiary">{pipeline.bindings?.length || 0} stream(s)</div>
         </div>
       </div>
 
       {/* Quick stats */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-[rgb(var(--border-line))] bg-surface-2 px-4 py-3">
-          <div className="text-tiny text-text-quaternary">Write Mode</div>
-          <div className="mt-1 text-caption font-emphasis text-text-primary capitalize">{pipeline.write_mode}</div>
+          <div className="text-tiny text-text-quaternary">Bindings</div>
+          <div className="mt-1 text-caption font-emphasis text-text-primary">{pipeline.bindings?.length || 0}</div>
         </div>
         <div className="rounded-lg border border-[rgb(var(--border-line))] bg-surface-2 px-4 py-3">
           <div className="text-tiny text-text-quaternary">Schedule</div>
@@ -150,12 +150,11 @@ function TabConfig({ pipeline }) {
   const sections = [
     { label: 'Source Connector', value: pipeline.source_connector_key },
     { label: 'Source Credential', value: pipeline.source_credential_id || '—' },
-    { label: 'Source Streams', value: (pipeline.source_streams || []).join(', ') || '—' },
     { label: 'Destination Connector', value: pipeline.dest_connector_key },
     { label: 'Destination Credential', value: pipeline.dest_credential_id || '—' },
-    { label: 'Target Stream', value: pipeline.dest_stream_key },
-    { label: 'Write Mode', value: pipeline.write_mode },
   ]
+
+  const bindings = pipeline.bindings || []
 
   return (
     <div className="space-y-4">
@@ -168,29 +167,40 @@ function TabConfig({ pipeline }) {
         ))}
       </div>
 
-      {pipeline.field_mapping && Object.keys(pipeline.field_mapping).length > 0 && (
-        <div>
-          <h3 className="mb-2 text-caption font-emphasis text-text-primary">Field Mapping</h3>
-          <div className="overflow-hidden rounded-lg border border-[rgb(var(--border-line))]">
-            <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
-              <thead className="bg-surface-2">
+      <div>
+        <h3 className="mb-2 text-caption font-emphasis text-text-primary">Stream Bindings</h3>
+        <div className="overflow-hidden rounded-lg border border-[rgb(var(--border-line))]">
+          <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+            <thead className="bg-surface-2">
+              <tr>
+                <th className="px-4 py-2 text-left text-tiny font-emphasis uppercase text-text-quaternary">Source stream</th>
+                <th className="px-4 py-2 text-left text-tiny font-emphasis uppercase text-text-quaternary">→ Destination stream</th>
+                <th className="px-4 py-2 text-left text-tiny font-emphasis uppercase text-text-quaternary">Write mode</th>
+                <th className="px-4 py-2 text-left text-tiny font-emphasis uppercase text-text-quaternary">Field mapping</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-[rgb(var(--border-line))]">
+              {bindings.length === 0 && (
                 <tr>
-                  <th className="px-4 py-2 text-left text-tiny font-emphasis uppercase text-text-quaternary">Source</th>
-                  <th className="px-4 py-2 text-left text-tiny font-emphasis uppercase text-text-quaternary">→ Destination</th>
+                  <td colSpan={4} className="px-4 py-4 text-caption text-text-tertiary">No bindings defined.</td>
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-[rgb(var(--border-line))]">
-                {Object.entries(pipeline.field_mapping).map(([src, dest]) => (
-                  <tr key={src} className="hover:bg-surface-2">
-                    <td className="px-4 py-2 text-caption text-text-primary">{src}</td>
-                    <td className="px-4 py-2 text-caption text-text-primary">{dest || src}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              )}
+              {bindings.map((b, i) => (
+                <tr key={i} className="hover:bg-surface-2">
+                  <td className="px-4 py-2 text-caption text-text-primary">{b.source_stream_key}</td>
+                  <td className="px-4 py-2 text-caption text-text-primary">{b.dest_stream_key}</td>
+                  <td className="px-4 py-2 text-caption text-text-tertiary">{b.write_mode}</td>
+                  <td className="px-4 py-2 text-caption text-text-tertiary">
+                    {b.field_mapping && Object.keys(b.field_mapping).length > 0
+                      ? `${Object.keys(b.field_mapping).length} field(s)`
+                      : 'auto'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      </div>
     </div>
   )
 }

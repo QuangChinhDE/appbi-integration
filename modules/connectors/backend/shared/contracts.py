@@ -82,7 +82,22 @@ class OperationSpec:
 
 @dataclass(frozen=True)
 class StreamDefinition:
-    """One logical data stream within a connector (e.g. 'tickets', 'services')."""
+    """One logical data stream within a connector (e.g. 'tickets', 'services').
+
+    `supported_modules` declares which consumer modules may use this stream:
+
+      - 'pipeline' — stream returns flat structured records suitable for
+        source→destination ETL to BigQuery / Sheets / SQL. Default for any
+        stream whose payload is row-shaped with no heavy nested content.
+      - 'backup' — stream carries unstructured or mixed content (posts,
+        comments, attachments, rich details) that is meant to be archived
+        to Drive/OneDrive, not shipped into a warehouse.
+      - 'automation' — rarely used at stream level (automation is mostly
+        driven by OperationSpec write ops). Reserved for future triggers.
+
+    Pure-structured lists should NOT include 'backup'. Backup is explicitly
+    the archive-to-Drive path for content that doesn't belong in a warehouse.
+    """
     stream_key: str
     display_name: str
     capabilities: tuple[str, ...]       # ('read',), ('write',), or ('read', 'write')
@@ -95,6 +110,7 @@ class StreamDefinition:
     schema_fields: tuple[FieldDescriptor, ...] = ()
     config_fields: tuple[FieldDescriptor, ...] = ()
     write_config: WriteConfig | None = None  # only set for destination streams
+    supported_modules: tuple[str, ...] = ('pipeline',)
 
     @property
     def can_read(self) -> bool:
@@ -103,6 +119,9 @@ class StreamDefinition:
     @property
     def can_write(self) -> bool:
         return 'write' in self.capabilities
+
+    def supports_module(self, module_key: str) -> bool:
+        return module_key in self.supported_modules
 
     def to_payload(self) -> dict[str, Any]:
         return {
@@ -140,6 +159,7 @@ class StreamDefinition:
                 for f in self.config_fields
             ],
             'write_config': self.write_config.to_payload() if self.write_config else None,
+            'supported_modules': list(self.supported_modules),
         }
 
 
@@ -215,11 +235,31 @@ class ConnectorDefinition:
         """Streams with write_config — true pipeline destinations (not write-back)."""
         return tuple(s for s in self.streams if s.write_config is not None)
 
+    def get_backup_streams(self) -> tuple[StreamDefinition, ...]:
+        """Readable streams approved for backup (unstructured or mixed content)."""
+        return tuple(
+            s for s in self.streams
+            if s.can_read and s.supports_module('backup')
+        )
+
+    def get_pipeline_source_streams(self) -> tuple[StreamDefinition, ...]:
+        """Readable streams approved for pipeline (flat structured rows)."""
+        return tuple(
+            s for s in self.streams
+            if s.can_read and s.supports_module('pipeline')
+        )
+
     def get_pipeline_destination_streams(self) -> tuple[StreamDefinition, ...]:
+        """Streams that are valid pipeline destinations.
+
+        Pipeline accepts both tabular (spreadsheets/tables) and resource
+        (tickets/jobs/projects) destinations. Blob destinations are excluded
+        — they are for backup, not row-level pipeline transfer.
+        """
         return tuple(
             s
             for s in self.streams
-            if s.write_config is not None and s.write_config.target_kind == 'tabular'
+            if s.write_config is not None and s.write_config.target_kind in ('tabular', 'resource')
         )
 
     def supports_module(self, module_key: str) -> bool:
@@ -251,8 +291,16 @@ class ConnectorDefinition:
     # These generate the legacy SourceReaderDefinition / DestinationWriterDefinition
     # payloads so existing Pipeline and Backup UIs keep working during transition.
 
-    def as_source_reader_payload(self, *, credential_count: int = 0) -> dict[str, Any]:
-        readable = self.get_readable_streams()
+    def as_source_reader_payload(
+        self,
+        *,
+        credential_count: int = 0,
+        module_key: str = 'pipeline',
+    ) -> dict[str, Any]:
+        readable = tuple(
+            s for s in self.get_readable_streams()
+            if s.supports_module(module_key)
+        )
         all_sync_modes: set[str] = set()
         for s in readable:
             all_sync_modes.update(s.sync_modes)
@@ -278,8 +326,16 @@ class ConnectorDefinition:
             'streams': [s.to_payload() for s in readable],
         }
 
-    def as_destination_writer_payload(self, *, credential_count: int = 0) -> dict[str, Any]:
-        writable = self.get_pipeline_destination_streams()
+    def as_destination_writer_payload(
+        self,
+        *,
+        credential_count: int = 0,
+        module_key: str = 'pipeline',
+    ) -> dict[str, Any]:
+        writable = tuple(
+            s for s in self.get_pipeline_destination_streams()
+            if s.supports_module(module_key)
+        )
         return {
             'key': f'{self.connector_key}_writer',
             'app_id': self.connector_key,

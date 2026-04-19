@@ -146,7 +146,7 @@ function PipelineDetailView({
                       {pipeline?.name || <span className="italic text-text-quaternary">Untitled pipeline</span>}
                     </h2>
                     <Badge variant={statusVariant} size="sm">{statusLabel}</Badge>
-                    <Badge variant="neutral" size="sm">{WRITE_MODE_LABEL[pipeline?.write_mode] || pipeline?.write_mode}</Badge>
+                    <Badge variant="neutral" size="sm">{(pipeline?.bindings || []).length} binding(s)</Badge>
                     <Badge variant="neutral" size="sm">{pipeline?.schedule?.type || 'Manual'}</Badge>
                   </div>
                   <p className="text-caption text-text-tertiary">
@@ -169,14 +169,9 @@ function PipelineDetailView({
                 <ConfigField label="Credential">
                   <span className="break-all font-mono text-tiny">{pipeline?.source_credential_id || '-'}</span>
                 </ConfigField>
-                <div>
-                  <div className="mb-1 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Streams</div>
-                  <div className="flex flex-wrap gap-1">
-                    {(pipeline?.source_streams || []).length > 0
-                      ? pipeline.source_streams.map((key) => <Badge key={key} variant="brand" size="xs">{key}</Badge>)
-                      : <span className="text-tiny text-text-quaternary">-</span>}
-                  </div>
-                </div>
+                <ConfigField label="Bindings">
+                  <span className="font-strong text-text-primary">{(pipeline?.bindings || []).length}</span>
+                </ConfigField>
               </ConfigColumn>
 
               <ConfigColumn icon={Database} label="Destination">
@@ -186,9 +181,8 @@ function PipelineDetailView({
                 <ConfigField label="Credential">
                   <span className="break-all font-mono text-tiny">{pipeline?.dest_credential_id || '-'}</span>
                 </ConfigField>
-                <ConfigField label="Target stream">{pipeline?.dest_stream_key || '-'}</ConfigField>
-                <ConfigField label="Write mode">
-                  <span className="font-strong text-text-primary">{WRITE_MODE_LABEL[pipeline?.write_mode] || pipeline?.write_mode || '-'}</span>
+                <ConfigField label="Bindings">
+                  <span className="font-strong text-text-primary">{(pipeline?.bindings || []).length}</span>
                 </ConfigField>
               </ConfigColumn>
 
@@ -226,25 +220,33 @@ function PipelineDetailView({
             </div>
           </div>
 
-          {/* ── Field mapping card ── */}
-          {pipeline?.field_mapping && Object.keys(pipeline.field_mapping).length > 0 && (
+          {/* ── Bindings card ── */}
+          {(pipeline?.bindings || []).length > 0 && (
             <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
               <div className="border-b border-[rgb(var(--border-line))] px-6 py-4">
-                <h3 className="text-caption font-strong text-text-primary">Field mapping</h3>
+                <h3 className="text-caption font-strong text-text-primary">Stream bindings</h3>
               </div>
               <div className="overflow-x-auto">
                 <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
                   <thead className="bg-surface-2">
                     <tr>
-                      <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Source field</th>
-                      <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Destination field</th>
+                      <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Source stream</th>
+                      <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Destination stream</th>
+                      <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Write mode</th>
+                      <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Field mapping</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[rgb(var(--border-line))]">
-                    {Object.entries(pipeline.field_mapping).map(([src, dest]) => (
-                      <tr key={src} className="hover:bg-surface-2/70">
-                        <td className="px-6 py-2 text-caption text-text-primary font-mono text-tiny">{src}</td>
-                        <td className="px-6 py-2 text-caption text-text-primary font-mono text-tiny">{dest || src}</td>
+                    {pipeline.bindings.map((b, i) => (
+                      <tr key={i} className="hover:bg-surface-2/70">
+                        <td className="px-6 py-2 text-caption text-text-primary font-mono text-tiny">{b.source_stream_key}</td>
+                        <td className="px-6 py-2 text-caption text-text-primary font-mono text-tiny">{b.dest_stream_key}</td>
+                        <td className="px-6 py-2 text-caption text-text-tertiary">{WRITE_MODE_LABEL[b.write_mode] || b.write_mode}</td>
+                        <td className="px-6 py-2 text-caption text-text-tertiary">
+                          {b.field_mapping && Object.keys(b.field_mapping).length > 0
+                            ? `${Object.keys(b.field_mapping).length} field(s)`
+                            : 'auto'}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

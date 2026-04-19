@@ -12,4 +12,8 @@ ENDPOINTS = {
     "get_task": "/task/get",
     "get_project_tasks": "/task/project",
     "get_tasklist": "/tasklist/get",
+    "create_department": "/dept/create",
+    "create_project": "/project/create",
+    "create_task": "/task/create",
+    "create_subtask": "/subtask/create",
 }

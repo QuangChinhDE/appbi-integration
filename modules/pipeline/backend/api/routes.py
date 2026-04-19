@@ -88,20 +88,31 @@ router.include_router(catalog_router)
 crud_router = APIRouter()
 
 
+class PipelineBinding(BaseModel):
+    source_stream_key: str
+    source_config: dict[str, Any] = Field(default_factory=dict)
+    dest_stream_key: str
+    dest_config: dict[str, Any] = Field(default_factory=dict)
+    write_mode: str = 'append'
+    field_mapping: dict[str, Any] = Field(default_factory=dict)
+
+
+class DiscoverFieldsRequest(BaseModel):
+    source_credential_id: str
+    source_connector_key: str
+    source_stream_key: str
+    source_config: dict[str, Any] = Field(default_factory=dict)
+    sample_size: int = 10
+
+
 class PipelineCreateRequest(BaseModel):
     name: str
     description: str | None = None
     source_connector_key: str
     source_credential_id: str | None = None
-    source_stream_key: str | None = None
-    source_streams: list[str] = Field(default_factory=list)
-    source_config: dict[str, Any] | None = None
     dest_connector_key: str
     dest_credential_id: str | None = None
-    dest_stream_key: str
-    dest_config: dict[str, Any] | None = None
-    write_mode: str = 'append'
-    field_mapping: dict[str, Any] | None = None
+    bindings: list[PipelineBinding] = Field(default_factory=list)
     schedule: dict[str, Any] | None = None
     status: str = 'draft'
 
@@ -112,15 +123,9 @@ class PipelineUpdateRequest(BaseModel):
     status: str | None = None
     source_connector_key: str | None = None
     source_credential_id: str | None = None
-    source_stream_key: str | None = None
-    source_streams: list[str] | None = None
-    source_config: dict[str, Any] | None = None
     dest_connector_key: str | None = None
     dest_credential_id: str | None = None
-    dest_stream_key: str | None = None
-    dest_config: dict[str, Any] | None = None
-    write_mode: str | None = None
-    field_mapping: dict[str, Any] | None = None
+    bindings: list[PipelineBinding] | None = None
     schedule: dict[str, Any] | None = None
 
 
@@ -136,6 +141,26 @@ async def _get_run_or_404(db: AsyncSession, run_id: UUID) -> PipelineRun:
     if run is None:
         raise HTTPException(status_code=404, detail='Pipeline run not found.')
     return run
+
+
+@crud_router.post('/api/pipeline/discover-fields', dependencies=[Depends(require_permission('pipeline', 'edit'))])
+async def discover_source_fields(
+    body: DiscoverFieldsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    service = PipelineService(db)
+    try:
+        return await service.discover_source_fields(
+            source_credential_id=body.source_credential_id,
+            source_connector_key=body.source_connector_key,
+            source_stream_key=body.source_stream_key,
+            source_config=body.source_config,
+            sample_size=body.sample_size,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Discovery failed: {exc}") from exc
 
 
 @crud_router.post('/api/pipeline/pipelines', dependencies=[Depends(require_permission('pipeline', 'edit'))])

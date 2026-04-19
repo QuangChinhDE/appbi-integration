@@ -833,22 +833,15 @@ async def _ensure_data_pipeline_tables(db: AsyncSession) -> bool:
             status VARCHAR(20) NOT NULL DEFAULT 'draft',
             source_connector_key VARCHAR(50) NOT NULL,
             source_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
-            source_stream_key VARCHAR(100),
-            source_streams JSONB NOT NULL DEFAULT '[]'::jsonb,
-            source_config JSONB,
             dest_connector_key VARCHAR(50) NOT NULL,
             dest_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
-            dest_stream_key VARCHAR(100) NOT NULL,
-            dest_config JSONB,
-            write_mode VARCHAR(20) NOT NULL DEFAULT 'append',
-            field_mapping JSONB,
+            bindings JSONB NOT NULL DEFAULT '[]'::jsonb,
             schedule JSONB,
             last_run_at TIMESTAMPTZ,
             last_run_status VARCHAR(20),
             created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
             CONSTRAINT check_pipeline_status CHECK (status IN ('draft', 'active', 'paused', 'archived')),
-            CONSTRAINT check_pipeline_write_mode CHECK (write_mode IN ('append', 'replace', 'upsert')),
             CONSTRAINT check_pipeline_last_run_status CHECK (last_run_status IS NULL OR last_run_status IN ('pending', 'running', 'completed', 'failed'))
         )
     """))
@@ -880,47 +873,60 @@ async def _ensure_data_pipeline_tables(db: AsyncSession) -> bool:
     return True
 
 
-async def _ensure_data_pipeline_columns(db: AsyncSession) -> bool:
+async def _ensure_data_pipeline_bindings_schema(db: AsyncSession) -> bool:
+    """Consolidate legacy per-pipeline stream/write columns into a `bindings` JSONB.
+
+    Pre-prod schema rollover: adds `bindings`, folds old single-stream rows
+    into one binding each, then drops the legacy columns.
+    """
     if not await _table_exists(db, 'data_pipelines'):
         return False
 
     changed = False
-    if not await _column_exists(db, 'data_pipelines', 'source_stream_key'):
-        await db.execute(text("ALTER TABLE data_pipelines ADD COLUMN source_stream_key VARCHAR(100)"))
+
+    if not await _column_exists(db, 'data_pipelines', 'bindings'):
+        await db.execute(text(
+            "ALTER TABLE data_pipelines ADD COLUMN bindings JSONB NOT NULL DEFAULT '[]'::jsonb"
+        ))
         changed = True
 
-    await db.execute(
-        text(
+    # Fold legacy single-stream columns into one binding per pipeline. Only
+    # write if `bindings` is still the empty default, so this is a no-op on a
+    # freshly-created schema.
+    legacy_columns = [
+        col for col in (
+            'source_stream_key', 'source_streams', 'source_config',
+            'dest_stream_key', 'dest_config', 'write_mode', 'field_mapping',
+        )
+        if await _column_exists(db, 'data_pipelines', col)
+    ]
+    if legacy_columns:
+        await db.execute(text(
             """
             UPDATE data_pipelines
-            SET source_stream_key = NULLIF(source_streams->>0, '')
-            WHERE source_stream_key IS NULL
-              AND jsonb_typeof(source_streams) = 'array'
-              AND jsonb_array_length(source_streams) >= 1
+            SET bindings = jsonb_build_array(jsonb_strip_nulls(jsonb_build_object(
+                'source_stream_key', source_stream_key,
+                'source_config', COALESCE(source_config, '{}'::jsonb),
+                'dest_stream_key', dest_stream_key,
+                'dest_config', COALESCE(dest_config, '{}'::jsonb),
+                'write_mode', COALESCE(write_mode, 'append'),
+                'field_mapping', COALESCE(field_mapping, '{}'::jsonb)
+            )))
+            WHERE (bindings IS NULL OR bindings = '[]'::jsonb)
+              AND source_stream_key IS NOT NULL
+              AND dest_stream_key IS NOT NULL
             """
-        )
-    )
+        ))
+        # Drop legacy columns and their constraints.
+        await db.execute(text(
+            "ALTER TABLE data_pipelines DROP CONSTRAINT IF EXISTS check_pipeline_write_mode"
+        ))
+        for col in legacy_columns:
+            await db.execute(text(f"ALTER TABLE data_pipelines DROP COLUMN IF EXISTS {col}"))
+            changed = True
+        logger.info('Migrated legacy single-stream pipeline columns into bindings')
 
-    await db.execute(
-        text(
-            """
-            UPDATE data_pipelines
-            SET
-                status = 'draft',
-                source_config = jsonb_set(
-                    COALESCE(source_config, '{}'::jsonb),
-                    '{legacy_source_streams}',
-                    source_streams,
-                    true
-                )
-            WHERE jsonb_typeof(source_streams) = 'array'
-              AND jsonb_array_length(source_streams) > 1
-            """
-        )
-    )
-
-    await _ensure_resource_share_constraints(db)
-    return True
+    return changed
 
 
 async def run_startup_schema_migrations(db: AsyncSession) -> None:
@@ -957,7 +963,7 @@ async def run_startup_schema_migrations(db: AsyncSession) -> None:
         changed = True
     if await _ensure_data_pipeline_tables(db):
         changed = True
-    if await _ensure_data_pipeline_columns(db):
+    if await _ensure_data_pipeline_bindings_schema(db):
         changed = True
 
     if changed:

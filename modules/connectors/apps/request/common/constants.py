@@ -10,4 +10,6 @@ ENDPOINTS = {
     "get_request_with_custom_table": "/request/custom.table",
     "get_posts": "/request/post/load",
     "get_comments": "/request/comment/load",
+    "create_request": "/request/create",
+    "add_follower": "/request/add.follower",
 }

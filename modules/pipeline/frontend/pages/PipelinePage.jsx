@@ -252,11 +252,6 @@ const PipelinePage = () => {
                   {PIPELINE_STATUS_LABEL[listFilters.status] || listFilters.status}
                 </FilterTag>
               )}
-              {listFilters.write_mode && (
-                <FilterTag tone="neutral" active onClick={() => toggleListFilter('write_mode', listFilters.write_mode)}>
-                  {listFilters.write_mode}
-                </FilterTag>
-              )}
               {listFilters.schedule && (
                 <FilterTag tone="neutral" active onClick={() => toggleListFilter('schedule', listFilters.schedule)}>
                   {listFilters.schedule}
@@ -273,14 +268,13 @@ const PipelinePage = () => {
             const filteredPipelines = pipelinesHook.pipelines.filter((record) => {
               const matchesSearch = (
                 needle.length === 0
-                || [record.name, record.source_connector_key, record.dest_connector_key, record.dest_stream_key, record.write_mode, record.status]
+                || [record.name, record.source_connector_key, record.dest_connector_key, record.status]
                     .filter(Boolean)
                     .some((value) => String(value).toLowerCase().includes(needle))
               )
               return (
                 matchesSearch
                 && (!listFilters.status || record.status === listFilters.status)
-                && (!listFilters.write_mode || record.write_mode === listFilters.write_mode)
                 && (!listFilters.schedule || (record.schedule?.type || 'manual') === listFilters.schedule)
               )
             })

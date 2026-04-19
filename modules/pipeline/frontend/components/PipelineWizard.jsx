@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ArrowLeft, ArrowRight, Check, ChevronRight,
-  Clock, Database, Globe, Rocket, Workflow,
+  ArrowLeft, Check, ChevronRight, Loader2, Plus, Rocket, Search, Trash2, Workflow,
 } from 'lucide-react'
 
 import api from '@shared/api/client'
@@ -13,30 +12,31 @@ import {
 } from '../constants'
 
 
+const EMPTY_BINDING = {
+  source_stream_key: '',
+  source_config: {},
+  dest_stream_key: '',
+  dest_config: {},
+  write_mode: 'append',
+  field_mapping: {},
+}
+
 const EMPTY_DRAFT = {
   name: '',
   description: '',
   source_connector_key: '',
   source_credential_id: '',
-  source_streams: [],
-  source_config: {},
   dest_connector_key: '',
   dest_credential_id: '',
-  dest_stream_key: '',
-  dest_config: {},
-  write_mode: 'append',
-  field_mapping: null,
+  bindings: [{ ...EMPTY_BINDING }],
   schedule: { type: 'manual' },
 }
 
 
 // ── Step: Source ─────────────────────────────────────────────────────────────
 
-function StepSource({ draft, setDraft, credentials, catalogStreams, sourceApps }) {
+function StepSource({ draft, setDraft, credentials, sourceApps }) {
   const appCredentials = credentials.filter((c) => c.app_id === draft.source_connector_key)
-  const sourceStreams = (catalogStreams[draft.source_connector_key] || []).filter(
-    (s) => s.capabilities?.includes('read')
-  )
 
   return (
     <div className="space-y-6">
@@ -49,7 +49,12 @@ function StepSource({ draft, setDraft, credentials, catalogStreams, sourceApps }
               <button
                 key={app.id}
                 type="button"
-                onClick={() => setDraft((d) => ({ ...d, source_connector_key: app.id, source_credential_id: '', source_streams: [] }))}
+                onClick={() => setDraft((d) => ({
+                  ...d,
+                  source_connector_key: app.id,
+                  source_credential_id: '',
+                  bindings: [{ ...EMPTY_BINDING }],
+                }))}
                 className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
                   selected
                     ? 'border-brand/30 bg-brand/5 shadow-linear-sm'
@@ -83,36 +88,6 @@ function StepSource({ draft, setDraft, credentials, catalogStreams, sourceApps }
           )}
         </div>
       )}
-
-      {draft.source_connector_key && sourceStreams.length > 0 && (
-        <div>
-          <div className="mb-2 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Streams to sync</div>
-          <div className="space-y-2">
-            {sourceStreams.map((stream) => {
-              const checked = draft.source_streams.includes(stream.stream_key)
-              return (
-                <label
-                  key={stream.stream_key}
-                  className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
-                    checked ? 'border-brand/30 bg-brand/5' : 'border-[rgb(var(--border-line))] hover:bg-surface-2'
-                  }`}
-                >
-                   <input type="radio" name="source_stream_key" checked={checked} onChange={() => {
-                     setDraft((d) => ({
-                       ...d,
-                       source_streams: [stream.stream_key],
-                     }))
-                   }} className="accent-brand" />
-                  <div>
-                    <div className="text-caption font-emphasis text-text-primary">{stream.display_name}</div>
-                    <div className="text-tiny text-text-tertiary">{stream.stream_key}</div>
-                  </div>
-                </label>
-              )
-            })}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
@@ -120,11 +95,8 @@ function StepSource({ draft, setDraft, credentials, catalogStreams, sourceApps }
 
 // ── Step: Destination ───────────────────────────────────────────────────────
 
-function StepDestination({ draft, setDraft, credentials, catalogStreams, destApps }) {
+function StepDestination({ draft, setDraft, credentials, destApps }) {
   const appCredentials = credentials.filter((c) => c.app_id === draft.dest_connector_key)
-  const destStreams = (catalogStreams[draft.dest_connector_key] || []).filter((s) => s.write_config != null)
-  const selectedStream = destStreams.find((s) => s.stream_key === draft.dest_stream_key)
-  const supportedModes = selectedStream?.write_config?.supported_modes || ['append']
 
   return (
     <div className="space-y-6">
@@ -137,7 +109,12 @@ function StepDestination({ draft, setDraft, credentials, catalogStreams, destApp
               <button
                 key={app.id}
                 type="button"
-                onClick={() => setDraft((d) => ({ ...d, dest_connector_key: app.id, dest_credential_id: '', dest_stream_key: '', write_mode: 'append' }))}
+                onClick={() => setDraft((d) => ({
+                  ...d,
+                  dest_connector_key: app.id,
+                  dest_credential_id: '',
+                  bindings: d.bindings.map((b) => ({ ...b, dest_stream_key: '', write_mode: 'append' })),
+                }))}
                 className={`flex items-center gap-3 rounded-xl border p-3 text-left transition-all ${
                   selected
                     ? 'border-brand/30 bg-brand/5 shadow-linear-sm'
@@ -170,96 +147,296 @@ function StepDestination({ draft, setDraft, credentials, catalogStreams, destApp
           )}
         </div>
       )}
+    </div>
+  )
+}
 
-      {destStreams.length > 0 && (
+
+// ── Step: Bindings ──────────────────────────────────────────────────────────
+
+function BindingRow({
+  binding, index, sourceStreams, destStreams, onChange, onRemove, canRemove,
+  sourceConnectorKey, sourceCredentialId,
+}) {
+  const destStream = destStreams.find((s) => s.stream_key === binding.dest_stream_key)
+  const targetKind = destStream?.write_config?.target_kind || 'tabular'
+  const supportedModes = destStream?.write_config?.supported_modes || ['append']
+  const effectiveModes = targetKind === 'resource' ? ['append'] : supportedModes
+  const sourceStream = sourceStreams.find((s) => s.stream_key === binding.source_stream_key)
+
+  const [discovering, setDiscovering] = useState(false)
+  const [discoveredFields, setDiscoveredFields] = useState(binding.discovered_fields || [])
+  const [discoveryInfo, setDiscoveryInfo] = useState(null)
+
+  const update = (patch) => onChange({ ...binding, ...patch })
+
+  const runDiscovery = async () => {
+    if (!binding.source_stream_key) {
+      message.error('Pick a source stream first')
+      return
+    }
+    setDiscovering(true)
+    try {
+      const res = await api.post('/api/pipeline/discover-fields', {
+        source_credential_id: sourceCredentialId,
+        source_connector_key: sourceConnectorKey,
+        source_stream_key: binding.source_stream_key,
+        source_config: binding.source_config || {},
+        sample_size: 10,
+      })
+      const fields = res.data?.fields || []
+      setDiscoveredFields(fields)
+      setDiscoveryInfo({
+        sample: res.data?.sample_size || 0,
+        total: res.data?.total_records_read || 0,
+      })
+      onChange({ ...binding, discovered_fields: fields })
+      message.success(`Discovered ${fields.length} field(s) from ${res.data?.sample_size || 0} sample record(s)`)
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Discovery failed')
+    } finally {
+      setDiscovering(false)
+    }
+  }
+
+  const updateMapping = (sourceKey, destColumn) => {
+    const mapping = { ...(binding.field_mapping || {}) }
+    const trimmed = (destColumn || '').trim()
+    if (trimmed) mapping[trimmed] = sourceKey
+    else {
+      for (const k of Object.keys(mapping)) {
+        if (mapping[k] === sourceKey) delete mapping[k]
+      }
+    }
+    update({ field_mapping: mapping })
+  }
+
+  const getMappedDestColumn = (sourceKey) => {
+    const mapping = binding.field_mapping || {}
+    const entry = Object.entries(mapping).find(([, src]) => src === sourceKey)
+    return entry?.[0] || ''
+  }
+
+  return (
+    <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-4 shadow-linear-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <span className="text-tiny font-emphasis uppercase tracking-wider text-text-quaternary">Binding {index + 1}</span>
+        {canRemove && (
+          <Button variant="ghost" size="sm" onClick={onRemove} leadingIcon={<Trash2 className="h-3.5 w-3.5" />}>
+            Remove
+          </Button>
+        )}
+      </div>
+      <div className="grid gap-3 md:grid-cols-2">
         <div>
-          <div className="mb-2 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Target stream</div>
-          <Select value={draft.dest_stream_key} onChange={(e) => {
-            const key = e.target.value
-            const stream = destStreams.find((s) => s.stream_key === key)
-            setDraft((d) => ({ ...d, dest_stream_key: key, write_mode: stream?.write_config?.default_mode || 'append' }))
-          }}>
-            <option value="">Select target stream…</option>
-            {destStreams.map((s) => <option key={s.stream_key} value={s.stream_key}>{s.display_name}</option>)}
+          <div className="mb-1.5 text-tiny font-emphasis text-text-secondary">Source stream</div>
+          <Select value={binding.source_stream_key} onChange={(e) => update({ source_stream_key: e.target.value })}>
+            <option value="">Select source stream…</option>
+            {sourceStreams.map((s) => (
+              <option key={s.stream_key} value={s.stream_key}>{s.display_name}</option>
+            ))}
           </Select>
+        </div>
+        <div>
+          <div className="mb-1.5 text-tiny font-emphasis text-text-secondary">Destination stream</div>
+          <Select value={binding.dest_stream_key} onChange={(e) => {
+            const nextStream = destStreams.find((s) => s.stream_key === e.target.value)
+            update({
+              dest_stream_key: e.target.value,
+              write_mode: nextStream?.write_config?.default_mode || 'append',
+            })
+          }}>
+            <option value="">Select destination stream…</option>
+            {destStreams.map((s) => {
+              const kind = s.write_config?.target_kind || 'tabular'
+              const suffix = kind === 'resource' ? ' — creates new' : ''
+              return <option key={s.stream_key} value={s.stream_key}>{s.display_name}{suffix}</option>
+            })}
+          </Select>
+        </div>
+      </div>
+
+      {binding.dest_stream_key && (
+        <div className="mt-3">
+          <div className="mb-1.5 text-tiny font-emphasis text-text-secondary">Write mode</div>
+          <div className="flex flex-wrap gap-2">
+            {WRITE_MODE_OPTIONS.filter((opt) => effectiveModes.includes(opt.value)).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => update({ write_mode: opt.value })}
+                className={`rounded-lg border px-3 py-1.5 text-tiny transition-all ${
+                  binding.write_mode === opt.value
+                    ? 'border-brand/30 bg-brand/10 text-brand'
+                    : 'border-[rgb(var(--border-line))] text-text-tertiary hover:bg-surface-2'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          {targetKind === 'resource' && (
+            <p className="mt-1.5 text-tiny text-text-tertiary">
+              Resource destinations create one record per source row. Only append is supported.
+            </p>
+          )}
         </div>
       )}
 
-      {draft.dest_stream_key && (
-        <div>
-          <div className="mb-2 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Write mode</div>
-          <div className="space-y-2">
-            {WRITE_MODE_OPTIONS.filter((opt) => supportedModes.includes(opt.value)).map((opt) => (
-              <label
-                key={opt.value}
-                className={`flex cursor-pointer items-center gap-3 rounded-xl border p-3 transition-all ${
-                  draft.write_mode === opt.value ? 'border-brand/30 bg-brand/5' : 'border-[rgb(var(--border-line))] hover:bg-surface-2'
-                }`}
-              >
-                <input type="radio" name="write_mode" value={opt.value} checked={draft.write_mode === opt.value} onChange={() => setDraft((d) => ({ ...d, write_mode: opt.value }))} className="accent-brand" />
-                <div>
-                  <div className="text-caption font-emphasis text-text-primary">{opt.label}</div>
-                  <div className="text-tiny text-text-tertiary">{opt.description}</div>
-                </div>
-              </label>
-            ))}
+      {sourceStream?.config_fields?.length > 0 && (
+        <ConfigFieldsSection
+          title="Source config"
+          fields={sourceStream.config_fields}
+          values={binding.source_config}
+          onChange={(values) => update({ source_config: values })}
+        />
+      )}
+      {destStream?.config_fields?.length > 0 && (
+        <ConfigFieldsSection
+          title="Destination config"
+          fields={destStream.config_fields}
+          values={binding.dest_config}
+          onChange={(values) => update({ dest_config: values })}
+        />
+      )}
+
+      {binding.source_stream_key && (
+        <div className="mt-3 border-t border-[rgb(var(--border-line))] pt-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-tiny font-emphasis text-text-secondary">Discover source fields</div>
+              <p className="text-tiny text-text-tertiary">
+                Test the connection and read a sample. Top-level keys of the first records become available columns.
+              </p>
+            </div>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={runDiscovery}
+              disabled={discovering}
+              leadingIcon={discovering ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+            >
+              {discovering ? 'Reading…' : 'Test & discover'}
+            </Button>
           </div>
+
+          {discoveredFields.length > 0 && (
+            <div className="mt-3">
+              {discoveryInfo && (
+                <p className="mb-2 text-tiny text-text-tertiary">
+                  Sampled {discoveryInfo.sample} of {discoveryInfo.total} record(s). Leave destination column blank to skip a field; empty mapping = pass-through all keys.
+                </p>
+              )}
+              <div className="overflow-hidden rounded-lg border border-[rgb(var(--border-line))]">
+                <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+                  <thead className="bg-surface-2">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Source key</th>
+                      <th className="px-3 py-2 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Type</th>
+                      <th className="px-3 py-2 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">→ Destination column</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[rgb(var(--border-line))]">
+                    {discoveredFields.map((f) => (
+                      <tr key={f.name}>
+                        <td className="px-3 py-1.5 text-tiny text-text-primary font-mono">{f.name}</td>
+                        <td className="px-3 py-1.5 text-tiny text-text-tertiary">{f.type}</td>
+                        <td className="px-3 py-1.5">
+                          <Input
+                            size="sm"
+                            placeholder={f.name}
+                            value={getMappedDestColumn(f.name)}
+                            onChange={(e) => updateMapping(f.name, e.target.value)}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
   )
 }
 
-
-// ── Step: Mapping ───────────────────────────────────────────────────────────
-
-function StepMapping({ draft, setDraft, catalogStreams }) {
-  const sourceStreams = catalogStreams[draft.source_connector_key] || []
-  const selectedSourceStreams = sourceStreams.filter((s) => draft.source_streams.includes(s.stream_key))
-  const sourceFields = selectedSourceStreams.flatMap((s) =>
-    (s.schema_fields || []).map((f) => ({ ...f, stream: s.stream_key }))
+function ConfigFieldsSection({ title, fields, values, onChange }) {
+  return (
+    <div className="mt-3 border-t border-[rgb(var(--border-line))] pt-3">
+      <div className="mb-1.5 text-tiny font-emphasis text-text-secondary">{title}</div>
+      <div className="grid gap-2 md:grid-cols-2">
+        {fields.map((f) => (
+          <div key={f.name}>
+            <div className="mb-1 text-tiny text-text-tertiary">
+              {f.name}
+              {f.required && <span className="ml-1 text-danger">*</span>}
+            </div>
+            <Input
+              size="sm"
+              value={values?.[f.name] || ''}
+              placeholder={f.description || f.name}
+              onChange={(e) => onChange({ ...(values || {}), [f.name]: e.target.value })}
+            />
+          </div>
+        ))}
+      </div>
+    </div>
   )
+}
+
+function StepBindings({ draft, setDraft, catalogStreams }) {
+  const sourceStreams = (catalogStreams[draft.source_connector_key] || [])
+    .filter((s) => s.capabilities?.includes('read'))
+  const destStreams = (catalogStreams[draft.dest_connector_key] || [])
+    .filter((s) => s.write_config != null && ['tabular', 'resource'].includes(s.write_config.target_kind))
+
+  const updateBinding = (index, next) => {
+    setDraft((d) => {
+      const bindings = [...d.bindings]
+      bindings[index] = next
+      return { ...d, bindings }
+    })
+  }
+
+  const addBinding = () => {
+    setDraft((d) => ({ ...d, bindings: [...d.bindings, { ...EMPTY_BINDING }] }))
+  }
+
+  const removeBinding = (index) => {
+    setDraft((d) => {
+      const bindings = d.bindings.filter((_, i) => i !== index)
+      return { ...d, bindings: bindings.length > 0 ? bindings : [{ ...EMPTY_BINDING }] }
+    })
+  }
 
   return (
     <div className="space-y-4">
       <p className="text-caption leading-6 text-text-tertiary">
-        Map source fields to destination columns, or leave blank for auto-mapping at runtime.
+        Add one binding per stream transfer. Each binding reads from one source stream and writes to one destination stream with its own write mode.
       </p>
 
-      {sourceFields.length > 0 ? (
-        <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
-          <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
-            <thead className="bg-surface-2">
-              <tr>
-                <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Source field</th>
-                <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Stream</th>
-                <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">→ Destination field</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[rgb(var(--border-line))]">
-              {sourceFields.map((field, idx) => (
-                <tr key={`${field.stream}-${field.name}-${idx}`} className="hover:bg-surface-2/70">
-                  <td className="px-6 py-2 text-caption text-text-primary">{field.name}</td>
-                  <td className="px-6 py-2 text-tiny text-text-tertiary">{field.stream}</td>
-                  <td className="px-6 py-2">
-                    <Input size="sm" placeholder={field.name}
-                      value={draft.field_mapping?.[`${field.stream}.${field.name}`] || ''}
-                      onChange={(e) => {
-                        const key = `${field.stream}.${field.name}`
-                        setDraft((d) => ({ ...d, field_mapping: { ...(d.field_mapping || {}), [key]: e.target.value } }))
-                      }}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] bg-surface-1 px-6 py-12 text-center">
-          <p className="text-caption text-text-tertiary">Source streams have no declared schema fields. Auto-mapping will be used at runtime.</p>
-        </div>
-      )}
+      <div className="space-y-3">
+        {draft.bindings.map((binding, index) => (
+          <BindingRow
+            key={index}
+            binding={binding}
+            index={index}
+            sourceStreams={sourceStreams}
+            destStreams={destStreams}
+            sourceConnectorKey={draft.source_connector_key}
+            sourceCredentialId={draft.source_credential_id}
+            onChange={(next) => updateBinding(index, next)}
+            onRemove={() => removeBinding(index)}
+            canRemove={draft.bindings.length > 1}
+          />
+        ))}
+      </div>
+
+      <Button variant="secondary" size="sm" onClick={addBinding} leadingIcon={<Plus className="h-3.5 w-3.5" />}>
+        Add binding
+      </Button>
     </div>
   )
 }
@@ -323,26 +500,45 @@ function StepReview({ draft }) {
   const srcMeta = getAppMeta(draft.source_connector_key)
   const dstMeta = getAppMeta(draft.dest_connector_key)
 
-  const sections = [
-    { label: 'Pipeline name', value: draft.name || '(Auto-generated)' },
-    { label: 'Source app', value: srcMeta?.title || draft.source_connector_key },
-    { label: 'Streams', value: draft.source_streams.join(', ') || '-' },
-    { label: 'Destination app', value: dstMeta?.title || draft.dest_connector_key },
-    { label: 'Target stream', value: draft.dest_stream_key || '-' },
-    { label: 'Write mode', value: draft.write_mode },
-    { label: 'Schedule', value: draft.schedule?.type || 'manual' },
-  ]
-
   return (
     <div className="space-y-4">
       <div className="divide-y divide-[rgb(var(--border-line))] rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
-        {sections.map((s) => (
-          <div key={s.label} className="flex items-center justify-between px-5 py-3">
-            <span className="text-caption text-text-tertiary">{s.label}</span>
-            <span className="text-caption font-emphasis text-text-primary">{s.value}</span>
-          </div>
-        ))}
+        <Row label="Pipeline name" value={draft.name || '(Auto-generated)'} />
+        <Row label="Source" value={srcMeta?.title || draft.source_connector_key} />
+        <Row label="Destination" value={dstMeta?.title || draft.dest_connector_key} />
+        <Row label="Bindings" value={`${draft.bindings.length} binding(s)`} />
+        <Row label="Schedule" value={draft.schedule?.type || 'manual'} />
       </div>
+
+      <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
+        <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+          <thead className="bg-surface-2">
+            <tr>
+              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Source stream</th>
+              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">→ Destination stream</th>
+              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Write mode</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[rgb(var(--border-line))]">
+            {draft.bindings.map((b, i) => (
+              <tr key={i}>
+                <td className="px-6 py-2 text-caption text-text-primary">{b.source_stream_key || '—'}</td>
+                <td className="px-6 py-2 text-caption text-text-primary">{b.dest_stream_key || '—'}</td>
+                <td className="px-6 py-2 text-caption text-text-tertiary">{b.write_mode}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
+function Row({ label, value }) {
+  return (
+    <div className="flex items-center justify-between px-5 py-3">
+      <span className="text-caption text-text-tertiary">{label}</span>
+      <span className="text-caption font-emphasis text-text-primary">{value}</span>
     </div>
   )
 }
@@ -399,8 +595,11 @@ const PipelineWizard = ({ onBack, onSaved }) => {
   const progressPercent = totalSteps > 1 ? Math.round((currentStep / (totalSteps - 1)) * 100) : 0
 
   const canNext = useMemo(() => {
-    if (currentStep === 0) return draft.source_connector_key && draft.source_credential_id && draft.source_streams.length === 1
-    if (currentStep === 1) return draft.dest_connector_key && draft.dest_credential_id && draft.dest_stream_key
+    if (currentStep === 0) return !!(draft.source_connector_key && draft.source_credential_id)
+    if (currentStep === 1) return !!(draft.dest_connector_key && draft.dest_credential_id)
+    if (currentStep === 2) {
+      return draft.bindings.length > 0 && draft.bindings.every((b) => b.source_stream_key && b.dest_stream_key)
+    }
     return true
   }, [currentStep, draft])
 
@@ -417,7 +616,7 @@ const PipelineWizard = ({ onBack, onSaved }) => {
     try {
       const payload = {
         ...draft,
-        source_stream_key: draft.source_streams[0] || null,
+        bindings: draft.bindings.map(({ discovered_fields, ...rest }) => rest),
         schedule: {
           ...(draft.schedule || { type: 'manual' }),
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
@@ -437,7 +636,6 @@ const PipelineWizard = ({ onBack, onSaved }) => {
     }
   }, [draft, onSaved])
 
-  // Configured summary
   const srcMeta = getAppMeta(draft.source_connector_key)
   const dstMeta = getAppMeta(draft.dest_connector_key)
 
@@ -463,9 +661,9 @@ const PipelineWizard = ({ onBack, onSaved }) => {
 
   const renderStepContent = () => {
     switch (currentStep) {
-      case 0: return <StepSource draft={draft} setDraft={setDraft} credentials={credentials} catalogStreams={catalogStreams} sourceApps={sourceApps} />
-      case 1: return <StepDestination draft={draft} setDraft={setDraft} credentials={credentials} catalogStreams={catalogStreams} destApps={destApps} />
-      case 2: return <StepMapping draft={draft} setDraft={setDraft} catalogStreams={catalogStreams} />
+      case 0: return <StepSource draft={draft} setDraft={setDraft} credentials={credentials} sourceApps={sourceApps} />
+      case 1: return <StepDestination draft={draft} setDraft={setDraft} credentials={credentials} destApps={destApps} />
+      case 2: return <StepBindings draft={draft} setDraft={setDraft} catalogStreams={catalogStreams} />
       case 3: return <StepSchedule draft={draft} setDraft={setDraft} />
       case 4: return <StepReview draft={draft} />
       default: return null
@@ -482,7 +680,7 @@ const PipelineWizard = ({ onBack, onSaved }) => {
         </Button>
       )}
       title="Create data pipeline"
-      description="Configure source, destination, field mapping, and schedule."
+      description="Configure source, destination, stream bindings, and schedule."
       icon={<Workflow className="h-5 w-5" />}
       bodyClassName="px-4 py-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12"
       footer={footer}
@@ -500,16 +698,9 @@ const PipelineWizard = ({ onBack, onSaved }) => {
                 {draft.name || 'Draft your pipeline configuration'}
               </h3>
               <p className="mt-1 text-caption leading-6 text-text-tertiary">
-                Follow the steps to configure source, destination, mapping, and schedule.
+                Follow the steps to configure source, destination, bindings, and schedule.
               </p>
             </div>
-
-            {draft.name && (
-              <div className="mt-4 rounded-xl border border-[rgb(var(--border-line))] bg-surface-1/80 px-4 py-3 shadow-linear-sm backdrop-blur">
-                <p className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Pipeline name</p>
-                <p className="mt-1 truncate text-caption font-strong text-text-secondary">{draft.name}</p>
-              </div>
-            )}
           </div>
 
           <div className="border-b border-[rgb(var(--border-line))] px-5 py-4">
@@ -553,7 +744,6 @@ const PipelineWizard = ({ onBack, onSaved }) => {
             })}
           </nav>
 
-          {/* Configured summary */}
           {currentStep > 0 && (srcMeta || dstMeta) && (
             <div className="mx-3 mb-4 shrink-0 rounded-xl border border-[rgb(var(--border-line))] bg-surface-1/80 p-4 shadow-linear-sm backdrop-blur">
               <p className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Configured</p>
@@ -564,17 +754,14 @@ const PipelineWizard = ({ onBack, onSaved }) => {
                     <span className="text-caption font-strong" style={{ color: srcMeta.color }}>{srcMeta.title}</span>
                   </div>
                 )}
-                {draft.source_streams.length > 0 && (
-                  <div className="text-tiny text-text-tertiary">{draft.source_streams.length} stream(s) selected</div>
-                )}
                 {dstMeta && (
                   <div className="flex items-center gap-2">
                     <span style={{ color: dstMeta.color }}>{dstMeta.icon && React.cloneElement(dstMeta.icon, { className: 'w-3.5 h-3.5' })}</span>
                     <span className="text-caption font-strong" style={{ color: dstMeta.color }}>{dstMeta.title}</span>
                   </div>
                 )}
-                {draft.write_mode && draft.write_mode !== 'append' && (
-                  <div className="text-tiny text-text-tertiary">Write: {draft.write_mode}</div>
+                {currentStep >= 2 && draft.bindings.length > 0 && (
+                  <div className="text-tiny text-text-tertiary">{draft.bindings.length} binding(s)</div>
                 )}
               </div>
             </div>
@@ -593,7 +780,6 @@ const PipelineWizard = ({ onBack, onSaved }) => {
           </div>
 
           <div className="flex-1 bg-surface-2 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:px-8 xl:px-10">
-            {/* Pipeline name input (shown on first step) */}
             {currentStep === 0 && (
               <div className="mb-6">
                 <div className="mb-2 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Pipeline name</div>

@@ -38,12 +38,18 @@ class ConnectorBindingValidationService:
         app_id: str,
         *,
         module_key: str = 'pipeline',
-        require_tabular_destination: bool = True,
+        pipeline_destination_only: bool = True,
     ) -> ConnectorDefinition:
+        """Ensure a connector can play the destination role for the given module.
+
+        Pipeline destinations accept both tabular (spreadsheet/table row writes)
+        and resource (create-ticket/job/project) kinds. Backup additionally
+        accepts blob (file uploads).
+        """
         connector = cls.validate_connector_module(app_id, module_key)
         destination_streams = (
             connector.get_pipeline_destination_streams()
-            if require_tabular_destination
+            if pipeline_destination_only
             else connector.get_destination_streams()
         )
         if not destination_streams:
@@ -58,7 +64,7 @@ class ConnectorBindingValidationService:
         capability: str = 'read',
         *,
         module_key: str | None = None,
-        require_tabular_destination: bool = False,
+        pipeline_destination_only: bool = False,
     ) -> StreamDefinition:
         connector = (
             cls.validate_connector_module(connector_key, module_key)
@@ -69,10 +75,14 @@ class ConnectorBindingValidationService:
             raise ValueError(f"Stream '{stream_key}' not found in connector '{connector_key}'")
         if capability not in stream.capabilities:
             raise ValueError(f"Stream '{stream_key}' in connector '{connector_key}' does not support '{capability}'")
-        if capability == 'write' and require_tabular_destination:
-            if stream.write_config is None or stream.write_config.target_kind != 'tabular':
+        if module_key and not stream.supports_module(module_key):
+            raise ValueError(
+                f"Stream '{stream_key}' in connector '{connector_key}' is not approved for the {module_key} module"
+            )
+        if capability == 'write' and pipeline_destination_only:
+            if stream.write_config is None or stream.write_config.target_kind not in ('tabular', 'resource'):
                 raise ValueError(
-                    f"Stream '{stream_key}' in connector '{connector_key}' is not a supported tabular pipeline destination"
+                    f"Stream '{stream_key}' in connector '{connector_key}' is not a supported pipeline destination"
                 )
         return stream
 
@@ -115,14 +125,14 @@ class ConnectorBindingValidationService:
         config: Mapping[str, Any] | None,
         *,
         module_key: str = 'pipeline',
-        require_tabular_destination: bool = True,
+        pipeline_destination_only: bool = True,
     ) -> StreamDefinition:
         stream = cls.validate_connector_stream(
             connector_key,
             stream_key,
             capability='write',
             module_key=module_key,
-            require_tabular_destination=require_tabular_destination,
+            pipeline_destination_only=pipeline_destination_only,
         )
         cls.validate_stream_config(stream, config)
         return stream
@@ -144,14 +154,14 @@ class ConnectorBindingValidationService:
         credential: AppCredential | None,
         *,
         module_key: str = 'pipeline',
-        require_tabular_destination: bool = True,
+        pipeline_destination_only: bool = True,
     ) -> ConnectorDefinition:
         if credential is None:
             raise ValueError('Destination credential not found')
         return cls.validate_destination_app_id(
             credential.app_id,
             module_key=module_key,
-            require_tabular_destination=require_tabular_destination,
+            pipeline_destination_only=pipeline_destination_only,
         )
 
     @classmethod
@@ -204,5 +214,5 @@ class ConnectorBindingValidationService:
             stream_key,
             config,
             module_key='pipeline',
-            require_tabular_destination=True,
+            pipeline_destination_only=True,
         )

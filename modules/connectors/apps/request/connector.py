@@ -92,6 +92,32 @@ class RequestConnector(BaseConnector):
         *,
         config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        cfg = dict(config or {})
+        write_mode = str(cfg.get('write_mode') or 'append').lower()
+        if write_mode != 'append':
+            raise ValueError(f"Request connector only supports write_mode='append', got '{write_mode}'")
+
+        if stream_key == 'requests':
+            client = await self._get_client()
+            default_group_id = str(cfg.get('group_id') or '')
+            written = 0
+            errors = 0
+            for record in records:
+                try:
+                    await client.create_request(
+                        username=str(record.get('username') or cfg.get('username') or ''),
+                        group_id=str(record.get('group_id') or default_group_id),
+                        name=str(record.get('name') or ''),
+                        description=record.get('description'),
+                        followers=record.get('followers'),
+                        assignees=record.get('assignees'),
+                        custom_fields=record.get('custom_fields'),
+                    )
+                    written += 1
+                except Exception:
+                    errors += 1
+            return {'written': written, 'errors': errors}
+
         stream = self.definition.get_stream(stream_key)
         if stream is None:
             raise ValueError(f"Stream '{stream_key}' not found")

@@ -212,7 +212,13 @@ class PipelineStatus:
 
 
 class DataPipeline(Base):
-    """A configured data pipeline that moves data from a source to a destination."""
+    """A configured data pipeline that moves data from a source to a destination.
+
+    A pipeline fixes one source credential and one destination credential, and
+    contains a list of bindings — each binding is a (source_stream ->
+    destination_stream) pair with its own write_mode, config overrides, and
+    field mapping. A single run iterates through all bindings in order.
+    """
     __tablename__ = "data_pipelines"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -222,30 +228,25 @@ class DataPipeline(Base):
 
     status = Column(String(20), nullable=False, server_default=PipelineStatus.DRAFT)
 
-    # Source configuration
+    # Shared source credential for every binding in this pipeline.
     source_connector_key = Column(String(50), nullable=False)
     source_credential_id = Column(
         UUID(as_uuid=True),
         ForeignKey('app_credentials.id', ondelete='RESTRICT'),
         nullable=True,
     )
-    source_stream_key = Column(String(100), nullable=True)
-    source_streams = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
-    source_config = Column(JSONB, nullable=True)
 
-    # Destination configuration
+    # Shared destination credential for every binding in this pipeline.
     dest_connector_key = Column(String(50), nullable=False)
     dest_credential_id = Column(
         UUID(as_uuid=True),
         ForeignKey('app_credentials.id', ondelete='RESTRICT'),
         nullable=True,
     )
-    dest_stream_key = Column(String(100), nullable=False)
-    dest_config = Column(JSONB, nullable=True)
-    write_mode = Column(String(20), nullable=False, server_default='append')
 
-    # Field mapping — snapshot at config time; re-discovered each run if dynamic
-    field_mapping = Column(JSONB, nullable=True)
+    # Per-stream bindings: list[{source_stream_key, source_config, dest_stream_key,
+    # dest_config, write_mode, field_mapping}].
+    bindings = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
 
     # Schedule
     schedule = Column(JSONB, nullable=True)
@@ -261,10 +262,6 @@ class DataPipeline(Base):
         CheckConstraint(
             "status IN ('draft', 'active', 'paused', 'archived')",
             name='check_pipeline_status',
-        ),
-        CheckConstraint(
-            "write_mode IN ('append', 'replace', 'upsert')",
-            name='check_pipeline_write_mode',
         ),
         CheckConstraint(
             "last_run_status IS NULL OR last_run_status IN ('pending', 'running', 'completed', 'failed')",

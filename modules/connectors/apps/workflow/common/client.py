@@ -265,3 +265,29 @@ class WorkflowManagementClient:
         if position:
             request_body["position"] = position
         return _extract_named_list(await self.request(ENDPOINTS["get_job_comments"], request_body), "comments", "data")
+
+    async def create_job(
+        self,
+        *,
+        creator_username: str,
+        workflow_id: str,
+        name: str,
+        assignees: str | None = None,
+        followers: str | None = None,
+        managers: str | None = None,
+        description: str | None = None,
+        deadline: str | None = None,
+        custom_fields: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = {
+            "creator_username": creator_username,
+            "workflow_id": workflow_id,
+            "name": name,
+            "assignees": assignees,
+            "followers": followers,
+            "managers": managers,
+            "description": description,
+            "deadline": deadline,
+            **clean_body(custom_fields),
+        }
+        return await self.request(ENDPOINTS["create_job"], body)

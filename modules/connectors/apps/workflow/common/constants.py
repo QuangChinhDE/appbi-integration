@@ -13,4 +13,6 @@ ENDPOINTS = {
     "get_job_custom_table": "/job/custom.table",
     "get_job_posts": "/job/post/load",
     "get_job_comments": "/job/comment/load",
+    "create_job": "/job/create",
+    "edit_job": "/job/edit",
 }

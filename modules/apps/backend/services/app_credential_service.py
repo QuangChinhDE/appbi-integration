@@ -13,7 +13,10 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.connectors.backend.shared.catalog import get_connector
+from modules.connectors.backend.shared.catalog import (
+    CONNECTOR_REGISTRY,
+    get_connector,
+)
 from packages.auth.src.resource_permissions import (
     apply_resource_scope,
     batch_effective_permissions,
@@ -39,10 +42,22 @@ from modules.credentials.backend.services.google_auth_service import (
 from packages.database.src.models import AppCredential, GoogleConnection, ResourceType, User
 
 
-APPS_REQUIRING_DOMAIN = {
-    "request", "workflow", "wework", "service",
-    "crm", "hrm", "table", "goal", "income", "meeting", "payroll", "timeoff",
-}
+def _apps_requiring_domain() -> set[str]:
+    """Connectors that require a 'domain' config field at credential creation.
+
+    Derived from the catalog: any connector whose auth_spec declares a required
+    config-storage 'domain' field.
+    """
+    result: set[str] = set()
+    for connector in CONNECTOR_REGISTRY:
+        for field in connector.auth_spec.fields:
+            if field.name == 'domain' and field.storage == 'config' and field.required:
+                result.add(connector.connector_key)
+                break
+    return result
+
+
+APPS_REQUIRING_DOMAIN = _apps_requiring_domain()
 
 
 class AppCredentialService:

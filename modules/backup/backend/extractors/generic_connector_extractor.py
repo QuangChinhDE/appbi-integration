@@ -28,19 +28,36 @@ def _select_stream_keys(connector_key: str, structure: dict[str, Any]) -> list[s
     if connector is None:
         raise ValueError(f"Connector '{connector_key}' is not registered")
 
+    backup_streams = connector.get_backup_streams()
+    if not backup_streams:
+        raise ValueError(
+            f"Connector '{connector_key}' has no backup-eligible streams. "
+            "Backup targets unstructured or mixed content; pure structured data "
+            "should be moved with the Pipeline module instead."
+        )
+    allowed_keys = {s.stream_key for s in backup_streams}
+
     requested = [
         str(item).strip()
         for item in (structure.get('objects') or [])
         if str(item).strip()
     ]
     if requested:
+        rejected = [key for key in requested if key not in allowed_keys]
+        if rejected:
+            raise ValueError(
+                f"Streams {rejected} are not approved for backup on connector '{connector_key}'. "
+                f"Allowed backup streams: {sorted(allowed_keys)}"
+            )
         return requested
 
-    return [
+    # Default selection: top-level backup streams with no required config.
+    defaults = [
         stream.stream_key
-        for stream in connector.get_readable_streams()
+        for stream in backup_streams
         if stream.parent_stream is None and not stream.config_fields
-    ] or [connector.get_readable_streams()[0].stream_key]
+    ]
+    return defaults or [backup_streams[0].stream_key]
 
 
 def _resolve_stream_configs(stream, structure: dict[str, Any]) -> list[dict[str, Any]]:
@@ -103,7 +120,7 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
             ConnectorBindingValidationService.validate_destination_app_id(
                 destination_binding.credential.app_id,
                 module_key='backup',
-                require_tabular_destination=False,
+                pipeline_destination_only=False,
             )
 
             run.status = 'running'

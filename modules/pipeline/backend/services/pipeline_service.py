@@ -1,5 +1,11 @@
 """
 Pipeline service: scoped CRUD, validation, execution, and schedule polling.
+
+A pipeline pairs one source credential with one destination credential and
+contains a list of *bindings* — each binding is a (source_stream ->
+dest_stream) transfer with its own write_mode, config overrides, and field
+mapping. A run iterates bindings in order; partial failures mark the run as
+failed but still record the per-binding counts.
 """
 from __future__ import annotations
 
@@ -14,6 +20,37 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
+
+
+def _infer_scalar_type(value: Any) -> str:
+    """Coarse runtime type for discovered field values.
+
+    Nested objects/arrays are reported as 'object'/'array' without inspecting
+    their contents — destinations (BigQuery, Sheets) treat them as a single
+    JSON-typed column.
+    """
+    if value is None:
+        return 'null'
+    if isinstance(value, bool):
+        return 'boolean'
+    if isinstance(value, (int, float)):
+        return 'number'
+    if isinstance(value, str):
+        return 'string'
+    if isinstance(value, list):
+        return 'array'
+    if isinstance(value, Mapping):
+        return 'object'
+    return 'unknown'
+
+
+def _merge_field_types(existing: str | None, incoming: str) -> str:
+    if existing is None or existing == 'null':
+        return incoming
+    if incoming == 'null' or incoming == existing:
+        return existing
+    # Mixed types across records → fall back to 'mixed' so the UI can flag it.
+    return 'mixed'
 from packages.auth.src.resource_permissions import (
     apply_resource_scope,
     batch_effective_permissions,
@@ -175,15 +212,9 @@ class PipelineService:
             status=payload.get('status', PipelineStatus.DRAFT),
             source_connector_key=payload['source_connector_key'],
             source_credential_id=payload['source_credential_id'],
-            source_stream_key=payload['source_stream_key'],
-            source_streams=payload['source_streams'],
-            source_config=payload.get('source_config'),
             dest_connector_key=payload['dest_connector_key'],
             dest_credential_id=payload['dest_credential_id'],
-            dest_stream_key=payload['dest_stream_key'],
-            dest_config=payload.get('dest_config'),
-            write_mode=payload.get('write_mode', 'append'),
-            field_mapping=payload.get('field_mapping'),
+            bindings=payload['bindings'],
             schedule=payload.get('schedule'),
         )
         self.db.add(pipeline)
@@ -203,15 +234,9 @@ class PipelineService:
             'status': pipeline.status,
             'source_connector_key': pipeline.source_connector_key,
             'source_credential_id': pipeline.source_credential_id,
-            'source_stream_key': pipeline.source_stream_key,
-            'source_streams': pipeline.source_streams,
-            'source_config': pipeline.source_config,
             'dest_connector_key': pipeline.dest_connector_key,
             'dest_credential_id': pipeline.dest_credential_id,
-            'dest_stream_key': pipeline.dest_stream_key,
-            'dest_config': pipeline.dest_config,
-            'write_mode': pipeline.write_mode,
-            'field_mapping': pipeline.field_mapping,
+            'bindings': list(pipeline.bindings or []),
             'schedule': pipeline.schedule,
         }
         merged.update(data)
@@ -219,9 +244,9 @@ class PipelineService:
 
         for key in (
             'name', 'description', 'status',
-            'source_connector_key', 'source_credential_id', 'source_stream_key', 'source_streams', 'source_config',
-            'dest_connector_key', 'dest_credential_id', 'dest_stream_key', 'dest_config',
-            'write_mode', 'field_mapping', 'schedule',
+            'source_connector_key', 'source_credential_id',
+            'dest_connector_key', 'dest_credential_id',
+            'bindings', 'schedule',
         ):
             setattr(pipeline, key, payload.get(key))
 
@@ -295,6 +320,75 @@ class PipelineService:
             self.MANUALLY_STOPPED_RUN_MESSAGE,
         )
 
+    async def discover_source_fields(
+        self,
+        *,
+        source_credential_id: UUID | str,
+        source_connector_key: str,
+        source_stream_key: str,
+        source_config: Mapping[str, Any] | None = None,
+        sample_size: int = 10,
+    ) -> dict[str, Any]:
+        """Run a live read against the source stream and report top-level keys.
+
+        This is the "test & discover" path the wizard uses: it validates the
+        stream config, opens a connector from the saved credential, calls
+        ``read_stream``, and unions the top-level keys across up to
+        ``sample_size`` records. Nested values are classified as ``object`` /
+        ``array`` without drilling down — destinations treat them as one JSON
+        column.
+        """
+        credential = await self._load_credential(source_credential_id)
+        ConnectorBindingValidationService.validate_source_credential(
+            credential,
+            module_key='pipeline',
+        )
+        ConnectorBindingValidationService.validate_credential_connector_match(
+            credential,
+            str(source_connector_key),
+        )
+        ConnectorBindingValidationService.validate_source_stream(
+            str(source_connector_key),
+            str(source_stream_key),
+            dict(source_config or {}),
+            module_key='pipeline',
+        )
+
+        runtime = ConnectorRuntimeService(self.db)
+        connector = await runtime.build_connector_from_credential_id(credential.id)
+        try:
+            records = await connector.read_stream(
+                str(source_stream_key),
+                config=dict(source_config or {}),
+            )
+        finally:
+            await connector.close()
+
+        records = list(records or [])
+        sample = records[:max(1, int(sample_size))]
+        field_types: dict[str, str] = {}
+        for record in sample:
+            if not isinstance(record, Mapping):
+                continue
+            for key, value in record.items():
+                key_str = str(key)
+                field_types[key_str] = _merge_field_types(
+                    field_types.get(key_str),
+                    _infer_scalar_type(value),
+                )
+
+        fields = [
+            {'name': name, 'type': field_types[name]}
+            for name in sorted(field_types)
+        ]
+        return {
+            'source_connector_key': str(source_connector_key),
+            'source_stream_key': str(source_stream_key),
+            'sample_size': len(sample),
+            'total_records_read': len(records),
+            'fields': fields,
+        }
+
     async def run_due_schedules_once(self) -> int:
         stmt = (
             select(DataPipeline)
@@ -319,6 +413,8 @@ class PipelineService:
             triggered += 1
         return triggered
 
+    # ── Validation ────────────────────────────────────────────────────────
+
     async def _validate_pipeline_payload(self, data: Mapping[str, Any]) -> dict[str, Any]:
         payload = dict(data or {})
         name = str(payload.get('name') or '').strip()
@@ -326,19 +422,10 @@ class PipelineService:
             raise ValueError('Pipeline name is required')
         payload['name'] = name
 
-        source_stream_key, source_streams = self._normalize_source_streams(
-            payload.get('source_stream_key'),
-            payload.get('source_streams'),
-        )
-        payload['source_stream_key'] = source_stream_key
-        payload['source_streams'] = source_streams
-
         if not payload.get('source_connector_key'):
             raise ValueError('source_connector_key is required')
         if not payload.get('dest_connector_key'):
             raise ValueError('dest_connector_key is required')
-        if not payload.get('dest_stream_key'):
-            raise ValueError('dest_stream_key is required')
         if not payload.get('source_credential_id'):
             raise ValueError('source_credential_id is required')
         if not payload.get('dest_credential_id'):
@@ -354,7 +441,7 @@ class PipelineService:
         ConnectorBindingValidationService.validate_destination_credential(
             dest_credential,
             module_key='pipeline',
-            require_tabular_destination=True,
+            pipeline_destination_only=True,
         )
         ConnectorBindingValidationService.validate_credential_connector_match(
             source_credential,
@@ -365,39 +452,110 @@ class PipelineService:
             str(payload['dest_connector_key']),
         )
 
-        ConnectorBindingValidationService.validate_source_stream(
-            str(payload['source_connector_key']),
-            source_stream_key,
-            payload.get('source_config'),
-            module_key='pipeline',
+        bindings = self._normalize_bindings(
+            payload.get('bindings'),
+            source_connector_key=str(payload['source_connector_key']),
+            dest_connector_key=str(payload['dest_connector_key']),
         )
-        dest_stream = ConnectorBindingValidationService.validate_destination_stream(
-            str(payload['dest_connector_key']),
-            str(payload['dest_stream_key']),
-            payload.get('dest_config'),
-            module_key='pipeline',
-            require_tabular_destination=True,
-        )
-
-        write_mode = str(payload.get('write_mode') or 'append').strip().lower()
-        if write_mode not in {'append', 'replace', 'upsert'}:
-            raise ValueError('write_mode must be one of: append, replace, upsert')
-        if dest_stream.write_config and write_mode not in dest_stream.write_config.supported_modes:
-            raise ValueError(
-                f"Destination stream '{dest_stream.stream_key}' does not support write mode '{write_mode}'"
-            )
-        payload['write_mode'] = write_mode
+        payload['bindings'] = bindings
 
         payload['schedule'] = self._normalize_schedule(payload.get('schedule'))
 
         status = str(payload.get('status') or PipelineStatus.DRAFT).strip().lower()
         if status not in {PipelineStatus.DRAFT, PipelineStatus.ACTIVE, PipelineStatus.PAUSED, PipelineStatus.ARCHIVED}:
             raise ValueError('status must be one of: draft, active, paused, archived')
-        if status == PipelineStatus.ACTIVE and not source_stream_key:
-            raise ValueError('Active pipelines require a source stream')
+        if status == PipelineStatus.ACTIVE and not bindings:
+            raise ValueError('Active pipelines require at least one binding')
         payload['status'] = status
 
         return payload
+
+    @staticmethod
+    def _normalize_bindings(
+        bindings: Any,
+        *,
+        source_connector_key: str,
+        dest_connector_key: str,
+    ) -> list[dict[str, Any]]:
+        if not isinstance(bindings, list) or not bindings:
+            raise ValueError('At least one binding is required (source_stream_key → dest_stream_key)')
+
+        seen: set[tuple[str, str]] = set()
+        normalized: list[dict[str, Any]] = []
+        for index, item in enumerate(bindings):
+            if not isinstance(item, Mapping):
+                raise ValueError(f"Binding #{index + 1} must be an object")
+
+            source_stream_key = str(item.get('source_stream_key') or '').strip()
+            dest_stream_key = str(item.get('dest_stream_key') or '').strip()
+            if not source_stream_key:
+                raise ValueError(f"Binding #{index + 1} is missing source_stream_key")
+            if not dest_stream_key:
+                raise ValueError(f"Binding #{index + 1} is missing dest_stream_key")
+
+            dedupe_key = (source_stream_key, dest_stream_key)
+            if dedupe_key in seen:
+                raise ValueError(
+                    f"Duplicate binding for '{source_stream_key}' → '{dest_stream_key}'"
+                )
+            seen.add(dedupe_key)
+
+            source_config = dict(item.get('source_config') or {})
+            dest_config = dict(item.get('dest_config') or {})
+
+            source_stream = ConnectorBindingValidationService.validate_source_stream(
+                source_connector_key,
+                source_stream_key,
+                source_config,
+                module_key='pipeline',
+            )
+            dest_stream = ConnectorBindingValidationService.validate_destination_stream(
+                dest_connector_key,
+                dest_stream_key,
+                dest_config,
+                module_key='pipeline',
+                pipeline_destination_only=True,
+            )
+
+            write_mode = str(item.get('write_mode') or 'append').strip().lower()
+            if write_mode not in {'append', 'replace', 'upsert'}:
+                raise ValueError(f"Binding #{index + 1}: write_mode must be append, replace, or upsert")
+            if dest_stream.write_config and write_mode not in dest_stream.write_config.supported_modes:
+                raise ValueError(
+                    f"Destination stream '{dest_stream_key}' does not support write mode '{write_mode}'"
+                )
+
+            # Resource-kind destinations only make sense with append semantics —
+            # they create new records, there's no meaningful 'replace' or
+            # 'upsert' without a merge key strategy.
+            if (
+                dest_stream.write_config
+                and dest_stream.write_config.target_kind == 'resource'
+                and write_mode != 'append'
+            ):
+                raise ValueError(
+                    f"Destination stream '{dest_stream_key}' is a resource target and only supports write_mode='append'"
+                )
+
+            field_mapping = item.get('field_mapping') or {}
+            if not isinstance(field_mapping, Mapping):
+                raise ValueError(f"Binding #{index + 1}: field_mapping must be an object")
+
+            normalized.append({
+                'source_stream_key': source_stream_key,
+                'source_config': source_config,
+                'dest_stream_key': dest_stream_key,
+                'dest_config': dest_config,
+                'write_mode': write_mode,
+                'field_mapping': dict(field_mapping),
+            })
+
+            # Touch source_stream so we exercise the config-field check path.
+            _ = source_stream.can_read
+
+        return normalized
+
+    # ── Execution ─────────────────────────────────────────────────────────
 
     async def _execute_pipeline_run(self, pipeline_id: UUID, run_id: UUID) -> None:
         async with async_session() as db:
@@ -415,36 +573,71 @@ class PipelineService:
                 dest_connector = await runtime_service.build_connector_from_credential_id(pipeline.dest_credential_id)
 
                 run.status = 'running'
-                run.logs = service._append_log(run.logs, '[RUNNING] Reading source records')
+                run.logs = service._append_log(run.logs, '[RUNNING] Executing bindings')
                 await db.commit()
 
-                source_records = await source_connector.read_stream(
-                    pipeline.source_stream_key,
-                    config=dict(pipeline.source_config or {}),
-                )
-                mapped_records = service._apply_field_mapping(source_records, dict(pipeline.field_mapping or {}))
-                dest_config = dict(pipeline.dest_config or {})
-                dest_config['write_mode'] = pipeline.write_mode
+                total_read = 0
+                total_written = 0
+                total_errors = 0
+                binding_results: list[dict[str, Any]] = []
 
-                run.logs = service._append_log(run.logs, f"[RUNNING] Writing {len(mapped_records)} record(s) to destination")
-                await db.commit()
+                for index, binding in enumerate(pipeline.bindings or []):
+                    source_stream_key = str(binding.get('source_stream_key') or '')
+                    dest_stream_key = str(binding.get('dest_stream_key') or '')
+                    source_config = dict(binding.get('source_config') or {})
+                    dest_config = dict(binding.get('dest_config') or {})
+                    write_mode = str(binding.get('write_mode') or 'append')
+                    field_mapping = dict(binding.get('field_mapping') or {})
 
-                write_result = await dest_connector.write_stream(
-                    pipeline.dest_stream_key,
-                    mapped_records,
-                    config=dest_config,
-                )
+                    run.logs = service._append_log(
+                        run.logs,
+                        f"[RUNNING] Binding {index + 1}/{len(pipeline.bindings or [])}: {source_stream_key} → {dest_stream_key}",
+                    )
+                    await db.commit()
+
+                    source_records = await source_connector.read_stream(
+                        source_stream_key,
+                        config=source_config,
+                    )
+                    mapped_records = service._apply_field_mapping(source_records, field_mapping)
+
+                    write_config = {**dest_config, 'write_mode': write_mode}
+                    write_result = await dest_connector.write_stream(
+                        dest_stream_key,
+                        mapped_records,
+                        config=write_config,
+                    )
+
+                    read_count = len(source_records)
+                    written_count = service._extract_written_count(write_result, fallback=len(mapped_records))
+                    errors_count = int(write_result.get('errors') or write_result.get('error_count') or 0)
+
+                    total_read += read_count
+                    total_written += written_count
+                    total_errors += errors_count
+                    binding_results.append({
+                        'source_stream_key': source_stream_key,
+                        'dest_stream_key': dest_stream_key,
+                        'records_read': read_count,
+                        'records_written': written_count,
+                        'errors': errors_count,
+                    })
 
                 completed_at = datetime.now(timezone.utc)
-                run.status = 'completed'
+                run.status = 'completed' if total_errors == 0 else 'failed'
                 run.completed_at = completed_at
-                run.records_read = len(source_records)
-                run.records_written = service._extract_written_count(write_result, fallback=len(mapped_records))
-                run.error_count = int(write_result.get('errors') or write_result.get('error_count') or 0)
-                run.logs = service._append_log(run.logs, '[COMPLETED] Pipeline run finished successfully')
+                run.records_read = total_read
+                run.records_written = total_written
+                run.error_count = total_errors
+                run.run_config = {**(run.run_config or {}), 'binding_results': binding_results}
+                status_label = 'COMPLETED' if total_errors == 0 else 'FAILED'
+                run.logs = service._append_log(
+                    run.logs,
+                    f"[{status_label}] read={total_read} written={total_written} errors={total_errors}",
+                )
 
                 pipeline.last_run_at = completed_at
-                pipeline.last_run_status = 'completed'
+                pipeline.last_run_status = run.status
                 await db.commit()
             except asyncio.CancelledError:
                 completed_at = datetime.now(timezone.utc)
@@ -471,27 +664,7 @@ class PipelineService:
                 if dest_connector is not None:
                     await dest_connector.close()
 
-    @staticmethod
-    def _normalize_source_streams(
-        source_stream_key: Any,
-        source_streams: Any,
-    ) -> tuple[str, list[str]]:
-        normalized_streams = [
-            str(item).strip()
-            for item in (source_streams or [])
-            if str(item or '').strip()
-        ]
-        normalized_key = str(source_stream_key or '').strip()
-        if normalized_key:
-            normalized_streams = [normalized_key]
-        elif normalized_streams:
-            normalized_key = normalized_streams[0]
-
-        if len(normalized_streams) > 1:
-            raise ValueError('Pipeline v1 only supports one source stream. Re-save the pipeline with a single source stream.')
-        if not normalized_key:
-            raise ValueError('source_stream_key is required')
-        return normalized_key, [normalized_key]
+    # ── Schedule helpers ──────────────────────────────────────────────────
 
     @staticmethod
     def _normalize_schedule(schedule: Any) -> dict[str, Any]:
@@ -596,6 +769,8 @@ class PipelineService:
                 return True
         return False
 
+    # ── Misc helpers ──────────────────────────────────────────────────────
+
     async def _load_credential(self, credential_id: UUID | str | None) -> AppCredential | None:
         if credential_id in (None, ''):
             return None
@@ -637,15 +812,9 @@ class PipelineService:
         return {
             'source_connector_key': pipeline.source_connector_key,
             'source_credential_id': str(pipeline.source_credential_id) if pipeline.source_credential_id else None,
-            'source_stream_key': pipeline.source_stream_key,
-            'source_streams': list(pipeline.source_streams or []),
-            'source_config': dict(pipeline.source_config or {}),
             'dest_connector_key': pipeline.dest_connector_key,
             'dest_credential_id': str(pipeline.dest_credential_id) if pipeline.dest_credential_id else None,
-            'dest_stream_key': pipeline.dest_stream_key,
-            'dest_config': dict(pipeline.dest_config or {}),
-            'write_mode': pipeline.write_mode,
-            'field_mapping': dict(pipeline.field_mapping or {}),
+            'bindings': list(pipeline.bindings or []),
             'schedule': dict(pipeline.schedule or {}),
         }
 
@@ -657,15 +826,9 @@ class PipelineService:
             'status': pipeline.status,
             'source_connector_key': pipeline.source_connector_key,
             'source_credential_id': pipeline.source_credential_id,
-            'source_stream_key': pipeline.source_stream_key,
-            'source_streams': list(pipeline.source_streams or []),
-            'source_config': dict(pipeline.source_config or {}),
             'dest_connector_key': pipeline.dest_connector_key,
             'dest_credential_id': pipeline.dest_credential_id,
-            'dest_stream_key': pipeline.dest_stream_key,
-            'dest_config': dict(pipeline.dest_config or {}),
-            'write_mode': pipeline.write_mode,
-            'field_mapping': dict(pipeline.field_mapping or {}),
+            'bindings': list(pipeline.bindings or []),
             'schedule': dict(pipeline.schedule or {}),
         }
 
@@ -676,7 +839,6 @@ class PipelineService:
         owner_email: str | None = None,
         user_permission: str | None = None,
     ) -> dict[str, Any]:
-        source_stream_key = p.source_stream_key or (list(p.source_streams or [None])[0] if p.source_streams else None)
         return {
             'id': str(p.id),
             'name': p.name,
@@ -687,15 +849,9 @@ class PipelineService:
             'status': p.status,
             'source_connector_key': p.source_connector_key,
             'source_credential_id': str(p.source_credential_id) if p.source_credential_id else None,
-            'source_stream_key': source_stream_key,
-            'source_streams': [source_stream_key] if source_stream_key else [],
-            'source_config': p.source_config,
             'dest_connector_key': p.dest_connector_key,
             'dest_credential_id': str(p.dest_credential_id) if p.dest_credential_id else None,
-            'dest_stream_key': p.dest_stream_key,
-            'dest_config': p.dest_config,
-            'write_mode': p.write_mode,
-            'field_mapping': p.field_mapping,
+            'bindings': list(p.bindings or []),
             'schedule': p.schedule,
             'last_run_at': p.last_run_at.isoformat() if p.last_run_at else None,
             'last_run_status': p.last_run_status,

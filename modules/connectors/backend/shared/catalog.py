@@ -151,6 +151,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='ticket_details',
@@ -163,6 +164,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='ticket_id', field_type='string', required=True, description='Ticket ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='activity_logs',
@@ -200,7 +202,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://request.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('backup', 'pipeline', 'automation'),
         icon='inbox',
         color='#ea580c',
         bg_color='#fff7ed',
@@ -231,6 +233,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='request_details',
@@ -243,6 +246,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='request_id', field_type='string', required=True, description='Request ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='request_custom_tables',
@@ -266,6 +270,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='request_id', field_type='string', required=True, description='Request ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='comments',
@@ -277,6 +282,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='post_hid', field_type='string', required=True, description='Post HID'),
                 ),
+                supported_modules=('backup',),
             ),
         ),
         operations=(
@@ -300,7 +306,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://workflow.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('backup', 'pipeline', 'automation'),
         icon='folder-kanban',
         color='#7c3aed',
         bg_color='#f5f3ff',
@@ -343,6 +349,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='job_details',
@@ -355,6 +362,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='job_id', field_type='string', required=True, description='Job ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='job_custom_tables',
@@ -377,6 +385,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='job_id', field_type='string', required=True, description='Job ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='comments',
@@ -388,6 +397,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='post_id', field_type='string', required=True, description='Post ID'),
                 ),
+                supported_modules=('backup',),
             ),
         ),
         operations=(
@@ -416,7 +426,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v3',
         base_url_template='https://wework.{domain}/extapi/v3',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline', 'automation'),
         icon='building-2',
         color='#2563eb',
         bg_color='#eff6ff',
@@ -435,6 +445,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='projects',
@@ -453,6 +464,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='tasks',
@@ -471,6 +483,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='subtasks',
@@ -489,6 +502,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
+                supported_modules=('pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='tasklists',
@@ -533,7 +547,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         summary='Read and write structured data in Google Sheets spreadsheets.',
         auth_spec=_GOOGLE_AUTH,
         base_url_template='https://sheets.googleapis.com/v4',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='file-spreadsheet',
         color='#0f9d58',
         bg_color='#e6f4ea',
@@ -605,6 +619,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read',),
                 sync_modes=('full_refresh',),
                 primary_key='drive_id',
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='folders',
@@ -622,6 +637,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     supports_dynamic_schema=False,
                     target_kind='resource',
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='files',
@@ -639,6 +655,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     supports_dynamic_schema=False,
                     target_kind='blob',
                 ),
+                supported_modules=('backup',),
             ),
         ),
     ),
@@ -782,7 +799,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
             test_connection_operation='test_connection',
         ),
         base_url_template='https://apis.{domain}',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         streams=(
             StreamDefinition(stream_key='pipelines', display_name='Pipelines', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
             StreamDefinition(stream_key='pipeline_stages', display_name='Pipeline Stages', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='pipelines', config_fields=(FieldDescriptor(name='pipeline_id', field_type='string', required=True, description='Pipeline ID'),)),
@@ -805,7 +822,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://hrm.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='users',
         color='#0891b2',
         bg_color='#ecfeff',
@@ -842,11 +859,11 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
     ConnectorDefinition(
         connector_key='table',
         display_name='Base Table',
-        summary='Read and write records in Base Table databases.',
+        summary='Read records from Base Table databases.',
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://table.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='layout-grid',
         color='#4f46e5',
         bg_color='#eef2ff',
@@ -855,17 +872,11 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
             StreamDefinition(
                 stream_key='records',
                 display_name='Records',
-                capabilities=('read', 'write'),
+                capabilities=('read',),
                 sync_modes=('full_refresh',),
                 primary_key='id',
                 config_fields=(
                     FieldDescriptor(name='table_id', field_type='string', required=True, description='Table ID'),
-                    FieldDescriptor(name='username', field_type='string', required=False, description='Username used for write operations'),
-                ),
-                write_config=WriteConfig(
-                    supported_modes=('append',),
-                    default_mode='append',
-                    target_kind='resource',
                 ),
             ),
         ),
@@ -879,7 +890,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://goal.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='target',
         color='#ca8a04',
         bg_color='#fefce8',
@@ -903,7 +914,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://income.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='dollar-sign',
         color='#16a34a',
         bg_color='#f0fdf4',
@@ -942,7 +953,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         ),
         api_prefix='/extapi/v1',
         base_url_template='https://meeting.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         streams=(
             StreamDefinition(stream_key='groups', display_name='Groups', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
             StreamDefinition(stream_key='meetings', display_name='Meetings', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='group_id', field_type='string', required=False, description='Meeting group ID'),)),
@@ -958,7 +969,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://payroll.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='wallet',
         color='#0d9488',
         bg_color='#f0fdfa',
@@ -978,7 +989,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v1',
         base_url_template='https://timeoff.{domain}/extapi/v1',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('pipeline',),
         icon='clock',
         color='#f59e0b',
         bg_color='#fffbeb',
@@ -1010,6 +1021,47 @@ def get_readable_connector_keys() -> set[str]:
 
 def get_writable_connector_keys() -> set[str]:
     return {c.connector_key for c in CONNECTOR_REGISTRY if c.get_writable_streams()}
+
+
+# ── Derived groupings (Apps and other modules must consume these, not hardcode) ─
+# The connector registry is the single source of truth for which apps exist and
+# how they authenticate. Apps/Backup/Pipeline MUST import these helpers instead
+# of repeating app-id lists in their own modules.
+
+def get_supported_app_names() -> dict[str, str]:
+    """Map of app_id -> display_name for every registered connector."""
+    return {c.connector_key: c.display_name for c in CONNECTOR_REGISTRY}
+
+
+def get_google_style_app_ids() -> set[str]:
+    """Connectors that authenticate through Google (OAuth or service account)."""
+    return {
+        c.connector_key
+        for c in CONNECTOR_REGISTRY
+        if c.auth_spec.auth_type in ('google_oauth', 'service_account')
+        or 'google_oauth' in c.auth_spec.supported_auth_modes
+    }
+
+
+def get_source_style_app_ids() -> set[str]:
+    """Connectors that use a domain + token style auth (the 'Base' apps)."""
+    return {
+        c.connector_key
+        for c in CONNECTOR_REGISTRY
+        if c.auth_spec.auth_type in ('token', 'token_password')
+    }
+
+
+def get_supported_auth_modes() -> set[str]:
+    """Auth modes any registered connector can produce at credential creation."""
+    modes: set[str] = set()
+    for c in CONNECTOR_REGISTRY:
+        modes.update(c.auth_spec.supported_auth_modes)
+        if c.auth_spec.auth_type == 'token':
+            modes.add('access_token')
+        elif c.auth_spec.auth_type == 'token_password':
+            modes.add('token_password')
+    return modes
 
 
 # ── Catalog service ───────────────────────────────────────────────────────────
@@ -1054,17 +1106,43 @@ class ConnectorCatalogService:
     async def list_source_readers(self) -> list[dict[str, object]]:
         counts = await self._load_credential_counts()
         return [
-            c.as_source_reader_payload(credential_count=counts.get(c.connector_key, 0))
+            c.as_source_reader_payload(
+                credential_count=counts.get(c.connector_key, 0),
+                module_key='pipeline',
+            )
             for c in CONNECTOR_REGISTRY
-            if c.supports_module('pipeline') and c.get_readable_streams() and c.status != 'planned'
+            if c.supports_module('pipeline')
+            and c.get_pipeline_source_streams()
+            and c.status != 'planned'
         ]
 
     async def list_destination_writers(self) -> list[dict[str, object]]:
         counts = await self._load_credential_counts()
         return [
-            c.as_destination_writer_payload(credential_count=counts.get(c.connector_key, 0))
+            c.as_destination_writer_payload(
+                credential_count=counts.get(c.connector_key, 0),
+                module_key='pipeline',
+            )
             for c in CONNECTOR_REGISTRY
-            if c.supports_module('pipeline') and c.get_pipeline_destination_streams() and c.status != 'planned'
+            if c.supports_module('pipeline')
+            and any(
+                s.supports_module('pipeline')
+                for s in c.get_pipeline_destination_streams()
+            )
+            and c.status != 'planned'
+        ]
+
+    async def list_backup_sources(self) -> list[dict[str, object]]:
+        counts = await self._load_credential_counts()
+        return [
+            c.as_source_reader_payload(
+                credential_count=counts.get(c.connector_key, 0),
+                module_key='backup',
+            )
+            for c in CONNECTOR_REGISTRY
+            if c.supports_module('backup')
+            and c.get_backup_streams()
+            and c.status != 'planned'
         ]
 
     async def build_pipeline_catalog(self) -> dict[str, object]:

@@ -88,6 +88,79 @@ class WeworkConnector(BaseConnector):
         *,
         config: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
+        cfg = dict(config or {})
+        write_mode = str(cfg.get('write_mode') or 'append').lower()
+        if write_mode != 'append':
+            raise ValueError(f"WeWork connector only supports write_mode='append', got '{write_mode}'")
+
+        client = await self._get_client()
+        default_username = str(cfg.get('username') or '')
+        default_project_id = str(cfg.get('project_id') or '')
+        written = 0
+        errors = 0
+
+        if stream_key == 'departments':
+            for record in records:
+                try:
+                    await client.create_department(
+                        username=str(record.get('username') or default_username),
+                        name=str(record.get('name') or ''),
+                        description=record.get('description'),
+                        parent_id=record.get('parent_id'),
+                    )
+                    written += 1
+                except Exception:
+                    errors += 1
+            return {'written': written, 'errors': errors}
+
+        if stream_key == 'projects':
+            for record in records:
+                try:
+                    await client.create_project(
+                        username=str(record.get('username') or default_username),
+                        metatype=str(record.get('metatype') or 'project'),
+                        name=str(record.get('name') or ''),
+                        external=str(record.get('external') or '0'),
+                        description=record.get('description'),
+                        parent_id=record.get('parent_id'),
+                    )
+                    written += 1
+                except Exception:
+                    errors += 1
+            return {'written': written, 'errors': errors}
+
+        if stream_key == 'tasks':
+            for record in records:
+                try:
+                    await client.create_task(
+                        username=str(record.get('username') or default_username),
+                        project_id=str(record.get('project_id') or default_project_id),
+                        name=str(record.get('name') or ''),
+                        assignee=record.get('assignee'),
+                        description=record.get('description'),
+                        deadline=record.get('deadline'),
+                        tasklist_id=record.get('tasklist_id'),
+                    )
+                    written += 1
+                except Exception:
+                    errors += 1
+            return {'written': written, 'errors': errors}
+
+        if stream_key == 'subtasks':
+            for record in records:
+                try:
+                    await client.create_subtask(
+                        username=str(record.get('username') or default_username),
+                        parent_id=str(record.get('parent_id') or record.get('task_id') or ''),
+                        name=str(record.get('name') or ''),
+                        assignee=record.get('assignee'),
+                        description=record.get('description'),
+                    )
+                    written += 1
+                except Exception:
+                    errors += 1
+            return {'written': written, 'errors': errors}
+
         stream = self.definition.get_stream(stream_key)
         if stream is None:
             raise ValueError(f"Stream '{stream_key}' not found")
