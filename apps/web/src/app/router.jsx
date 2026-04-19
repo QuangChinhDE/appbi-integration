@@ -112,6 +112,14 @@ function AppRouter() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/backup/:flowId"
+          element={
+            <ProtectedRoute module="backup">
+              <BackupFlowPage />
+            </ProtectedRoute>
+          }
+        />
 
         {dynamicRoutes.map((module) => {
           const PageComponent = MODULE_PAGE_COMPONENTS[module.key]

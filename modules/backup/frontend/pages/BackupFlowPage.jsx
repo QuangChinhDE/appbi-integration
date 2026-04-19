@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
 import { Cloud } from 'lucide-react'
 import ShareDialog from '@modules/identity/frontend/components/ShareDialog'
 import { getListAccessMeta } from '@modules/identity/frontend/lib/resourcePermissions'
@@ -112,6 +112,8 @@ const BackupFlowPage = () => {
   const [confirmLoading, setConfirmLoading] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const { flowId: paramFlowId } = useParams()
+  const navigate = useNavigate()
   const location = useLocation()
   const permissions = useAuthStore((state) => state.permissions)
   const canEditBackup = hasPermission(permissions, 'backup', 'edit')
@@ -132,10 +134,18 @@ const BackupFlowPage = () => {
     setDetailsFlow(null)
     setDetailsRuns([])
     resetAll()
-  }, [resetAll, setDetailsFlow, setDetailsRuns])
+    navigate('/backup', { replace: true })
+  }, [resetAll, setDetailsFlow, setDetailsRuns, navigate])
 
   // ── Fetch flows on mount ──────────────────────────────────────────────
   useEffect(() => { backupFlows.fetchFlows() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── URL-driven detail view (direct link /backup/:flowId) ──────────────
+  useEffect(() => {
+    if (paramFlowId && viewMode === 'list' && !detailsFlowId) {
+      void handleOpenDetails({ id: paramFlowId })
+    }
+  }, [paramFlowId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!location.state?.resetToListToken) return
@@ -231,6 +241,7 @@ const BackupFlowPage = () => {
     backupFlows.setDetailsRuns([])
     setDetailsActiveTab('overview')
     setViewMode('detail')
+    navigate(`/backup/${record.id}`, { replace: true })
     await backupFlows.fetchFlowDetails(record.id)
   }
 
@@ -279,6 +290,7 @@ const BackupFlowPage = () => {
   const handleBackFromWizard = () => {
     if (viewMode === 'edit' && detailsFlowId) {
       setViewMode('detail')
+      navigate(`/backup/${detailsFlowId}`, { replace: true })
       return
     }
     resetToBackupList()
@@ -296,6 +308,7 @@ const BackupFlowPage = () => {
       setDetailsFlowRecord(result?.flow || null)
       setDetailsActiveTab('overview')
       setViewMode('detail')
+      navigate(`/backup/${nextFlowId}`, { replace: true })
       await backupFlows.fetchFlowDetails(nextFlowId)
       return
     }

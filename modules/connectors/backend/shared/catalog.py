@@ -106,6 +106,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='id',
                 read_operation='get_all_services',
+                supported_modules=('backup', 'pipeline'),
             ),
             StreamDefinition(
                 stream_key='compounds',
@@ -114,6 +115,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='id',
                 read_operation='get_all_compounds',
+                supported_modules=('backup', 'pipeline'),
             ),
             StreamDefinition(
                 stream_key='groups',
@@ -122,6 +124,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='id',
                 read_operation='get_all_groups',
+                supported_modules=('backup', 'pipeline'),
             ),
             StreamDefinition(
                 stream_key='stages',
@@ -152,7 +155,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='ticket_details',
@@ -174,6 +177,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh', 'incremental'),
                 cursor_field='last_update',
                 read_operation='get_ticket_activity_logs',
+                supported_modules=('backup', 'pipeline'),
             ),
         ),
         operations=(
@@ -216,6 +220,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='id',
                 read_operation='get_all_groups',
+                supported_modules=('backup', 'pipeline'),
             ),
             StreamDefinition(
                 stream_key='requests',
@@ -234,7 +239,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='request_details',
@@ -320,6 +325,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='id',
                 read_operation='get_all_workflows',
+                supported_modules=('backup', 'pipeline'),
             ),
             StreamDefinition(
                 stream_key='stages',
@@ -350,7 +356,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='job_details',
@@ -427,7 +433,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=_BASE_TOKEN_AUTH,
         api_prefix='/extapi/v3',
         base_url_template='https://wework.{domain}/extapi/v3',
-        supported_modules=('pipeline', 'automation'),
+        supported_modules=('backup', 'pipeline', 'automation'),
         icon='building-2',
         color='#2563eb',
         bg_color='#eff6ff',
@@ -446,7 +452,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='projects',
@@ -465,7 +471,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='tasks',
@@ -484,7 +490,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='subtasks',

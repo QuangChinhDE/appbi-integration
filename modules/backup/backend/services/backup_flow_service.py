@@ -224,7 +224,10 @@ class BackupFlowService:
         )
 
     @staticmethod
-    def get_run_blocked_reason_from_destination(destination_credential: Optional[AppCredential]) -> Optional[str]:
+    def get_run_blocked_reason_from_destination(
+        destination_credential: Optional[AppCredential],
+        destination_target: Optional[dict] = None,
+    ) -> Optional[str]:
         if not destination_credential:
             return None
         if destination_credential.app_id not in GOOGLE_STYLE_APPS:
@@ -235,6 +238,10 @@ class BackupFlowService:
         for key in ("folder_id", "drive_id", "uses_platform_service_account"):
             if key in config:
                 merged.setdefault(key, config[key])
+        if destination_target:
+            for key in ("folder_id", "drive_id"):
+                if key in destination_target:
+                    merged[key] = destination_target[key]
         merged["auth_mode"] = destination_credential.auth_mode
         try:
             validate_service_account_drive_destination(merged)
@@ -503,7 +510,9 @@ class BackupFlowService:
                 elif not flow.source_credential_id or not flow.destination_credential_id:
                     blocked_reason = "This flow is missing a source or destination credential assignment."
             if blocked_reason is None:
-                blocked_reason = self.get_run_blocked_reason_from_destination(destination)
+                blocked_reason = self.get_run_blocked_reason_from_destination(
+                    destination, dict(flow.destination_target or {}),
+                )
 
             response.append(BackupFlowListResponse(
                 id=flow.id,
@@ -620,6 +629,10 @@ class BackupFlowService:
         for key in ("folder_id", "drive_id", "uses_platform_service_account"):
             if key in destination_config:
                 validation_view.setdefault(key, destination_config[key])
+        destination_target = dict(flow.destination_target or {})
+        for key in ("folder_id", "drive_id"):
+            if key in destination_target:
+                validation_view[key] = destination_target[key]
         validation_view["auth_mode"] = destination.auth_mode
         validate_service_account_drive_destination(validation_view)
 

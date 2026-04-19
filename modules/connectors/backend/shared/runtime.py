@@ -114,7 +114,9 @@ class ConnectorRuntimeService:
                     target[field.name] = decrypt_value(encrypted)
 
         if credential.app_id in {'gdrive', 'gsheets', 'bigquery'}:
-            auth['auth_mode'] = resolve_destination_google_auth_mode(auth)
+            auth['auth_mode'] = resolve_destination_google_auth_mode(
+                {**auth, **{k: v for k, v in config.items() if k not in auth}}
+            )
 
         return ConnectorRuntimeBinding(
             credential=credential,

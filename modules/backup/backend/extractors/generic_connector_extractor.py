@@ -37,19 +37,48 @@ def _select_stream_keys(connector_key: str, structure: dict[str, Any]) -> list[s
         )
     allowed_keys = {s.stream_key for s in backup_streams}
 
+    # Build a mapping from wizard object names (singular) to actual stream keys.
+    # Prefer list streams like 'jobs' for the wizard object 'job'; only fall back
+    # to detail streams such as 'job_details' when no list stream exists.
+    _alias_map: dict[str, str] = {s.stream_key: s.stream_key for s in backup_streams}
+    for s in backup_streams:
+        key = s.stream_key
+        if key.endswith('ies'):
+            _alias_map.setdefault(key[:-3] + 'y', key)
+        elif key.endswith('s') and not key.endswith('ss'):
+            _alias_map.setdefault(key[:-1], key)
+    for s in backup_streams:
+        key = s.stream_key
+        if key.endswith('_details'):
+            _alias_map.setdefault(key[: -len('_details')], key)
+
     requested = [
         str(item).strip()
         for item in (structure.get('objects') or [])
         if str(item).strip()
     ]
     if requested:
-        rejected = [key for key in requested if key not in allowed_keys]
+        resolved = []
+        rejected = []
+        for key in requested:
+            match = _alias_map.get(key)
+            if match:
+                resolved.append(match)
+            else:
+                rejected.append(key)
         if rejected:
             raise ValueError(
                 f"Streams {rejected} are not approved for backup on connector '{connector_key}'. "
                 f"Allowed backup streams: {sorted(allowed_keys)}"
             )
-        return requested
+        # Deduplicate while preserving order.
+        seen: set[str] = set()
+        unique = []
+        for k in resolved:
+            if k not in seen:
+                seen.add(k)
+                unique.append(k)
+        return unique
 
     # Default selection: top-level backup streams with no required config.
     defaults = [
