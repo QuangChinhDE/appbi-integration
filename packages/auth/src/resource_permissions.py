@@ -249,6 +249,60 @@ async def require_edit_access(
     return effective
 
 
+async def require_credential_access(
+    db: AsyncSession,
+    user: User,
+    credential_id: UUID | str | None,
+    *,
+    min_level: str = 'view',
+) -> AppCredential:
+    """Load an AppCredential and verify the user has at least *min_level* on it.
+
+    Raises 404 if the credential does not exist, 403 if the user lacks the
+    required access level.  Returns the loaded credential on success.
+    """
+    if credential_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail='Credential ID is required',
+        )
+    try:
+        parsed_id = UUID(str(credential_id))
+    except (TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Credential not found',
+        )
+
+    credential = await db.get(AppCredential, parsed_id)
+    if credential is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Credential not found',
+        )
+
+    if min_level == 'view':
+        await require_view_access(
+            db, user, credential,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+    elif min_level == 'edit':
+        await require_edit_access(
+            db, user, credential,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+    else:
+        await require_view_access(
+            db, user, credential,
+            module='apps',
+            resource_type=ResourceType.APP_CREDENTIAL,
+        )
+
+    return credential
+
+
 async def require_full_access(
     db: AsyncSession,
     user: User,

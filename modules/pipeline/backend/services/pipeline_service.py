@@ -56,6 +56,7 @@ from packages.auth.src.resource_permissions import (
     batch_effective_permissions,
     fetch_owner_email_lookup,
     get_effective_permission,
+    require_credential_access,
 )
 from packages.database.src import async_session
 from packages.database.src.models import (
@@ -204,7 +205,7 @@ class PipelineService:
         )
 
     async def create_pipeline(self, data: dict[str, Any], current_user: User) -> dict[str, Any]:
-        payload = await self._validate_pipeline_payload(data)
+        payload = await self._validate_pipeline_payload(data, current_user)
         pipeline = DataPipeline(
             name=payload['name'],
             description=payload.get('description'),
@@ -240,7 +241,7 @@ class PipelineService:
             'schedule': pipeline.schedule,
         }
         merged.update(data)
-        payload = await self._validate_pipeline_payload(merged)
+        payload = await self._validate_pipeline_payload(merged, current_user)
 
         for key in (
             'name', 'description', 'status',
@@ -328,6 +329,7 @@ class PipelineService:
         source_stream_key: str,
         source_config: Mapping[str, Any] | None = None,
         sample_size: int = 10,
+        current_user: User,
     ) -> dict[str, Any]:
         """Run a live read against the source stream and report top-level keys.
 
@@ -338,7 +340,9 @@ class PipelineService:
         ``array`` without drilling down — destinations treat them as one JSON
         column.
         """
-        credential = await self._load_credential(source_credential_id)
+        credential = await require_credential_access(
+            self.db, current_user, source_credential_id, min_level='view',
+        )
         ConnectorBindingValidationService.validate_source_credential(
             credential,
             module_key='pipeline',
@@ -415,7 +419,7 @@ class PipelineService:
 
     # ── Validation ────────────────────────────────────────────────────────
 
-    async def _validate_pipeline_payload(self, data: Mapping[str, Any]) -> dict[str, Any]:
+    async def _validate_pipeline_payload(self, data: Mapping[str, Any], current_user: User | None = None) -> dict[str, Any]:
         payload = dict(data or {})
         name = str(payload.get('name') or '').strip()
         if not name:
@@ -431,8 +435,16 @@ class PipelineService:
         if not payload.get('dest_credential_id'):
             raise ValueError('dest_credential_id is required')
 
-        source_credential = await self._load_credential(payload.get('source_credential_id'))
-        dest_credential = await self._load_credential(payload.get('dest_credential_id'))
+        if current_user is not None:
+            source_credential = await require_credential_access(
+                self.db, current_user, payload.get('source_credential_id'), min_level='view',
+            )
+            dest_credential = await require_credential_access(
+                self.db, current_user, payload.get('dest_credential_id'), min_level='view',
+            )
+        else:
+            source_credential = await self._load_credential(payload.get('source_credential_id'))
+            dest_credential = await self._load_credential(payload.get('dest_credential_id'))
 
         ConnectorBindingValidationService.validate_source_credential(
             source_credential,

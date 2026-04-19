@@ -23,3 +23,13 @@ __pycache__/
 # Logs / temp
 *.log
 .DS_Store
+
+# Outdated / local-only docs
+BUILD.md
+DEPLOYMENT.md
+STRUCTURE.md
+Design System*.md
+plan_*.md
+docs/
+infrastructure/
+example-app/

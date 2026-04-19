@@ -147,6 +147,7 @@ async def _get_run_or_404(db: AsyncSession, run_id: UUID) -> PipelineRun:
 async def discover_source_fields(
     body: DiscoverFieldsRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     service = PipelineService(db)
     try:
@@ -156,6 +157,7 @@ async def discover_source_fields(
             source_stream_key=body.source_stream_key,
             source_config=body.source_config,
             sample_size=body.sample_size,
+            current_user=current_user,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
