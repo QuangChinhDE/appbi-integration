@@ -136,6 +136,28 @@ CREATE TRIGGER update_google_connections_updated_at
     EXECUTE FUNCTION update_updated_at_column();
 
 -- ============================================================
+-- users: identity / auth table (managed by SQLAlchemy but
+-- required here so that FK references in init.sql resolve).
+-- ============================================================
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    full_name VARCHAR(255) NOT NULL,
+    password_hash VARCHAR(255),
+    auth_provider VARCHAR(32) NOT NULL DEFAULT 'password',
+    google_sub VARCHAR(255) UNIQUE,
+    avatar_url VARCHAR(1024),
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
+    permissions JSONB NOT NULL DEFAULT '{"backup":"none","apps":"none","pipeline":"none","automation":"none","settings":"none"}'::jsonb,
+    last_login_at TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS ix_users_email ON users (email);
+CREATE INDEX IF NOT EXISTS ix_users_google_sub ON users (google_sub);
+
+-- ============================================================
 -- app_credentials: unified registry owned by the Apps module.
 -- Role-neutral. Backup decides whether a given credential is used
 -- as a source or a destination at flow-configuration time.
