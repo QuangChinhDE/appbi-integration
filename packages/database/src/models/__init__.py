@@ -30,7 +30,8 @@ class AuthProvider:
 class ResourceType:
     APP_CREDENTIAL = 'app_credential'
     BACKUP_FLOW = 'backup_flow'
-    CHOICES = (APP_CREDENTIAL, BACKUP_FLOW)
+    DATA_PIPELINE = 'data_pipeline'
+    CHOICES = (APP_CREDENTIAL, BACKUP_FLOW, DATA_PIPELINE)
 
 
 class SharePermission:
@@ -207,6 +208,108 @@ class BackupFlowRun(Base):
 
     __table_args__ = (
         CheckConstraint("status IN ('pending', 'running', 'completed', 'failed')", name='check_run_status'),
+    )
+
+
+# ── Data Pipeline ─────────────────────────────────────────────────────────────
+
+class PipelineStatus:
+    DRAFT = 'draft'
+    ACTIVE = 'active'
+    PAUSED = 'paused'
+    ARCHIVED = 'archived'
+
+
+class DataPipeline(Base):
+    """A configured data pipeline that moves data from a source to a destination."""
+    __tablename__ = "data_pipelines"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(255), nullable=False)
+    description = Column(String(500), nullable=True)
+    owner_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='SET NULL'), nullable=True, index=True)
+
+    status = Column(String(20), nullable=False, server_default=PipelineStatus.DRAFT)
+
+    # Source configuration
+    source_connector_key = Column(String(50), nullable=False)
+    source_credential_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey('app_credentials.id', ondelete='RESTRICT'),
+        nullable=True,
+    )
+    source_streams = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
+    source_config = Column(JSONB, nullable=True)
+
+    # Destination configuration
+    dest_connector_key = Column(String(50), nullable=False)
+    dest_credential_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey('app_credentials.id', ondelete='RESTRICT'),
+        nullable=True,
+    )
+    dest_stream_key = Column(String(100), nullable=False)
+    dest_config = Column(JSONB, nullable=True)
+    write_mode = Column(String(20), nullable=False, server_default='append')
+
+    # Field mapping — snapshot at config time; re-discovered each run if dynamic
+    field_mapping = Column(JSONB, nullable=True)
+
+    # Schedule
+    schedule = Column(JSONB, nullable=True)
+
+    # Run summary cache
+    last_run_at = Column(DateTime(timezone=True), nullable=True)
+    last_run_status = Column(String(20), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('draft', 'active', 'paused', 'archived')",
+            name='check_pipeline_status',
+        ),
+        CheckConstraint(
+            "write_mode IN ('append', 'replace', 'upsert')",
+            name='check_pipeline_write_mode',
+        ),
+        CheckConstraint(
+            "last_run_status IS NULL OR last_run_status IN ('pending', 'running', 'completed', 'failed')",
+            name='check_pipeline_last_run_status',
+        ),
+    )
+
+
+class PipelineRun(Base):
+    """A single execution of a data pipeline."""
+    __tablename__ = "pipeline_runs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pipeline_id = Column(UUID(as_uuid=True), ForeignKey('data_pipelines.id', ondelete='CASCADE'), nullable=False, index=True)
+
+    status = Column(String(20), nullable=False)
+    started_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    records_read = Column(Integer, nullable=True)
+    records_written = Column(Integer, nullable=True)
+    error_count = Column(Integer, nullable=True)
+
+    # Snapshot of config used for this run (so config changes don't affect history)
+    run_config = Column(JSONB, nullable=True)
+
+    logs = Column(Text, nullable=True)
+    error_message = Column(Text, nullable=True)
+
+    triggered_by = Column(String(100), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('pending', 'running', 'completed', 'failed')",
+            name='check_pipeline_run_status',
+        ),
     )
 
 

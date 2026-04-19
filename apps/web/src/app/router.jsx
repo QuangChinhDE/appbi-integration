@@ -112,6 +112,7 @@ function AppRouter() {
             </ProtectedRoute>
           }
         />
+
         {dynamicRoutes.map((module) => {
           const PageComponent = MODULE_PAGE_COMPONENTS[module.key]
           if (!PageComponent) return null

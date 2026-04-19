@@ -792,6 +792,73 @@ async def _ensure_user_permissions_default(db: AsyncSession) -> bool:
     return True
 
 
+async def _ensure_data_pipeline_tables(db: AsyncSession) -> bool:
+    """Create data_pipelines and pipeline_runs tables if missing."""
+    if await _table_exists(db, 'data_pipelines'):
+        return False
+
+    await db.execute(text("""
+        CREATE TABLE data_pipelines (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            name VARCHAR(255) NOT NULL,
+            description VARCHAR(500),
+            owner_id UUID REFERENCES users(id) ON DELETE SET NULL,
+            status VARCHAR(20) NOT NULL DEFAULT 'draft',
+            source_connector_key VARCHAR(50) NOT NULL,
+            source_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
+            source_streams JSONB NOT NULL DEFAULT '[]'::jsonb,
+            source_config JSONB,
+            dest_connector_key VARCHAR(50) NOT NULL,
+            dest_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
+            dest_stream_key VARCHAR(100) NOT NULL,
+            dest_config JSONB,
+            write_mode VARCHAR(20) NOT NULL DEFAULT 'append',
+            field_mapping JSONB,
+            schedule JSONB,
+            last_run_at TIMESTAMPTZ,
+            last_run_status VARCHAR(20),
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT check_pipeline_status CHECK (status IN ('draft', 'active', 'paused', 'archived')),
+            CONSTRAINT check_pipeline_write_mode CHECK (write_mode IN ('append', 'replace', 'upsert')),
+            CONSTRAINT check_pipeline_last_run_status CHECK (last_run_status IS NULL OR last_run_status IN ('pending', 'running', 'completed', 'failed'))
+        )
+    """))
+    await db.execute(text("CREATE INDEX ix_data_pipelines_owner_id ON data_pipelines(owner_id)"))
+
+    await db.execute(text("""
+        CREATE TABLE pipeline_runs (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            pipeline_id UUID NOT NULL REFERENCES data_pipelines(id) ON DELETE CASCADE,
+            status VARCHAR(20) NOT NULL,
+            started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            completed_at TIMESTAMPTZ,
+            records_read INTEGER,
+            records_written INTEGER,
+            error_count INTEGER,
+            run_config JSONB,
+            logs TEXT,
+            error_message TEXT,
+            triggered_by VARCHAR(100) NOT NULL,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT check_pipeline_run_status CHECK (status IN ('pending', 'running', 'completed', 'failed'))
+        )
+    """))
+    await db.execute(text("CREATE INDEX ix_pipeline_runs_pipeline_id ON pipeline_runs(pipeline_id)"))
+
+    # Extend resource_shares to accept data_pipeline
+    await db.execute(text("""
+        ALTER TABLE resource_shares DROP CONSTRAINT IF EXISTS check_resource_share_resource_type
+    """))
+    await db.execute(text("""
+        ALTER TABLE resource_shares ADD CONSTRAINT check_resource_share_resource_type
+        CHECK (resource_type IN ('app_credential', 'backup_flow', 'data_pipeline'))
+    """))
+
+    logger.info('Created data_pipelines and pipeline_runs tables')
+    return True
+
+
 async def run_startup_schema_migrations(db: AsyncSession) -> None:
     """Upgrade legacy database structures to the current credential-based schema.
 
@@ -819,6 +886,8 @@ async def run_startup_schema_migrations(db: AsyncSession) -> None:
     if await _backfill_backup_flow_owners(db):
         changed = True
     if await _backfill_app_credential_owners(db):
+        changed = True
+    if await _ensure_data_pipeline_tables(db):
         changed = True
 
     if changed:
