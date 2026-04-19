@@ -318,6 +318,7 @@ class AppConfigService:
         )
         email = (
             await self.get("gcp_service_account_email")
+            or os.getenv("GCP_SERVICE_ACCOUNT_CLIENT_EMAIL", "")
             or os.getenv("GCP_SERVICE_ACCOUNT_EMAIL", "")
         ).strip()
 

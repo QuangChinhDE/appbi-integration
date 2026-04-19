@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
-import { Database, Pencil, Plus, Search, Share2, Trash2 } from 'lucide-react'
+import { Database, Pencil, Plug, Plus, Search, Share2, Trash2 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import api from '@shared/api/client'
@@ -239,9 +239,21 @@ function CredentialFilterTags({ entry, filters, queryAppId, onToggleFilter }) {
 }
 
 
-function CredentialActionButtons({ entry, onEdit, onDelete, onShare }) {
+function CredentialActionButtons({ entry, onEdit, onDelete, onShare, onTestConnection, testingId }) {
+  const isTesting = testingId === entry.id
   return (
     <div className="flex items-center justify-end gap-1">
+      <IconButton
+        aria-label="Test connection"
+        variant="ghost"
+        size="xs"
+        onClick={() => onTestConnection(entry)}
+        title="Test connection"
+        disabled={isTesting}
+        className={isTesting ? 'animate-pulse text-brand' : ''}
+      >
+        <Plug className="h-3.5 w-3.5" />
+      </IconButton>
       {entry.permissions.canShare && (
         <IconButton
           aria-label="Share credential"
@@ -281,7 +293,7 @@ function CredentialActionButtons({ entry, onEdit, onDelete, onShare }) {
 }
 
 
-function CredentialCard({ entry, queryAppId, activeFilters, onEdit, onDelete, onShare, onFilterClick }) {
+function CredentialCard({ entry, queryAppId, activeFilters, onEdit, onDelete, onShare, onFilterClick, onTestConnection, testingId }) {
   return (
     <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5 transition-[border-color,box-shadow] hover:border-brand/30 hover:shadow-linear-sm">
       <div className="flex items-start justify-between gap-3">
@@ -300,7 +312,7 @@ function CredentialCard({ entry, queryAppId, activeFilters, onEdit, onDelete, on
             )}
           </div>
         </div>
-        <CredentialActionButtons entry={entry} onEdit={onEdit} onDelete={onDelete} onShare={onShare} />
+        <CredentialActionButtons entry={entry} onEdit={onEdit} onDelete={onDelete} onShare={onShare} onTestConnection={onTestConnection} testingId={testingId} />
       </div>
 
       <div className="mt-4">
@@ -355,6 +367,8 @@ function CredentialTable({
   selectedIds,
   onToggleSelect,
   onToggleSelectAll,
+  onTestConnection,
+  testingId,
 }) {
   const selectable = Boolean(onToggleSelect)
   const selectableIds = entries.filter((entry) => entry.permissions.canDelete).map((entry) => entry.id)
@@ -461,7 +475,7 @@ function CredentialTable({
                   {formatDateLabel(entry.updatedAt)}
                 </td>
                 <td className="whitespace-nowrap px-6 py-4 text-right">
-                  <CredentialActionButtons entry={entry} onEdit={onEdit} onDelete={onDelete} onShare={onShare} />
+                  <CredentialActionButtons entry={entry} onEdit={onEdit} onDelete={onDelete} onShare={onShare} onTestConnection={onTestConnection} testingId={testingId} />
                 </td>
               </tr>
             ))}
@@ -487,6 +501,7 @@ function AppsPage() {
   const [deleting, setDeleting] = useState(false)
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [selectedIds, setSelectedIds] = useState(new Set())
+  const [testingId, setTestingId] = useState(null)
   const [listFilters, setListFilters] = useState({})
   const [sortKey, setSortKey] = useState('updated')
 
@@ -569,6 +584,23 @@ function AppsPage() {
       setDeleting(false)
     }
   }, [entryToDelete, loadRegistry])
+
+  const testConnection = useCallback(async (entry) => {
+    setTestingId(entry.id)
+    try {
+      const response = await api.post(`/api/apps/credentials/${entry.id}/test-connection`)
+      const result = response.data
+      if (result.ok) {
+        message.success(`${entry.appTitle}: Connection successful`)
+      } else {
+        message.error(`${entry.appTitle}: ${result.error || 'Connection failed'}`)
+      }
+    } catch (error) {
+      message.error(error.response?.data?.detail || 'Test connection failed')
+    } finally {
+      setTestingId(null)
+    }
+  }, [])
 
   const toggleSelect = useCallback((id) => {
     setSelectedIds((current) => {
@@ -757,6 +789,8 @@ function AppsPage() {
                     onDelete={setEntryToDelete}
                     onShare={setShareTarget}
                     onFilterClick={toggleListFilter}
+                    onTestConnection={testConnection}
+                    testingId={testingId}
                   />
                 ))}
               </div>
@@ -775,6 +809,8 @@ function AppsPage() {
               selectedIds={canCreateCredential ? selectedIds : undefined}
               onToggleSelect={canCreateCredential ? toggleSelect : undefined}
               onToggleSelectAll={canCreateCredential ? toggleSelectAll : undefined}
+              onTestConnection={testConnection}
+              testingId={testingId}
             />
           )
         }}

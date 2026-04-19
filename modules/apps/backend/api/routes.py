@@ -22,6 +22,7 @@ from modules.apps.shared.types import (
     AppCredentialListItem,
     AppCredentialUpdate,
 )
+from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from packages.auth.src import (
     apply_resource_scope,
     get_current_user,
@@ -124,6 +125,41 @@ async def apply_app_credential(
         raise HTTPException(status_code=404, detail="App credential not found")
     await require_view_access(db, current_user, model, resource_type=ResourceType.APP_CREDENTIAL)
     return await service.get_credential_snapshot(credential_id, current_user)
+
+
+@router.post("/api/apps/credentials/{credential_id}/test-connection")
+async def test_app_credential_connection(
+    credential_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = AppCredentialService(db)
+    try:
+        model = await service.get_credential_model(credential_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not model:
+        raise HTTPException(status_code=404, detail="App credential not found")
+    await require_view_access(db, current_user, model, resource_type=ResourceType.APP_CREDENTIAL)
+
+    runtime = ConnectorRuntimeService(db)
+    try:
+        connector = await runtime.build_connector_from_credential_id(model.id)
+    except Exception as exc:
+        return {"ok": False, "error": f"Failed to build connector: {exc}"}
+
+    try:
+        result = await connector.test_connection()
+    except Exception as exc:
+        result = {"ok": False, "error": str(exc)}
+    finally:
+        if hasattr(connector, 'close'):
+            try:
+                await connector.close()
+            except Exception:
+                pass
+
+    return result
 
 
 @router.put("/api/apps/credentials/{credential_id}", response_model=AppCredentialDetail)
