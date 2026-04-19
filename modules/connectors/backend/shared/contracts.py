@@ -30,12 +30,14 @@ class WriteConfig:
     supported_modes: tuple[str, ...] = ('append',)
     default_mode: str = 'append'
     supports_dynamic_schema: bool = True   # fields discovered at runtime
+    target_kind: str = 'tabular'           # tabular, resource, blob
 
     def to_payload(self) -> dict[str, Any]:
         return {
             'supported_modes': list(self.supported_modes),
             'default_mode': self.default_mode,
             'supports_dynamic_schema': self.supports_dynamic_schema,
+            'target_kind': self.target_kind,
         }
 
 
@@ -46,6 +48,9 @@ class FieldDescriptor:
     field_type: str = 'string'
     required: bool = False
     description: str = ''
+    secret: bool = False
+    storage: str = 'config'     # auth, config, runtime
+    input_kind: str = 'text'    # text, password, textarea, select, json
 
 
 @dataclass(frozen=True)
@@ -88,6 +93,7 @@ class StreamDefinition:
     read_operation: str | None = None   # maps to OperationSpec.operation_key
     write_operation: str | None = None
     schema_fields: tuple[FieldDescriptor, ...] = ()
+    config_fields: tuple[FieldDescriptor, ...] = ()
     write_config: WriteConfig | None = None  # only set for destination streams
 
     @property
@@ -110,8 +116,28 @@ class StreamDefinition:
             'read_operation': self.read_operation,
             'write_operation': self.write_operation,
             'schema_fields': [
-                {'name': f.name, 'type': f.field_type, 'required': f.required, 'description': f.description}
+                {
+                    'name': f.name,
+                    'type': f.field_type,
+                    'required': f.required,
+                    'description': f.description,
+                    'secret': f.secret,
+                    'storage': f.storage,
+                    'input_kind': f.input_kind,
+                }
                 for f in self.schema_fields
+            ],
+            'config_fields': [
+                {
+                    'name': f.name,
+                    'type': f.field_type,
+                    'required': f.required,
+                    'description': f.description,
+                    'secret': f.secret,
+                    'storage': f.storage,
+                    'input_kind': f.input_kind,
+                }
+                for f in self.config_fields
             ],
             'write_config': self.write_config.to_payload() if self.write_config else None,
         }
@@ -129,7 +155,15 @@ class AuthSpec:
         return {
             'auth_type': self.auth_type,
             'fields': [
-                {'name': f.name, 'type': f.field_type, 'required': f.required, 'description': f.description}
+                {
+                    'name': f.name,
+                    'type': f.field_type,
+                    'required': f.required,
+                    'description': f.description,
+                    'secret': f.secret,
+                    'storage': f.storage,
+                    'input_kind': f.input_kind,
+                }
                 for f in self.fields
             ],
             'test_connection_operation': self.test_connection_operation,
@@ -180,6 +214,16 @@ class ConnectorDefinition:
     def get_destination_streams(self) -> tuple[StreamDefinition, ...]:
         """Streams with write_config — true pipeline destinations (not write-back)."""
         return tuple(s for s in self.streams if s.write_config is not None)
+
+    def get_pipeline_destination_streams(self) -> tuple[StreamDefinition, ...]:
+        return tuple(
+            s
+            for s in self.streams
+            if s.write_config is not None and s.write_config.target_kind == 'tabular'
+        )
+
+    def supports_module(self, module_key: str) -> bool:
+        return module_key in self.supported_modules
 
     @property
     def is_destination(self) -> bool:
@@ -235,7 +279,7 @@ class ConnectorDefinition:
         }
 
     def as_destination_writer_payload(self, *, credential_count: int = 0) -> dict[str, Any]:
-        writable = self.get_writable_streams()
+        writable = self.get_pipeline_destination_streams()
         return {
             'key': f'{self.connector_key}_writer',
             'app_id': self.connector_key,

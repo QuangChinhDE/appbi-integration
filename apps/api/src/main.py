@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
+import logging
 import os
 from datetime import datetime
 
@@ -12,12 +14,16 @@ from modules.credentials.backend.api.routes import router as credentials_router
 from modules.identity.backend.api.routes import router as identity_router
 from modules.identity.backend.api.share_routes import router as share_router
 from modules.pipeline.backend.api.routes import router as pipeline_router
+from modules.pipeline.backend.services.pipeline_service import PipelineService
 from packages.auth.src.bootstrap import ensure_bootstrap_admin
 from packages.auth.src.module_registry import is_module_enabled
 from packages.database.src import Base, async_session, engine, get_db
 from packages.database.src.schema_migrations import run_startup_schema_migrations
 
 # Create FastAPI app
+logger = logging.getLogger(__name__)
+pipeline_scheduler_task: asyncio.Task | None = None
+
 app = FastAPI(
     title="IntegrationHub API",
     description="Backend API for IntegrationHub backup system",
@@ -36,8 +42,20 @@ app.add_middleware(
 )
 
 # Create tables on startup
+async def _pipeline_scheduler_loop() -> None:
+    while True:
+        try:
+            async with async_session() as db:
+                await PipelineService(db).run_due_schedules_once()
+                await db.commit()
+        except Exception:
+            logger.exception("Pipeline scheduler loop failed")
+        await asyncio.sleep(60)
+
+
 @app.on_event("startup")
 async def startup():
+    global pipeline_scheduler_task
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     async with async_session() as db:
@@ -45,6 +63,18 @@ async def startup():
         await ensure_bootstrap_admin(db)
         if is_module_enabled('backup'):
             await BackupFlowService(db).interrupt_incomplete_runs()
+        if is_module_enabled('pipeline'):
+            await PipelineService(db).interrupt_incomplete_runs()
+    if is_module_enabled('pipeline') and pipeline_scheduler_task is None:
+        pipeline_scheduler_task = asyncio.create_task(_pipeline_scheduler_loop())
+
+
+@app.on_event("shutdown")
+async def shutdown() -> None:
+    global pipeline_scheduler_task
+    if pipeline_scheduler_task is not None:
+        pipeline_scheduler_task.cancel()
+        pipeline_scheduler_task = None
 
 # Health check endpoint
 @app.get("/health")

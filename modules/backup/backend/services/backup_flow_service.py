@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from modules.apps.backend.services.app_credential_service import AppCredentialService
+from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
 from modules.apps.shared.types import GOOGLE_STYLE_APPS, SOURCE_STYLE_APPS
 from modules.backup.shared.types import (
     BackupDashboardResponse,
@@ -164,19 +165,16 @@ class BackupFlowService:
         self, source_credential_id: UUID, destination_credential_id: UUID
     ) -> tuple[AppCredential, AppCredential]:
         source = await self._load_credential(source_credential_id)
-        if not source:
-            raise ValueError("Source credential not found")
-        if source.app_id not in SOURCE_STYLE_APPS:
-            raise ValueError(
-                f"Credential '{source.name}' is for {source.app_id}, which cannot be used as a backup source."
-            )
+        ConnectorBindingValidationService.validate_source_credential(
+            source,
+            module_key='backup',
+        )
         destination = await self._load_credential(destination_credential_id)
-        if not destination:
-            raise ValueError("Destination credential not found")
-        if destination.app_id not in GOOGLE_STYLE_APPS:
-            raise ValueError(
-                f"Credential '{destination.name}' is for {destination.app_id}, which cannot be used as a backup destination."
-            )
+        ConnectorBindingValidationService.validate_destination_credential(
+            destination,
+            module_key='backup',
+            require_tabular_destination=False,
+        )
         return source, destination
 
     @staticmethod
@@ -360,8 +358,10 @@ class BackupFlowService:
 
         if data.source is not None:
             source = await self._load_credential(data.source.credential_id)
-            if not source or source.app_id not in SOURCE_STYLE_APPS:
-                raise ValueError("Selected source credential is not a valid source app.")
+            ConnectorBindingValidationService.validate_source_credential(
+                source,
+                module_key='backup',
+            )
             flow.source_credential_id = source.id
 
         if data.backup_type is not None:
@@ -369,8 +369,11 @@ class BackupFlowService:
 
         if data.destination is not None:
             destination = await self._load_credential(data.destination.credential_id)
-            if not destination or destination.app_id not in GOOGLE_STYLE_APPS:
-                raise ValueError("Selected destination credential is not a valid destination app.")
+            ConnectorBindingValidationService.validate_destination_credential(
+                destination,
+                module_key='backup',
+                require_tabular_destination=False,
+            )
             flow.destination_credential_id = destination.id
             flow.destination_target = dict(data.destination.target or {}) or None
 
@@ -514,8 +517,10 @@ class BackupFlowService:
 
         if flow_update.source is not None:
             source = await self._load_credential(flow_update.source.credential_id)
-            if not source or source.app_id not in SOURCE_STYLE_APPS:
-                raise ValueError("Selected source credential is not a valid source app.")
+            ConnectorBindingValidationService.validate_source_credential(
+                source,
+                module_key='backup',
+            )
             flow.source_credential_id = source.id
 
         if flow_update.backup_type:
@@ -523,8 +528,11 @@ class BackupFlowService:
 
         if flow_update.destination is not None:
             destination = await self._load_credential(flow_update.destination.credential_id)
-            if not destination or destination.app_id not in GOOGLE_STYLE_APPS:
-                raise ValueError("Selected destination credential is not a valid destination app.")
+            ConnectorBindingValidationService.validate_destination_credential(
+                destination,
+                module_key='backup',
+                require_tabular_destination=False,
+            )
             flow.destination_credential_id = destination.id
             flow.destination_target = dict(flow_update.destination.target or {}) or None
 
@@ -601,7 +609,8 @@ class BackupFlowService:
             from modules.backup.backend.extractors.workflow_extractor import run_workflow_backup
             runner = run_workflow_backup
         else:
-            raise ValueError(f"Unsupported backup app: {source.app_id}")
+            from modules.backup.backend.extractors.generic_connector_extractor import run_generic_connector_backup
+            runner = run_generic_connector_backup
 
         new_run = BackupFlowRun(
             flow_id=flow_id,

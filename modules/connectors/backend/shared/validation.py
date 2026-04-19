@@ -5,75 +5,204 @@ from typing import Any
 
 from packages.database.src.models import AppCredential
 
+from .catalog import get_connector
+from .contracts import ConnectorDefinition, StreamDefinition
+
 
 class ConnectorBindingValidationService:
 
     @staticmethod
-    def validate_source_app_id(app_id: str) -> None:
-        from .catalog import get_connector
-        connector = get_connector(app_id)
-        if connector is None or not connector.get_readable_streams():
-            raise ValueError(f"App '{app_id}' is not registered as a source reader")
-
-    @staticmethod
-    def validate_destination_app_id(app_id: str) -> None:
-        from .catalog import get_connector
-        connector = get_connector(app_id)
-        if connector is None:
-            raise ValueError(f"App '{app_id}' is not registered as a pipeline destination")
-        writable = connector.get_writable_streams()
-        if not writable and connector.status != 'planned':
-            raise ValueError(f"App '{app_id}' is not registered as a pipeline destination")
-
-    @staticmethod
-    def validate_connector_stream(connector_key: str, stream_key: str, capability: str = 'read') -> None:
-        from .catalog import get_connector
-        connector = get_connector(connector_key)
+    def get_connector_or_raise(connector_key: str) -> ConnectorDefinition:
+        connector = get_connector(str(connector_key or '').strip().lower())
         if connector is None:
             raise ValueError(f"Connector '{connector_key}' not found")
+        return connector
+
+    @classmethod
+    def validate_connector_module(cls, connector_key: str, module_key: str) -> ConnectorDefinition:
+        connector = cls.get_connector_or_raise(connector_key)
+        if not connector.supports_module(module_key):
+            raise ValueError(f"Connector '{connector_key}' does not support the {module_key} module")
+        return connector
+
+    @classmethod
+    def validate_source_app_id(cls, app_id: str, *, module_key: str = 'pipeline') -> ConnectorDefinition:
+        connector = cls.validate_connector_module(app_id, module_key)
+        if not connector.get_readable_streams():
+            raise ValueError(f"Connector '{app_id}' is not registered as a readable source")
+        return connector
+
+    @classmethod
+    def validate_destination_app_id(
+        cls,
+        app_id: str,
+        *,
+        module_key: str = 'pipeline',
+        require_tabular_destination: bool = True,
+    ) -> ConnectorDefinition:
+        connector = cls.validate_connector_module(app_id, module_key)
+        destination_streams = (
+            connector.get_pipeline_destination_streams()
+            if require_tabular_destination
+            else connector.get_destination_streams()
+        )
+        if not destination_streams:
+            raise ValueError(f"Connector '{app_id}' is not registered as a destination for {module_key}")
+        return connector
+
+    @classmethod
+    def validate_connector_stream(
+        cls,
+        connector_key: str,
+        stream_key: str,
+        capability: str = 'read',
+        *,
+        module_key: str | None = None,
+        require_tabular_destination: bool = False,
+    ) -> StreamDefinition:
+        connector = (
+            cls.validate_connector_module(connector_key, module_key)
+            if module_key else cls.get_connector_or_raise(connector_key)
+        )
         stream = connector.get_stream(stream_key)
         if stream is None:
             raise ValueError(f"Stream '{stream_key}' not found in connector '{connector_key}'")
         if capability not in stream.capabilities:
             raise ValueError(f"Stream '{stream_key}' in connector '{connector_key}' does not support '{capability}'")
+        if capability == 'write' and require_tabular_destination:
+            if stream.write_config is None or stream.write_config.target_kind != 'tabular':
+                raise ValueError(
+                    f"Stream '{stream_key}' in connector '{connector_key}' is not a supported tabular pipeline destination"
+                )
+        return stream
+
+    @staticmethod
+    def validate_stream_config(stream: StreamDefinition, config: Mapping[str, Any] | None) -> None:
+        payload = dict(config or {})
+        missing_fields = []
+        for field in stream.config_fields:
+            value = payload.get(field.name)
+            if field.required and value in (None, ''):
+                missing_fields.append(field.name)
+        if missing_fields:
+            raise ValueError(
+                f"Stream '{stream.stream_key}' is missing required config fields: {', '.join(sorted(missing_fields))}"
+            )
 
     @classmethod
-    def validate_source_credential(cls, credential: AppCredential | None) -> None:
+    def validate_source_stream(
+        cls,
+        connector_key: str,
+        stream_key: str,
+        config: Mapping[str, Any] | None,
+        *,
+        module_key: str = 'pipeline',
+    ) -> StreamDefinition:
+        stream = cls.validate_connector_stream(
+            connector_key,
+            stream_key,
+            capability='read',
+            module_key=module_key,
+        )
+        cls.validate_stream_config(stream, config)
+        return stream
+
+    @classmethod
+    def validate_destination_stream(
+        cls,
+        connector_key: str,
+        stream_key: str,
+        config: Mapping[str, Any] | None,
+        *,
+        module_key: str = 'pipeline',
+        require_tabular_destination: bool = True,
+    ) -> StreamDefinition:
+        stream = cls.validate_connector_stream(
+            connector_key,
+            stream_key,
+            capability='write',
+            module_key=module_key,
+            require_tabular_destination=require_tabular_destination,
+        )
+        cls.validate_stream_config(stream, config)
+        return stream
+
+    @classmethod
+    def validate_source_credential(
+        cls,
+        credential: AppCredential | None,
+        *,
+        module_key: str = 'pipeline',
+    ) -> ConnectorDefinition:
         if credential is None:
             raise ValueError('Source credential not found')
-        cls.validate_source_app_id(credential.app_id)
+        return cls.validate_source_app_id(credential.app_id, module_key=module_key)
 
     @classmethod
-    def validate_destination_credential(cls, credential: AppCredential | None) -> None:
+    def validate_destination_credential(
+        cls,
+        credential: AppCredential | None,
+        *,
+        module_key: str = 'pipeline',
+        require_tabular_destination: bool = True,
+    ) -> ConnectorDefinition:
         if credential is None:
             raise ValueError('Destination credential not found')
-        from .catalog import get_connector
-        connector = get_connector(credential.app_id)
-        if connector is None:
+        return cls.validate_destination_app_id(
+            credential.app_id,
+            module_key=module_key,
+            require_tabular_destination=require_tabular_destination,
+        )
+
+    @classmethod
+    def validate_credential_connector_match(
+        cls,
+        credential: AppCredential | None,
+        connector_key: str,
+    ) -> ConnectorDefinition:
+        if credential is None:
+            raise ValueError('Credential not found')
+        connector = cls.get_connector_or_raise(connector_key)
+        if credential.app_id != connector.connector_key:
             raise ValueError(
-                f"Credential '{credential.name}' is for {credential.app_id}, which is not a registered connector."
-            )
-        writable = connector.get_writable_streams()
-        if not writable and connector.status != 'planned':
-            raise ValueError(
-                f"Credential '{credential.name}' is for {credential.app_id}, which is not yet available as a pipeline destination."
+                f"Credential '{credential.name}' is for '{credential.app_id}', not '{connector.connector_key}'"
             )
 
-    @staticmethod
-    def validate_source_binding_payload(auth: Mapping[str, Any], config: Mapping[str, Any]) -> None:
-        access_token = str((auth or {}).get('access_token') or '').strip()
-        domain = str((config or {}).get('domain') or '').strip()
-        if not access_token:
-            raise ValueError('Source readers require an access token resolved from Apps credentials')
-        if not domain:
-            raise ValueError('Source readers require a normalized domain resolved from Apps credentials')
+        auth_mode = str(credential.auth_mode or '').strip().lower()
+        supported_auth_modes = set(connector.auth_spec.supported_auth_modes or ())
+        if supported_auth_modes:
+            if auth_mode not in supported_auth_modes:
+                raise ValueError(
+                    f"Credential '{credential.name}' uses auth mode '{credential.auth_mode}', which is not supported by '{connector.connector_key}'"
+                )
+        elif connector.auth_spec.auth_type == 'token_password':
+            if auth_mode != 'token_password':
+                raise ValueError(f"Connector '{connector.connector_key}' requires auth mode 'token_password'")
+        elif connector.auth_spec.auth_type == 'token':
+            if auth_mode != 'access_token':
+                raise ValueError(f"Connector '{connector.connector_key}' requires auth mode 'access_token'")
+        return connector
 
-    @staticmethod
-    def validate_destination_binding_payload(auth: Mapping[str, Any], config: Mapping[str, Any]) -> None:
-        auth_mode = str((auth or {}).get('auth_mode') or '').strip().lower()
-        if auth_mode not in {'google_oauth', 'service_account'}:
-            raise ValueError('Pipeline destinations currently require a Google OAuth or service account binding')
-        folder_id = str((auth or {}).get('folder_id') or (config or {}).get('folder_id') or '').strip()
-        drive_id = str((auth or {}).get('drive_id') or (config or {}).get('drive_id') or '').strip()
-        if not folder_id and not drive_id:
-            raise ValueError('Pipeline destination bindings require a saved folder or shared drive target from Apps')
+    @classmethod
+    def validate_source_binding_payload(cls, connector_key: str, config: Mapping[str, Any] | None) -> None:
+        connector = cls.get_connector_or_raise(connector_key)
+        for field in connector.auth_spec.fields:
+            if field.storage != 'config' or not field.required:
+                continue
+            if (config or {}).get(field.name) in (None, ''):
+                raise ValueError(f"Connector '{connector_key}' requires config field '{field.name}'")
+
+    @classmethod
+    def validate_destination_binding_payload(
+        cls,
+        connector_key: str,
+        stream_key: str,
+        config: Mapping[str, Any] | None,
+    ) -> None:
+        cls.validate_destination_stream(
+            connector_key,
+            stream_key,
+            config,
+            module_key='pipeline',
+            require_tabular_destination=True,
+        )

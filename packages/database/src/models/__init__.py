@@ -113,16 +113,7 @@ class AppCredential(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    __table_args__ = (
-        CheckConstraint(
-            "app_id IN ('request', 'workflow', 'wework', 'service', 'gdrive', 'gsheets')",
-            name='check_app_credential_app_id',
-        ),
-        CheckConstraint(
-            "auth_mode IN ('access_token', 'google_oauth', 'service_account')",
-            name='check_app_credential_auth_mode',
-        ),
-    )
+    __table_args__ = ()
 
 
 class BackupSourceApp(Base):
@@ -238,6 +229,7 @@ class DataPipeline(Base):
         ForeignKey('app_credentials.id', ondelete='RESTRICT'),
         nullable=True,
     )
+    source_stream_key = Column(String(100), nullable=True)
     source_streams = Column(JSONB, nullable=False, server_default=text("'[]'::jsonb"))
     source_config = Column(JSONB, nullable=True)
 

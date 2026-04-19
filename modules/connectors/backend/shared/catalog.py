@@ -20,8 +20,22 @@ from .contracts import (
 _BASE_TOKEN_AUTH = AuthSpec(
     auth_type='token',
     fields=(
-        FieldDescriptor(name='domain', field_type='string', required=True, description='Base domain (e.g. company.base.vn)'),
-        FieldDescriptor(name='access_token', field_type='string', required=True, description='API access token (access_token_v2)'),
+        FieldDescriptor(
+            name='domain',
+            field_type='string',
+            required=True,
+            description='Base domain (e.g. company.base.vn)',
+            storage='config',
+        ),
+        FieldDescriptor(
+            name='access_token',
+            field_type='string',
+            required=True,
+            description='API access token (access_token_v2)',
+            secret=True,
+            storage='auth',
+            input_kind='password',
+        ),
     ),
     test_connection_operation='test_connection',
 )
@@ -29,7 +43,14 @@ _BASE_TOKEN_AUTH = AuthSpec(
 _GOOGLE_AUTH = AuthSpec(
     auth_type='google_oauth',
     fields=(
-        FieldDescriptor(name='auth_mode', field_type='string', required=True, description='google_oauth or service_account'),
+        FieldDescriptor(
+            name='auth_mode',
+            field_type='string',
+            required=True,
+            description='google_oauth or service_account',
+            storage='auth',
+            input_kind='select',
+        ),
     ),
     supported_auth_modes=('google_oauth', 'service_account'),
 )
@@ -109,6 +130,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='services',
                 read_operation='get_service_blocks',
+                config_fields=(
+                    FieldDescriptor(name='service_id', field_type='string', required=True, description='Service ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='tickets',
@@ -119,6 +143,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 parent_stream='services',
                 read_operation='get_all_tickets',
                 write_operation='create_ticket',
+                config_fields=(
+                    FieldDescriptor(name='service_id', field_type='string', required=True, description='Service ID'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='ticket_details',
@@ -128,6 +160,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='tickets',
                 read_operation='get_ticket_details',
+                config_fields=(
+                    FieldDescriptor(name='ticket_id', field_type='string', required=True, description='Ticket ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='activity_logs',
@@ -188,6 +223,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 parent_stream='groups',
                 read_operation='get_requests',
                 write_operation='create_request',
+                config_fields=(
+                    FieldDescriptor(name='group_id', field_type='string', required=True, description='Request group ID'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='request_details',
@@ -197,6 +240,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='requests',
                 read_operation='get_request',
+                config_fields=(
+                    FieldDescriptor(name='request_id', field_type='string', required=True, description='Request ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='request_custom_tables',
@@ -206,6 +252,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='requests',
                 read_operation='get_request_with_custom_table',
+                config_fields=(
+                    FieldDescriptor(name='request_id', field_type='string', required=True, description='Request ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='posts',
@@ -214,6 +263,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='requests',
                 read_operation='get_posts',
+                config_fields=(
+                    FieldDescriptor(name='request_id', field_type='string', required=True, description='Request ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='comments',
@@ -222,6 +274,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='posts',
                 read_operation='get_comments',
+                config_fields=(
+                    FieldDescriptor(name='post_hid', field_type='string', required=True, description='Post HID'),
+                ),
             ),
         ),
         operations=(
@@ -267,6 +322,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='workflows',
                 read_operation='get_workflow_stages',
+                config_fields=(
+                    FieldDescriptor(name='workflow_id', field_type='string', required=True, description='Workflow ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='jobs',
@@ -277,6 +335,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 parent_stream='workflows',
                 read_operation='get_workflow_jobs',
                 write_operation='create_job',
+                config_fields=(
+                    FieldDescriptor(name='workflow_id', field_type='string', required=True, description='Workflow ID'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='job_details',
@@ -286,6 +352,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='jobs',
                 read_operation='get_job',
+                config_fields=(
+                    FieldDescriptor(name='job_id', field_type='string', required=True, description='Job ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='job_custom_tables',
@@ -294,6 +363,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='jobs',
                 read_operation='get_job_custom_table',
+                config_fields=(
+                    FieldDescriptor(name='job_id', field_type='string', required=True, description='Job ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='posts',
@@ -302,6 +374,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='jobs',
                 read_operation='get_job_posts',
+                config_fields=(
+                    FieldDescriptor(name='job_id', field_type='string', required=True, description='Job ID'),
+                ),
             ),
             StreamDefinition(
                 stream_key='comments',
@@ -310,6 +385,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='posts',
                 read_operation='get_job_comments',
+                config_fields=(
+                    FieldDescriptor(name='post_id', field_type='string', required=True, description='Post ID'),
+                ),
             ),
         ),
         operations=(
@@ -352,6 +430,11 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 read_operation='get_all_departments',
                 write_operation='create_department',
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='projects',
@@ -362,6 +445,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 parent_stream='departments',
                 read_operation='get_all_projects',
                 write_operation='create_project',
+                config_fields=(
+                    FieldDescriptor(name='department_id', field_type='string', required=False, description='Department ID'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='tasks',
@@ -372,6 +463,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 parent_stream='projects',
                 read_operation='get_project_tasks',
                 write_operation='create_task',
+                config_fields=(
+                    FieldDescriptor(name='project_id', field_type='string', required=True, description='Project ID'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='subtasks',
@@ -382,6 +481,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 parent_stream='tasks',
                 read_operation='get_task',
                 write_operation='create_subtask',
+                config_fields=(
+                    FieldDescriptor(name='project_id', field_type='string', required=True, description='Project ID'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
             ),
             StreamDefinition(
                 stream_key='tasklists',
@@ -391,6 +498,9 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 primary_key='id',
                 parent_stream='projects',
                 read_operation='get_tasklist',
+                config_fields=(
+                    FieldDescriptor(name='project_id', field_type='string', required=True, description='Project ID'),
+                ),
             ),
         ),
         operations=(
@@ -423,7 +533,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         summary='Read and write structured data in Google Sheets spreadsheets.',
         auth_spec=_GOOGLE_AUTH,
         base_url_template='https://sheets.googleapis.com/v4',
-        supported_modules=('pipeline',),
+        supported_modules=('backup', 'pipeline'),
         icon='file-spreadsheet',
         color='#0f9d58',
         bg_color='#e6f4ea',
@@ -443,9 +553,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 parent_stream='spreadsheets',
                 primary_key='sheet_id',
+                config_fields=(
+                    FieldDescriptor(name='spreadsheet_id', field_type='string', required=True, description='Spreadsheet ID'),
+                ),
                 write_config=WriteConfig(
                     supported_modes=('append',),
                     default_mode='append',
+                    supports_dynamic_schema=False,
+                    target_kind='resource',
                 ),
             ),
             StreamDefinition(
@@ -454,9 +569,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh',),
                 parent_stream='sheets',
+                config_fields=(
+                    FieldDescriptor(name='spreadsheet_id', field_type='string', required=True, description='Spreadsheet ID'),
+                    FieldDescriptor(name='range', field_type='string', required=False, description='Sheet range, e.g. Sheet1!A1'),
+                ),
                 write_config=WriteConfig(
                     supported_modes=('append', 'replace'),
                     default_mode='append',
+                    target_kind='tabular',
                 ),
             ),
         ),
@@ -470,10 +590,10 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
     ConnectorDefinition(
         connector_key='gdrive',
         display_name='Google Drive',
-        summary='Folders and files in Google Drive for backup and pipeline destinations.',
+        summary='Folders and files in Google Drive for backup exports.',
         auth_spec=_GOOGLE_AUTH,
         base_url_template='https://www.googleapis.com/drive/v3',
-        supported_modules=('backup', 'pipeline'),
+        supported_modules=('backup',),
         icon='folder',
         color='#1a73e8',
         bg_color='#e8f0fe',
@@ -492,10 +612,15 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh',),
                 primary_key='folder_id',
+                config_fields=(
+                    FieldDescriptor(name='parent_id', field_type='string', required=False, description='Parent folder ID'),
+                    FieldDescriptor(name='drive_id', field_type='string', required=False, description='Shared Drive ID'),
+                ),
                 write_config=WriteConfig(
                     supported_modes=('append',),
                     default_mode='append',
                     supports_dynamic_schema=False,
+                    target_kind='resource',
                 ),
             ),
             StreamDefinition(
@@ -504,10 +629,15 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh', 'incremental'),
                 primary_key='file_id',
+                config_fields=(
+                    FieldDescriptor(name='parent_id', field_type='string', required=False, description='Parent folder ID'),
+                    FieldDescriptor(name='drive_id', field_type='string', required=False, description='Shared Drive ID'),
+                ),
                 write_config=WriteConfig(
                     supported_modes=('append', 'replace'),
                     default_mode='append',
                     supports_dynamic_schema=False,
+                    target_kind='blob',
                 ),
             ),
         ),
@@ -525,15 +655,34 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=AuthSpec(
             auth_type='google_oauth',
             fields=(
-                FieldDescriptor(name='auth_mode', field_type='string', required=True, description='google_oauth or service_account'),
-                FieldDescriptor(name='project_id', field_type='string', required=True, description='GCP project ID'),
-                FieldDescriptor(name='dataset_id', field_type='string', required=True, description='BigQuery dataset ID'),
+                FieldDescriptor(
+                    name='auth_mode',
+                    field_type='string',
+                    required=True,
+                    description='google_oauth or service_account',
+                    storage='auth',
+                    input_kind='select',
+                ),
+                FieldDescriptor(
+                    name='project_id',
+                    field_type='string',
+                    required=True,
+                    description='GCP project ID',
+                    storage='config',
+                ),
+                FieldDescriptor(
+                    name='dataset_id',
+                    field_type='string',
+                    required=False,
+                    description='Default BigQuery dataset ID',
+                    storage='config',
+                ),
             ),
             supported_auth_modes=('google_oauth', 'service_account'),
         ),
         base_url_template='https://bigquery.googleapis.com/bigquery/v2',
         supported_modules=('pipeline',),
-        status='planned',
+        status='ready',
         streams=(
             StreamDefinition(
                 stream_key='datasets',
@@ -549,10 +698,14 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 sync_modes=('full_refresh',),
                 primary_key='table_id',
                 parent_stream='datasets',
+                config_fields=(
+                    FieldDescriptor(name='dataset_id', field_type='string', required=False, description='Dataset ID'),
+                ),
                 write_config=WriteConfig(
                     supported_modes=('append',),
                     default_mode='append',
                     supports_dynamic_schema=False,
+                    target_kind='resource',
                 ),
             ),
             StreamDefinition(
@@ -561,15 +714,21 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 capabilities=('read', 'write'),
                 sync_modes=('full_refresh', 'incremental'),
                 parent_stream='tables',
+                config_fields=(
+                    FieldDescriptor(name='dataset_id', field_type='string', required=False, description='Dataset ID override'),
+                    FieldDescriptor(name='table_id', field_type='string', required=True, description='Target table ID'),
+                    FieldDescriptor(name='merge_key', field_type='string', required=False, description='Primary key used for upsert'),
+                ),
                 write_config=WriteConfig(
                     supported_modes=('append', 'replace', 'upsert'),
                     default_mode='append',
+                    target_kind='tabular',
                 ),
             ),
         ),
         notes=(
-            'BigQuery destination profiles are not available in Apps yet.',
-            'Apps credential support, validation, and writer runtime will land in a later phase.',
+            'Pipeline uses Apps credentials and the shared runtime factory for token resolution.',
+            'Dataset can be defined once on the credential and overridden per pipeline destination.',
         ),
     ),
 
@@ -594,9 +753,31 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         auth_spec=AuthSpec(
             auth_type='token_password',
             fields=(
-                FieldDescriptor(name='domain', field_type='string', required=True, description='Base domain (e.g. company.base.vn)'),
-                FieldDescriptor(name='access_token', field_type='string', required=True, description='API access token'),
-                FieldDescriptor(name='password', field_type='string', required=True, description='API password'),
+                FieldDescriptor(
+                    name='domain',
+                    field_type='string',
+                    required=True,
+                    description='Base domain (e.g. company.base.vn)',
+                    storage='config',
+                ),
+                FieldDescriptor(
+                    name='access_token',
+                    field_type='string',
+                    required=True,
+                    description='API access token',
+                    secret=True,
+                    storage='auth',
+                    input_kind='password',
+                ),
+                FieldDescriptor(
+                    name='password',
+                    field_type='string',
+                    required=True,
+                    description='API password',
+                    secret=True,
+                    storage='auth',
+                    input_kind='password',
+                ),
             ),
             test_connection_operation='test_connection',
         ),
@@ -604,15 +785,15 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         supported_modules=('backup', 'pipeline'),
         streams=(
             StreamDefinition(stream_key='pipelines', display_name='Pipelines', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='pipeline_stages', display_name='Pipeline Stages', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='pipelines'),
-            StreamDefinition(stream_key='deals', display_name='Deals', capabilities=('read',), sync_modes=('full_refresh', 'incremental'), primary_key='id'),
-            StreamDefinition(stream_key='deal_activities', display_name='Deal Activities', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='deals'),
-            StreamDefinition(stream_key='accounts', display_name='Accounts', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='account_services', display_name='Account Services', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='accounts'),
-            StreamDefinition(stream_key='contacts', display_name='Contacts', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='contact_services', display_name='Contact Services', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='contacts'),
-            StreamDefinition(stream_key='leads', display_name='Leads', capabilities=('read',), sync_modes=('full_refresh', 'incremental'), primary_key='id'),
-            StreamDefinition(stream_key='lead_feeds', display_name='Lead Feeds', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='leads'),
+            StreamDefinition(stream_key='pipeline_stages', display_name='Pipeline Stages', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='pipelines', config_fields=(FieldDescriptor(name='pipeline_id', field_type='string', required=True, description='Pipeline ID'),)),
+            StreamDefinition(stream_key='deals', display_name='Deals', capabilities=('read',), sync_modes=('full_refresh', 'incremental'), primary_key='id', config_fields=(FieldDescriptor(name='pipeline_id', field_type='string', required=False, description='Pipeline ID'),)),
+            StreamDefinition(stream_key='deal_activities', display_name='Deal Activities', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='deals', config_fields=(FieldDescriptor(name='deal_id', field_type='string', required=True, description='Deal ID'),)),
+            StreamDefinition(stream_key='accounts', display_name='Accounts', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='service_id', field_type='string', required=False, description='Account service ID'),)),
+            StreamDefinition(stream_key='account_services', display_name='Account Services', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='accounts', config_fields=(FieldDescriptor(name='account_id', field_type='string', required=True, description='Account ID'),)),
+            StreamDefinition(stream_key='contacts', display_name='Contacts', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='service_id', field_type='string', required=False, description='Contact service ID'),)),
+            StreamDefinition(stream_key='contact_services', display_name='Contact Services', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='contacts', config_fields=(FieldDescriptor(name='contact_id', field_type='string', required=True, description='Contact ID'),)),
+            StreamDefinition(stream_key='leads', display_name='Leads', capabilities=('read',), sync_modes=('full_refresh', 'incremental'), primary_key='id', config_fields=(FieldDescriptor(name='service_id', field_type='string', required=False, description='Lead service ID'),)),
+            StreamDefinition(stream_key='lead_feeds', display_name='Lead Feeds', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='leads', config_fields=(FieldDescriptor(name='lead_id', field_type='string', required=True, description='Lead ID'),)),
         ),
     ),
 
@@ -671,7 +852,22 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         bg_color='#eef2ff',
         connection_config=_BASE_CONNECTION_CONFIG,
         streams=(
-            StreamDefinition(stream_key='records', display_name='Records', capabilities=('read', 'write'), sync_modes=('full_refresh',), primary_key='id'),
+            StreamDefinition(
+                stream_key='records',
+                display_name='Records',
+                capabilities=('read', 'write'),
+                sync_modes=('full_refresh',),
+                primary_key='id',
+                config_fields=(
+                    FieldDescriptor(name='table_id', field_type='string', required=True, description='Table ID'),
+                    FieldDescriptor(name='username', field_type='string', required=False, description='Username used for write operations'),
+                ),
+                write_config=WriteConfig(
+                    supported_modes=('append',),
+                    default_mode='append',
+                    target_kind='resource',
+                ),
+            ),
         ),
     ),
 
@@ -690,12 +886,12 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         connection_config=_BASE_CONNECTION_CONFIG,
         streams=(
             StreamDefinition(stream_key='cycles', display_name='Cycles', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='goals', display_name='Goals', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='cycles'),
-            StreamDefinition(stream_key='goal_details', display_name='Goal Details', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='goals'),
-            StreamDefinition(stream_key='key_results', display_name='Key Results', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='goals'),
-            StreamDefinition(stream_key='key_result_details', display_name='Key Result Details', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='key_results'),
-            StreamDefinition(stream_key='targets', display_name='Targets', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='key_results'),
-            StreamDefinition(stream_key='target_checkins', display_name='Target Checkins', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='targets'),
+            StreamDefinition(stream_key='goals', display_name='Goals', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='cycles', config_fields=(FieldDescriptor(name='goal_id', field_type='string', required=True, description='Goal ID'),)),
+            StreamDefinition(stream_key='goal_details', display_name='Goal Details', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='goals', config_fields=(FieldDescriptor(name='goal_id', field_type='string', required=True, description='Goal ID'),)),
+            StreamDefinition(stream_key='key_results', display_name='Key Results', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='goals', config_fields=(FieldDescriptor(name='kr_id', field_type='string', required=True, description='Key result ID'),)),
+            StreamDefinition(stream_key='key_result_details', display_name='Key Result Details', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='key_results', config_fields=(FieldDescriptor(name='kr_id', field_type='string', required=True, description='Key result ID'),)),
+            StreamDefinition(stream_key='targets', display_name='Targets', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='key_results', config_fields=(FieldDescriptor(name='target_id', field_type='string', required=True, description='Target ID'),)),
+            StreamDefinition(stream_key='target_checkins', display_name='Target Checkins', capabilities=('read',), sync_modes=('full_refresh',), parent_stream='targets', config_fields=(FieldDescriptor(name='path', field_type='string', required=True, description='Cycle path'),)),
         ),
     ),
 
@@ -713,8 +909,8 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         bg_color='#f0fdf4',
         connection_config=_BASE_CONNECTION_CONFIG,
         streams=(
-            StreamDefinition(stream_key='incomes', display_name='Incomes', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='inflows', display_name='Inflows', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
+            StreamDefinition(stream_key='incomes', display_name='Incomes', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='username', field_type='string', required=False, description='Username filter'),)),
+            StreamDefinition(stream_key='inflows', display_name='Inflows', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='username', field_type='string', required=False, description='Username filter'),)),
         ),
     ),
 
@@ -749,7 +945,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         supported_modules=('backup', 'pipeline'),
         streams=(
             StreamDefinition(stream_key='groups', display_name='Groups', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='meetings', display_name='Meetings', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
+            StreamDefinition(stream_key='meetings', display_name='Meetings', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='group_id', field_type='string', required=False, description='Meeting group ID'),)),
             StreamDefinition(stream_key='repeated_meetings', display_name='Repeated Meetings', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
         ),
     ),
@@ -769,8 +965,8 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
         connection_config=_BASE_CONNECTION_CONFIG,
         streams=(
             StreamDefinition(stream_key='cycles', display_name='Cycles', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
-            StreamDefinition(stream_key='payrolls', display_name='Payrolls', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='cycles'),
-            StreamDefinition(stream_key='records', display_name='Records', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id'),
+            StreamDefinition(stream_key='payrolls', display_name='Payrolls', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', parent_stream='cycles', config_fields=(FieldDescriptor(name='cycle_id', field_type='string', required=True, description='Payroll cycle ID'),)),
+            StreamDefinition(stream_key='records', display_name='Records', capabilities=('read',), sync_modes=('full_refresh',), primary_key='id', config_fields=(FieldDescriptor(name='cycle_id', field_type='string', required=False, description='Payroll cycle ID'), FieldDescriptor(name='payroll_id', field_type='string', required=False, description='Payroll ID'))),
         ),
     ),
 
@@ -860,7 +1056,7 @@ class ConnectorCatalogService:
         return [
             c.as_source_reader_payload(credential_count=counts.get(c.connector_key, 0))
             for c in CONNECTOR_REGISTRY
-            if c.get_readable_streams() and c.status != 'planned'
+            if c.supports_module('pipeline') and c.get_readable_streams() and c.status != 'planned'
         ]
 
     async def list_destination_writers(self) -> list[dict[str, object]]:
@@ -868,7 +1064,7 @@ class ConnectorCatalogService:
         return [
             c.as_destination_writer_payload(credential_count=counts.get(c.connector_key, 0))
             for c in CONNECTOR_REGISTRY
-            if c.is_destination and c.status != 'planned'
+            if c.supports_module('pipeline') and c.get_pipeline_destination_streams() and c.status != 'planned'
         ]
 
     async def build_pipeline_catalog(self) -> dict[str, object]:

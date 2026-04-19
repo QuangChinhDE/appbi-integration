@@ -13,6 +13,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from modules.connectors.backend.shared.catalog import get_connector
 from packages.auth.src.resource_permissions import (
     apply_resource_scope,
     batch_effective_permissions,
@@ -60,21 +61,85 @@ class AppCredentialService:
     def _resolve_app_name(app_id: str, app_name: Optional[str]) -> str:
         return (app_name or SUPPORTED_APPS.get(app_id) or app_id).strip()
 
+    @staticmethod
+    def _get_connector_definition(app_id: str):
+        connector = get_connector(app_id)
+        if connector is None:
+            raise ValueError(f"Unsupported app_id: {app_id}")
+        return connector
+
+    @classmethod
+    def _materialize_registry_secrets(
+        cls,
+        credential: AppCredential,
+        *,
+        include_google_service_account_reference: bool = True,
+    ) -> Dict[str, Any]:
+        connector = cls._get_connector_definition(credential.app_id)
+        auth = dict(credential.auth or {})
+        config = dict(credential.config or {})
+        materialized: Dict[str, Any] = {}
+
+        for field in connector.auth_spec.fields:
+            source = auth if field.storage == 'auth' else config
+            if field.secret:
+                encrypted = source.get(f"{field.name}_encrypted")
+                if encrypted:
+                    try:
+                        materialized[field.name] = decrypt_value(encrypted)
+                    except Exception as exc:
+                        raise ValueError(
+                            f"Failed to decrypt {field.name} for this credential. "
+                            "Edit the credential and re-enter the secret to repair it."
+                        ) from exc
+            else:
+                value = source.get(field.name)
+                if value not in (None, ''):
+                    materialized[field.name] = value
+
+        if include_google_service_account_reference and auth.get("service_account_json_encrypted"):
+            materialized["service_account_json_encrypted"] = auth["service_account_json_encrypted"]
+
+        for extra_key in ("connection_id", "email", "display_name", "picture_url", "service_account_email"):
+            if auth.get(extra_key) not in (None, ''):
+                materialized[extra_key] = auth[extra_key]
+
+        return materialized
+
+    @classmethod
+    def _materialize_auth_for_edit_v2(cls, credential: AppCredential) -> Dict[str, Any]:
+        auth = cls._materialize_registry_secrets(
+            credential,
+            include_google_service_account_reference=credential.app_id in GOOGLE_STYLE_APPS,
+        )
+        if credential.app_id in GOOGLE_STYLE_APPS:
+            auth.pop("service_account_json", None)
+        return auth
+
     # ── View builders ──────────────────────────────────────────────────────
     @classmethod
     def _preview(cls, credential: AppCredential) -> Dict[str, Any]:
+        connector = cls._get_connector_definition(credential.app_id)
         auth = dict(credential.auth or {})
         config = dict(credential.config or {})
+        preview: Dict[str, Any] = {}
+        for field in connector.auth_spec.fields:
+            if field.secret:
+                continue
+            source = auth if field.storage == 'auth' else config
+            value = source.get(field.name)
+            if value not in (None, ''):
+                preview[field.name] = value
         if credential.app_id in SOURCE_STYLE_APPS:
-            return {"domain": config.get("domain")}
-        preview = {
+            return preview
+        preview.update({
             "email": auth.get("email") or auth.get("google_oauth_email") or auth.get("service_account_email"),
             "display_name": auth.get("display_name"),
             "picture_url": auth.get("picture_url"),
             "folder_name": config.get("folder_name"),
             "drive_name": config.get("drive_name"),
             "uses_platform_service_account": bool(config.get("uses_platform_service_account")),
-        }
+        })
         return {key: value for key, value in preview.items() if value is not None}
 
     @classmethod
@@ -113,7 +178,7 @@ class AppCredentialService:
             owner_email=owner_email,
             user_permission=user_permission,
         )
-        auth = cls._materialize_auth_for_edit(credential)
+        auth = cls._materialize_auth_for_edit_v2(credential)
         return AppCredentialDetail(**list_item.model_dump(), auth=auth)
 
     @classmethod
@@ -198,17 +263,11 @@ class AppCredentialService:
         model = await self._get_model(credential_id)
         if not model:
             return None
-        auth = dict(model.auth or {})
-        if model.app_id in SOURCE_STYLE_APPS:
-            encrypted = auth.pop("access_token_encrypted", None)
-            if encrypted:
-                try:
-                    auth["access_token"] = decrypt_value(encrypted)
-                except Exception as exc:
-                    raise ValueError(
-                        "Failed to decrypt access token for this credential. "
-                        "Edit the credential in Apps and re-enter the access token."
-                    ) from exc
+        auth = self._materialize_auth_for_edit_v2(model)
+        if model.app_id in GOOGLE_STYLE_APPS:
+            auth.pop("service_account_json_encrypted", None)
+            if model.auth.get("service_account_json_encrypted"):
+                auth["uses_stored_service_account_key"] = True
         owner_lookup = await fetch_owner_email_lookup(self.db, (model.owner_id,))
         user_permission = await get_effective_permission(
             self.db,
@@ -334,11 +393,57 @@ class AppCredentialService:
         raw_auth: Dict[str, Any],
         raw_config: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
-        if app_id in SOURCE_STYLE_APPS:
-            return self._prepare_source_style(app_id, raw_auth, raw_config)
+        connector = self._get_connector_definition(app_id)
         if app_id in GOOGLE_STYLE_APPS:
-            return await self._prepare_google_style(raw_auth, raw_config)
-        raise ValueError(f"Unsupported app_id: {app_id}")
+            return await self._prepare_google_style(app_id, raw_auth, raw_config)
+        return self._prepare_registry_style(connector, raw_auth, raw_config)
+
+    @staticmethod
+    def _prepare_registry_style(
+        connector,
+        auth: Dict[str, Any],
+        config: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
+        prepared_auth: Dict[str, Any] = {}
+        prepared_config: Dict[str, Any] = {}
+        handled_auth_keys: set[str] = set()
+        handled_config_keys: set[str] = set()
+
+        for field in connector.auth_spec.fields:
+            source = auth if field.storage == 'auth' else config
+            target = prepared_auth if field.storage == 'auth' else prepared_config
+            handled_keys = handled_auth_keys if field.storage == 'auth' else handled_config_keys
+            handled_keys.add(field.name)
+            handled_keys.add(f"{field.name}_encrypted")
+
+            if field.secret:
+                plaintext = str(source.get(field.name) or '').strip()
+                existing_encrypted = source.get(f"{field.name}_encrypted")
+                if plaintext:
+                    target[f"{field.name}_encrypted"] = encrypt_value(plaintext)
+                elif existing_encrypted:
+                    target[f"{field.name}_encrypted"] = existing_encrypted
+                elif field.required:
+                    raise ValueError(f"{field.name} is required for {connector.connector_key} credentials")
+                continue
+
+            value = source.get(field.name)
+            if isinstance(value, str):
+                value = value.strip()
+            if field.required and value in (None, ''):
+                raise ValueError(f"{field.name} is required for {connector.connector_key} credentials")
+            if value not in (None, ''):
+                target[field.name] = value
+
+        for key, value in auth.items():
+            if key not in handled_auth_keys and value not in (None, ''):
+                prepared_auth[key] = value
+        for key, value in config.items():
+            if key not in handled_config_keys and value not in (None, ''):
+                prepared_config[key] = value
+
+        auth_mode = 'token_password' if connector.auth_spec.auth_type == 'token_password' else 'access_token'
+        return prepared_auth, auth_mode, prepared_config
 
     @staticmethod
     def _prepare_source_style(
@@ -367,7 +472,7 @@ class AppCredentialService:
         return {"access_token_encrypted": encrypted}, "access_token", prepared_config
 
     async def _prepare_google_style(
-        self, auth: Dict[str, Any], config: Dict[str, Any]
+        self, app_id: str, auth: Dict[str, Any], config: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
         working_auth = dict(auth or {})
         # Harmonize alt field names.
@@ -425,16 +530,26 @@ class AppCredentialService:
             if working_auth.get("service_account_json_encrypted"):
                 prepared_auth["service_account_json_encrypted"] = working_auth["service_account_json_encrypted"]
 
+        connector = self._get_connector_definition(app_id)
+
         # Config keeps the per-credential target defaults and platform flag.
         prepared_config: Dict[str, Any] = {}
-        for key in ("folder_id", "folder_name", "drive_id", "drive_name"):
+        for key in ("folder_id", "folder_name", "drive_id", "drive_name", "project_id", "dataset_id"):
             value = config.get(key) if key in config else working_auth.get(key)
+            if isinstance(value, str):
+                value = value.strip()
             if value not in (None, ""):
                 prepared_config[key] = value
         if auth_mode == "service_account":
             prepared_config["uses_platform_service_account"] = not bool(
                 working_auth.get("service_account_json_encrypted")
             )
+
+        for field in connector.auth_spec.fields:
+            if field.storage != 'config' or not field.required:
+                continue
+            if prepared_config.get(field.name) in (None, ''):
+                raise ValueError(f"{field.name} is required for {app_id} credentials")
 
         return prepared_auth, auth_mode, prepared_config
 

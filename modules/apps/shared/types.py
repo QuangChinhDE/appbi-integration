@@ -23,15 +23,16 @@ SUPPORTED_APPS: Dict[str, str] = {
     "timeoff": "Timeoff",
     "gdrive": "Google Drive",
     "gsheets": "Google Sheets",
+    "bigquery": "BigQuery",
 }
 
 SOURCE_STYLE_APPS = {
     "request", "workflow", "wework", "service",
     "crm", "hrm", "table", "goal", "income", "meeting", "payroll", "timeoff",
 }
-GOOGLE_STYLE_APPS = {"gdrive", "gsheets"}
+GOOGLE_STYLE_APPS = {"gdrive", "gsheets", "bigquery"}
 
-SUPPORTED_AUTH_MODES = {"access_token", "google_oauth", "service_account"}
+SUPPORTED_AUTH_MODES = {"access_token", "token_password", "google_oauth", "service_account"}
 
 
 class AppCredentialCreate(BaseModel):

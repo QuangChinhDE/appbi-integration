@@ -11,6 +11,7 @@ from packages.auth.src.permissions import LEVEL_ORDER, get_user_permissions
 from packages.database.src.models import (
     AppCredential,
     BackupFlow,
+    DataPipeline,
     ResourceShare,
     ResourceType,
     SharePermission,
@@ -21,16 +22,19 @@ from packages.database.src.models import (
 RESOURCE_TO_MODULE: Dict[str, str] = {
     ResourceType.APP_CREDENTIAL: 'apps',
     ResourceType.BACKUP_FLOW: 'backup',
+    ResourceType.DATA_PIPELINE: 'pipeline',
 }
 
 RESOURCE_TO_MODEL = {
     ResourceType.APP_CREDENTIAL: AppCredential,
     ResourceType.BACKUP_FLOW: BackupFlow,
+    ResourceType.DATA_PIPELINE: DataPipeline,
 }
 
 MODEL_TO_RESOURCE: Dict[str, str] = {
     'AppCredential': ResourceType.APP_CREDENTIAL,
     'BackupFlow': ResourceType.BACKUP_FLOW,
+    'DataPipeline': ResourceType.DATA_PIPELINE,
 }
 
 

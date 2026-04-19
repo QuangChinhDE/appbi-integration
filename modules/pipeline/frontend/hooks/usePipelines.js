@@ -67,9 +67,14 @@ export default function usePipelines() {
     }
   }, [])
 
-  const deletePipeline = useCallback(async (record, options = {}) => {
+  const deletePipeline = useCallback(async (recordOrId, options = {}) => {
+    const pipelineId = typeof recordOrId === 'string' ? recordOrId : recordOrId?.id
+    if (!pipelineId) {
+      if (!options.silent) message.error('Failed to delete pipeline')
+      return false
+    }
     try {
-      await api.delete(`/api/pipeline/pipelines/${record.id}`)
+      await api.delete(`/api/pipeline/pipelines/${pipelineId}`)
       if (!options.silent) message.success('Pipeline deleted')
       if (!options.skipReload) await fetchPipelines()
       return true

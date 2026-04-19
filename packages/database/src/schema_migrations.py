@@ -17,7 +17,7 @@ DESTINATION_NAME_MAP = {
     "gdrive": "Google Drive",
     "gsheets": "Google Sheets",
 }
-RESOURCE_TYPES = ("app_credential", "backup_flow")
+RESOURCE_TYPES = ("app_credential", "backup_flow", "data_pipeline")
 SHARE_PERMISSIONS = ("view", "edit")
 
 
@@ -299,7 +299,7 @@ async def _ensure_resource_shares_table(db: AsyncSession) -> bool:
                     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP NOT NULL,
                     CONSTRAINT uq_resource_shares UNIQUE (resource_type, resource_id, user_id),
                     CONSTRAINT check_resource_share_resource_type CHECK (
-                        resource_type IN ('app_credential', 'backup_flow')
+                        resource_type IN ('app_credential', 'backup_flow', 'data_pipeline')
                     ),
                     CONSTRAINT check_resource_share_permission CHECK (
                         permission IN ('view', 'edit')
@@ -318,6 +318,33 @@ async def _ensure_resource_shares_table(db: AsyncSession) -> bool:
         text("CREATE INDEX IF NOT EXISTS idx_resource_shares_user_id ON resource_shares (user_id)")
     )
     return changed
+
+
+async def _ensure_resource_share_constraints(db: AsyncSession) -> bool:
+    if not await _table_exists(db, "resource_shares"):
+        return False
+
+    await db.execute(
+        text("ALTER TABLE resource_shares DROP CONSTRAINT IF EXISTS check_resource_share_resource_type")
+    )
+    await db.execute(
+        text(
+            """
+            ALTER TABLE resource_shares ADD CONSTRAINT check_resource_share_resource_type
+            CHECK (resource_type IN ('app_credential', 'backup_flow', 'data_pipeline'))
+            """
+        )
+    )
+    return True
+
+
+async def _ensure_app_credential_registry_constraints(db: AsyncSession) -> bool:
+    if not await _table_exists(db, "app_credentials"):
+        return False
+
+    await db.execute(text("ALTER TABLE app_credentials DROP CONSTRAINT IF EXISTS check_app_credential_app_id"))
+    await db.execute(text("ALTER TABLE app_credentials DROP CONSTRAINT IF EXISTS check_app_credential_auth_mode"))
+    return True
 
 
 async def _migrate_legacy_source_connections(db: AsyncSession) -> int:
@@ -806,6 +833,7 @@ async def _ensure_data_pipeline_tables(db: AsyncSession) -> bool:
             status VARCHAR(20) NOT NULL DEFAULT 'draft',
             source_connector_key VARCHAR(50) NOT NULL,
             source_credential_id UUID REFERENCES app_credentials(id) ON DELETE RESTRICT,
+            source_stream_key VARCHAR(100),
             source_streams JSONB NOT NULL DEFAULT '[]'::jsonb,
             source_config JSONB,
             dest_connector_key VARCHAR(50) NOT NULL,
@@ -846,16 +874,52 @@ async def _ensure_data_pipeline_tables(db: AsyncSession) -> bool:
     """))
     await db.execute(text("CREATE INDEX ix_pipeline_runs_pipeline_id ON pipeline_runs(pipeline_id)"))
 
-    # Extend resource_shares to accept data_pipeline
-    await db.execute(text("""
-        ALTER TABLE resource_shares DROP CONSTRAINT IF EXISTS check_resource_share_resource_type
-    """))
-    await db.execute(text("""
-        ALTER TABLE resource_shares ADD CONSTRAINT check_resource_share_resource_type
-        CHECK (resource_type IN ('app_credential', 'backup_flow', 'data_pipeline'))
-    """))
+    await _ensure_resource_share_constraints(db)
 
     logger.info('Created data_pipelines and pipeline_runs tables')
+    return True
+
+
+async def _ensure_data_pipeline_columns(db: AsyncSession) -> bool:
+    if not await _table_exists(db, 'data_pipelines'):
+        return False
+
+    changed = False
+    if not await _column_exists(db, 'data_pipelines', 'source_stream_key'):
+        await db.execute(text("ALTER TABLE data_pipelines ADD COLUMN source_stream_key VARCHAR(100)"))
+        changed = True
+
+    await db.execute(
+        text(
+            """
+            UPDATE data_pipelines
+            SET source_stream_key = NULLIF(source_streams->>0, '')
+            WHERE source_stream_key IS NULL
+              AND jsonb_typeof(source_streams) = 'array'
+              AND jsonb_array_length(source_streams) >= 1
+            """
+        )
+    )
+
+    await db.execute(
+        text(
+            """
+            UPDATE data_pipelines
+            SET
+                status = 'draft',
+                source_config = jsonb_set(
+                    COALESCE(source_config, '{}'::jsonb),
+                    '{legacy_source_streams}',
+                    source_streams,
+                    true
+                )
+            WHERE jsonb_typeof(source_streams) = 'array'
+              AND jsonb_array_length(source_streams) > 1
+            """
+        )
+    )
+
+    await _ensure_resource_share_constraints(db)
     return True
 
 
@@ -875,7 +939,11 @@ async def run_startup_schema_migrations(db: AsyncSession) -> None:
         changed = True
     if await _ensure_resource_shares_table(db):
         changed = True
+    if await _ensure_resource_share_constraints(db):
+        changed = True
     if await _ensure_user_permissions_default(db):
+        changed = True
+    if await _ensure_app_credential_registry_constraints(db):
         changed = True
     if await _migrate_legacy_source_connections(db):
         changed = True
@@ -888,6 +956,8 @@ async def run_startup_schema_migrations(db: AsyncSession) -> None:
     if await _backfill_app_credential_owners(db):
         changed = True
     if await _ensure_data_pipeline_tables(db):
+        changed = True
+    if await _ensure_data_pipeline_columns(db):
         changed = True
 
     if changed:

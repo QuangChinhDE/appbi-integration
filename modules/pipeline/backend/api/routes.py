@@ -9,14 +9,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.pipeline.backend.services.pipeline_module_service import PipelineModuleService
 from modules.pipeline.backend.services.pipeline_service import PipelineService
-from packages.auth.src import require_permission
+from packages.auth.src import (
+    require_edit_access,
+    require_full_access,
+    require_permission,
+    require_view_access,
+)
 from packages.auth.src.dependencies import get_current_user
 from packages.database.src import get_db
+from packages.database.src.models import DataPipeline, PipelineRun, ResourceType, User
 
 
 router = APIRouter(tags=['pipeline'])
 
-# ── Read-only catalog endpoints (view permission) ─────────────────────────────
 
 catalog_router = APIRouter(dependencies=[Depends(require_permission('pipeline', 'view'))])
 
@@ -53,14 +58,14 @@ class PipelineOverviewResponse(BaseModel):
 
 
 @catalog_router.get('/api/pipeline/overview', response_model=PipelineOverviewResponse)
-async def get_pipeline_overview(db: AsyncSession = Depends(get_db)):
-    service = PipelineModuleService(db)
-    overview = await service.get_overview()
-    # Attach user pipelines
-    pipeline_service = PipelineService(db)
-    pipelines = await pipeline_service.list_pipelines()
-    overview['pipelines'] = pipelines
-    overview['pipeline_count'] = len(pipelines)
+async def get_pipeline_overview(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    module_service = PipelineModuleService(db)
+    overview = await module_service.get_overview()
+    overview['pipelines'] = await PipelineService(db).list_pipelines(current_user)
+    overview['pipeline_count'] = len(overview['pipelines'])
     return overview
 
 
@@ -80,9 +85,7 @@ async def get_pipeline_capability(
 router.include_router(catalog_router)
 
 
-# ── Pipeline CRUD endpoints (edit permission) ─────────────────────────────────
-
-crud_router = APIRouter(dependencies=[Depends(require_permission('pipeline', 'edit'))])
+crud_router = APIRouter()
 
 
 class PipelineCreateRequest(BaseModel):
@@ -90,6 +93,7 @@ class PipelineCreateRequest(BaseModel):
     description: str | None = None
     source_connector_key: str
     source_credential_id: str | None = None
+    source_stream_key: str | None = None
     source_streams: list[str] = Field(default_factory=list)
     source_config: dict[str, Any] | None = None
     dest_connector_key: str
@@ -108,6 +112,7 @@ class PipelineUpdateRequest(BaseModel):
     status: str | None = None
     source_connector_key: str | None = None
     source_credential_id: str | None = None
+    source_stream_key: str | None = None
     source_streams: list[str] | None = None
     source_config: dict[str, Any] | None = None
     dest_connector_key: str | None = None
@@ -119,75 +124,135 @@ class PipelineUpdateRequest(BaseModel):
     schedule: dict[str, Any] | None = None
 
 
-@crud_router.post('/api/pipeline/pipelines')
-async def create_pipeline(
-    body: PipelineCreateRequest,
-    db: AsyncSession = Depends(get_db),
-    user: Any = Depends(get_current_user),
-):
-    service = PipelineService(db)
-    pipeline = await service.create_pipeline(body.model_dump(exclude_none=True), owner_id=user.id)
-    await db.commit()
-    return pipeline
-
-
-@crud_router.get('/api/pipeline/pipelines')
-async def list_pipelines(
-    status: str | None = None,
-    db: AsyncSession = Depends(get_db),
-):
-    service = PipelineService(db)
-    return await service.list_pipelines(status=status)
-
-
-@crud_router.get('/api/pipeline/pipelines/{pipeline_id}')
-async def get_pipeline(pipeline_id: UUID, db: AsyncSession = Depends(get_db)):
-    service = PipelineService(db)
-    pipeline = await service.get_pipeline(pipeline_id)
+async def _get_pipeline_or_404(db: AsyncSession, pipeline_id: UUID) -> DataPipeline:
+    pipeline = await db.get(DataPipeline, pipeline_id)
     if pipeline is None:
         raise HTTPException(status_code=404, detail='Pipeline not found.')
     return pipeline
 
 
-@crud_router.put('/api/pipeline/pipelines/{pipeline_id}')
+async def _get_run_or_404(db: AsyncSession, run_id: UUID) -> PipelineRun:
+    run = await db.get(PipelineRun, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail='Pipeline run not found.')
+    return run
+
+
+@crud_router.post('/api/pipeline/pipelines', dependencies=[Depends(require_permission('pipeline', 'edit'))])
+async def create_pipeline(
+    body: PipelineCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = PipelineService(db)
+    try:
+        pipeline = await service.create_pipeline(body.model_dump(exclude_none=True), current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await db.commit()
+    return pipeline
+
+
+@crud_router.get('/api/pipeline/pipelines', dependencies=[Depends(require_permission('pipeline', 'view'))])
+async def list_pipelines(
+    status: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    service = PipelineService(db)
+    return await service.list_pipelines(current_user, status=status)
+
+
+@crud_router.get('/api/pipeline/pipelines/{pipeline_id}', dependencies=[Depends(require_permission('pipeline', 'view'))])
+async def get_pipeline(
+    pipeline_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pipeline = await _get_pipeline_or_404(db, pipeline_id)
+    await require_view_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
+    return await PipelineService(db).get_pipeline(pipeline, current_user)
+
+
+@crud_router.put('/api/pipeline/pipelines/{pipeline_id}', dependencies=[Depends(require_permission('pipeline', 'edit'))])
 async def update_pipeline(
     pipeline_id: UUID,
     body: PipelineUpdateRequest,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
+    pipeline = await _get_pipeline_or_404(db, pipeline_id)
+    await require_edit_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
     service = PipelineService(db)
-    pipeline = await service.update_pipeline(pipeline_id, body.model_dump(exclude_none=True))
-    if pipeline is None:
-        raise HTTPException(status_code=404, detail='Pipeline not found.')
+    try:
+        updated = await service.update_pipeline(pipeline, body.model_dump(exclude_none=True), current_user)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     await db.commit()
-    return pipeline
+    return updated
 
 
-@crud_router.delete('/api/pipeline/pipelines/{pipeline_id}')
-async def delete_pipeline(pipeline_id: UUID, db: AsyncSession = Depends(get_db)):
-    service = PipelineService(db)
-    deleted = await service.delete_pipeline(pipeline_id)
-    if not deleted:
-        raise HTTPException(status_code=404, detail='Pipeline not found.')
+@crud_router.delete('/api/pipeline/pipelines/{pipeline_id}', dependencies=[Depends(require_permission('pipeline', 'edit'))])
+async def delete_pipeline(
+    pipeline_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pipeline = await _get_pipeline_or_404(db, pipeline_id)
+    await require_full_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
+    await PipelineService(db).delete_pipeline(pipeline)
     await db.commit()
     return {'ok': True}
 
 
-# ── Pipeline runs ─────────────────────────────────────────────────────────────
+@crud_router.get('/api/pipeline/pipelines/{pipeline_id}/runs', dependencies=[Depends(require_permission('pipeline', 'view'))])
+async def list_pipeline_runs(
+    pipeline_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pipeline = await _get_pipeline_or_404(db, pipeline_id)
+    await require_view_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
+    return await PipelineService(db).list_runs(pipeline, current_user)
 
-@crud_router.get('/api/pipeline/pipelines/{pipeline_id}/runs')
-async def list_pipeline_runs(pipeline_id: UUID, db: AsyncSession = Depends(get_db)):
+
+@crud_router.get('/api/pipeline/runs/{run_id}', dependencies=[Depends(require_permission('pipeline', 'view'))])
+async def get_pipeline_run(
+    run_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    run = await _get_run_or_404(db, run_id)
+    pipeline = await _get_pipeline_or_404(db, run.pipeline_id)
+    await require_view_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
+    return await PipelineService(db).get_run(run, current_user)
+
+
+@crud_router.post('/api/pipeline/pipelines/{pipeline_id}/run', dependencies=[Depends(require_permission('pipeline', 'edit'))])
+async def run_pipeline(
+    pipeline_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pipeline = await _get_pipeline_or_404(db, pipeline_id)
+    await require_edit_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
     service = PipelineService(db)
-    return await service.list_runs(pipeline_id)
+    try:
+        response = await service.trigger_run(pipeline, current_user.email)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return response
 
 
-@crud_router.get('/api/pipeline/runs/{run_id}')
-async def get_pipeline_run(run_id: UUID, db: AsyncSession = Depends(get_db)):
-    service = PipelineService(db)
-    run = await service.get_run(run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail='Pipeline run not found.')
-    return run
+@crud_router.post('/api/pipeline/pipelines/{pipeline_id}/stop', dependencies=[Depends(require_permission('pipeline', 'edit'))])
+async def stop_pipeline(
+    pipeline_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    pipeline = await _get_pipeline_or_404(db, pipeline_id)
+    await require_edit_access(db, current_user, pipeline, resource_type=ResourceType.DATA_PIPELINE)
+    return await PipelineService(db).stop_pipeline(pipeline)
 
 
 router.include_router(crud_router)

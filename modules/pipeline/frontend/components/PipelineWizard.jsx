@@ -7,14 +7,11 @@ import {
 import api from '@shared/api/client'
 import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
 import { Button, Input, Select, message } from '@packages/ui/src/components/common/ui'
-import { APP_CATALOG, getAppMeta } from '@modules/apps/frontend/constants'
+import { getAppMeta } from '@modules/apps/frontend/constants'
 import {
   PIPELINE_STEPS, WRITE_MODE_OPTIONS, SCHEDULE_TYPE_OPTIONS,
 } from '../constants'
 
-
-const SOURCE_APPS = APP_CATALOG.filter((a) => a.role === 'source')
-const DEST_APPS = APP_CATALOG.filter((a) => a.role === 'destination')
 
 const EMPTY_DRAFT = {
   name: '',
@@ -35,7 +32,7 @@ const EMPTY_DRAFT = {
 
 // ── Step: Source ─────────────────────────────────────────────────────────────
 
-function StepSource({ draft, setDraft, credentials, catalogStreams }) {
+function StepSource({ draft, setDraft, credentials, catalogStreams, sourceApps }) {
   const appCredentials = credentials.filter((c) => c.app_id === draft.source_connector_key)
   const sourceStreams = (catalogStreams[draft.source_connector_key] || []).filter(
     (s) => s.capabilities?.includes('read')
@@ -46,7 +43,7 @@ function StepSource({ draft, setDraft, credentials, catalogStreams }) {
       <div>
         <div className="mb-2 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Source app</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {SOURCE_APPS.map((app) => {
+          {sourceApps.map((app) => {
             const selected = draft.source_connector_key === app.id
             return (
               <button
@@ -100,14 +97,12 @@ function StepSource({ draft, setDraft, credentials, catalogStreams }) {
                     checked ? 'border-brand/30 bg-brand/5' : 'border-[rgb(var(--border-line))] hover:bg-surface-2'
                   }`}
                 >
-                  <input type="checkbox" checked={checked} onChange={(e) => {
-                    setDraft((d) => ({
-                      ...d,
-                      source_streams: e.target.checked
-                        ? [...d.source_streams, stream.stream_key]
-                        : d.source_streams.filter((k) => k !== stream.stream_key),
-                    }))
-                  }} className="accent-brand" />
+                   <input type="radio" name="source_stream_key" checked={checked} onChange={() => {
+                     setDraft((d) => ({
+                       ...d,
+                       source_streams: [stream.stream_key],
+                     }))
+                   }} className="accent-brand" />
                   <div>
                     <div className="text-caption font-emphasis text-text-primary">{stream.display_name}</div>
                     <div className="text-tiny text-text-tertiary">{stream.stream_key}</div>
@@ -125,7 +120,7 @@ function StepSource({ draft, setDraft, credentials, catalogStreams }) {
 
 // ── Step: Destination ───────────────────────────────────────────────────────
 
-function StepDestination({ draft, setDraft, credentials, catalogStreams }) {
+function StepDestination({ draft, setDraft, credentials, catalogStreams, destApps }) {
   const appCredentials = credentials.filter((c) => c.app_id === draft.dest_connector_key)
   const destStreams = (catalogStreams[draft.dest_connector_key] || []).filter((s) => s.write_config != null)
   const selectedStream = destStreams.find((s) => s.stream_key === draft.dest_stream_key)
@@ -136,7 +131,7 @@ function StepDestination({ draft, setDraft, credentials, catalogStreams }) {
       <div>
         <div className="mb-2 text-[10px] font-emphasis uppercase tracking-wider text-text-quaternary">Destination app</div>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {DEST_APPS.map((app) => {
+          {destApps.map((app) => {
             const selected = draft.dest_connector_key === app.id
             return (
               <button
@@ -360,20 +355,36 @@ const PipelineWizard = ({ onBack, onSaved }) => {
   const [draft, setDraft] = useState({ ...EMPTY_DRAFT })
   const [credentials, setCredentials] = useState([])
   const [catalogStreams, setCatalogStreams] = useState({})
+  const [sourceApps, setSourceApps] = useState([])
+  const [destApps, setDestApps] = useState([])
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [credRes, catalogRes] = await Promise.all([
+        const [credRes, overviewRes] = await Promise.all([
           api.get('/api/apps/credentials'),
-          api.get('/api/connectors/catalog'),
+          api.get('/api/pipeline/overview'),
         ])
         setCredentials(Array.isArray(credRes.data) ? credRes.data : credRes.data?.items || [])
-        const catalog = Array.isArray(catalogRes.data) ? catalogRes.data : catalogRes.data?.connectors || []
+        const overview = overviewRes.data || {}
+        const sources = Array.isArray(overview.sources) ? overview.sources : []
+        const destinations = Array.isArray(overview.destinations) ? overview.destinations : []
+        setSourceApps(sources.map((item) => ({
+          ...getAppMeta(item.app_id),
+          id: item.app_id,
+          title: item.app_name,
+          description: item.summary,
+        })))
+        setDestApps(destinations.map((item) => ({
+          ...getAppMeta(item.app_id),
+          id: item.app_id,
+          title: item.app_name,
+          description: item.summary,
+        })))
         const streamMap = {}
-        for (const c of catalog) {
-          streamMap[c.connector_key] = c.streams || []
+        for (const item of [...sources, ...destinations]) {
+          streamMap[item.app_id] = item.streams || []
         }
         setCatalogStreams(streamMap)
       } catch {
@@ -388,8 +399,8 @@ const PipelineWizard = ({ onBack, onSaved }) => {
   const progressPercent = totalSteps > 1 ? Math.round((currentStep / (totalSteps - 1)) * 100) : 0
 
   const canNext = useMemo(() => {
-    if (currentStep === 0) return draft.source_connector_key && draft.source_streams.length > 0
-    if (currentStep === 1) return draft.dest_connector_key && draft.dest_stream_key
+    if (currentStep === 0) return draft.source_connector_key && draft.source_credential_id && draft.source_streams.length === 1
+    if (currentStep === 1) return draft.dest_connector_key && draft.dest_credential_id && draft.dest_stream_key
     return true
   }, [currentStep, draft])
 
@@ -406,6 +417,11 @@ const PipelineWizard = ({ onBack, onSaved }) => {
     try {
       const payload = {
         ...draft,
+        source_stream_key: draft.source_streams[0] || null,
+        schedule: {
+          ...(draft.schedule || { type: 'manual' }),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+        },
         name: draft.name || `${getAppMeta(draft.source_connector_key)?.title || 'Source'} → ${getAppMeta(draft.dest_connector_key)?.title || 'Dest'}`,
         status: 'draft',
       }
@@ -447,8 +463,8 @@ const PipelineWizard = ({ onBack, onSaved }) => {
 
   const renderStepContent = () => {
     switch (currentStep) {
-      case 0: return <StepSource draft={draft} setDraft={setDraft} credentials={credentials} catalogStreams={catalogStreams} />
-      case 1: return <StepDestination draft={draft} setDraft={setDraft} credentials={credentials} catalogStreams={catalogStreams} />
+      case 0: return <StepSource draft={draft} setDraft={setDraft} credentials={credentials} catalogStreams={catalogStreams} sourceApps={sourceApps} />
+      case 1: return <StepDestination draft={draft} setDraft={setDraft} credentials={credentials} catalogStreams={catalogStreams} destApps={destApps} />
       case 2: return <StepMapping draft={draft} setDraft={setDraft} catalogStreams={catalogStreams} />
       case 3: return <StepSchedule draft={draft} setDraft={setDraft} />
       case 4: return <StepReview draft={draft} />
