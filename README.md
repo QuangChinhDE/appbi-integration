@@ -1,132 +1,89 @@
 # AppBI Integration
 
-AppBI Integration is the operational workspace for connecting business apps, preparing reusable storage targets, and building backup flows on top of those connections. The repository is organized as a small monorepo with a FastAPI backend, a React + Vite frontend, shared packages, and domain modules such as Apps, Backup, Identity, and Automation.
+Monorepo for connecting business apps, managing credentials, running backup flows, and building data pipelines. Built with FastAPI + React/Vite + PostgreSQL.
 
-The current direction of the product is:
+## Modules
 
-- connect an app once in Apps
-- reuse that connection later in Backup or other modules
-- manage workspace access with role-based permissions
-- support both Google OAuth and service-account based Google storage flows
-
-## What the project includes
-
-### Apps workspace
-
-- Reusable source app connections for Request, Service, Workflow, and WeWork
-- Reusable Google Drive and Google Sheets storage profiles
-- Search-first UI for finding and creating app connections
-
-### Backup workspace
-
-- Draft-first backup flow creation
-- Responsive multi-step wizard for source, scope, destination, and review
-- Reusable saved source and destination pickers
-- Flow detail, publish, run, stop, and delete actions
-
-### Identity and settings
-
-- Password-based login
-- Bootstrap admin account on first startup
-- Per-module permissions for `backup`, `apps`, `automation`, and `settings`
-- User and permission management endpoints/UI under Settings
-
-### Automation
-
-- Standardized module shell is in place
-- Full automation behavior is not implemented yet
+| Module | Description |
+|---|---|
+| **Apps** | Unified credential registry for 15 apps (source + Google destination) |
+| **Connectors** | Stream-level connector framework with `BaseConnector` interface — 15 connectors (Request, Service, Workflow, WeWork, CRM, HRM, Table, Goal, Income, Meeting, Payroll, Timeoff, GDrive, GSheets, BigQuery) |
+| **Backup** | Backup flows using `GenericConnectorExtractor` — reads connector streams → Excel → GDrive |
+| **Pipeline** | Source-to-destination data sync with multi-binding model (bindings[] JSONB), scheduled runs |
+| **Identity** | Auth (password + Google OAuth), per-module RBAC, user management |
+| **Automation** | Module shell — disabled until Pipeline/Backup stabilize |
 
 ## Tech stack
 
-- Backend: FastAPI, SQLAlchemy, asyncpg, PostgreSQL
-- Frontend: React 18, React Router, Zustand, Vite, Tailwind CSS
-- Auth/security: JWT, Passlib, bcrypt, per-module RBAC
-- Google integration: Google OAuth, Google Drive, Google Sheets, optional shared service account
-- Runtime: Docker Compose for both production-style and hot-reload development stacks
+- **Backend:** FastAPI, SQLAlchemy, asyncpg, PostgreSQL
+- **Frontend:** React 18, React Router, Zustand, Vite, Tailwind CSS
+- **Auth:** JWT, bcrypt, per-module RBAC (backup/apps/pipeline/automation/settings)
+- **Google:** OAuth, Drive, Sheets, optional shared service account
+- **Runtime:** Docker Compose
 
 ## Repository layout
 
-```text
-appbi-integration/
-├── apps/
-│   ├── api/                     # FastAPI application entrypoint and container image
-│   └── web/                     # Vite frontend application
-├── modules/
-│   ├── apps/                    # Unified app connection/storage routes and pages
-│   ├── backup/                  # Backup flow backend + frontend wizard
-│   ├── identity/                # Login, permissions, user management
-│   ├── sources/                 # Source connection domain implementation
-│   ├── destinations/            # Storage profile domain implementation
-│   └── automation/              # Automation module shell
-├── packages/
-│   ├── auth/                    # JWT, password, permission helpers
-│   ├── database/                # SQLAlchemy base/models/init
-│   └── ui/                      # Shared frontend UI shells/components
-├── docker-compose.yml           # Production-style stack
-├── docker-compose.dev.yml       # Development stack with hot reload
-└── .env.example                 # Runtime environment template
+```
+apps/
+  api/          # FastAPI entrypoint
+  web/          # Vite frontend
+  scheduler/    # Background job scheduler
+  worker/       # Async task worker
+modules/
+  apps/         # Credential CRUD (backend + frontend)
+  backup/       # Backup flows + generic extractor
+  connectors/   # Connector registry, runtime, 15 app connectors
+  pipeline/     # Pipeline CRUD, execution engine, wizard UI
+  identity/     # Login, users, permissions
+  automation/   # Module shell (disabled)
+packages/
+  auth/         # JWT, password, permission helpers
+  database/     # SQLAlchemy models, migrations, init.sql
+  ui/           # Shared hooks, components
+  utils/        # Module registry, helpers
+  logger/       # Logging utilities
 ```
 
-## Quick start with Docker
-
-Docker is the recommended way to run the project locally because it aligns backend, frontend, and PostgreSQL with the repo defaults.
-
-### 1. Create the environment file
+## Quick start
 
 ```bash
-cp .env.example .env
-```
-
-At minimum, update these values before sharing or deploying the stack:
-
-- `POSTGRES_PASSWORD`
-- `SECRET_KEY`
-- `AUTH_JWT_SECRET`
-- `AUTH_BOOTSTRAP_PASSWORD`
-
-If you plan to use Google login or Google storage features, also set:
-
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `GOOGLE_REDIRECT_URI`
-- `VITE_GOOGLE_CLIENT_ID`
-
-### 2. Start the production-style stack
-
-```bash
+cp .env.example .env        # then edit secrets
 docker compose up -d --build
 ```
 
-### 3. Start the development stack with hot reload
+| Service | URL |
+|---|---|
+| Frontend | http://localhost:3002 |
+| Backend API | http://localhost:8010 |
+| PostgreSQL | localhost:5434 |
+
+Dev mode with hot reload:
 
 ```bash
 docker compose -f docker-compose.dev.yml up -d --build
 ```
 
-### 4. Stop the stack
+### Key `.env` variables
 
-```bash
-docker compose down
-docker compose -f docker-compose.dev.yml down
-```
+`POSTGRES_PASSWORD`, `SECRET_KEY`, `AUTH_JWT_SECRET`, `AUTH_BOOTSTRAP_PASSWORD`
 
-## Default local URLs and ports
+For Google features: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `VITE_GOOGLE_CLIENT_ID`
 
-- Frontend: http://localhost:3002
-- Backend API: http://localhost:8010
-- PostgreSQL: localhost:5434
+## Status
 
-These ports intentionally differ from `appbi-ai` so both projects can run side-by-side on one machine.
+> **Work in progress** — connector framework and pipeline module are initial code ideas, not yet fully tested for runtime correctness.
 
 ## Default bootstrap admin
 
 When `AUTH_BOOTSTRAP_ENABLED=true`, the backend creates an admin account on first startup if it does not already exist.
+The bootstrap user receives the preset from `AUTH_BOOTSTRAP_PRESET`, which defaults to `admin` and grants full access across every enabled module.
 
 Default values from `.env.example`:
 
 - Email: `admin@appbi.local`
-- Password: `Admin123!`
+- Password: `CHANGE_ME`
 - Name: `Platform Admin`
+- Preset: `admin`
 
 Change these before using the environment with teammates.
 
@@ -141,16 +98,24 @@ Change these before using the environment with teammates.
 - `POSTGRES_USER`
 - `POSTGRES_PASSWORD`
 
+### Module feature flags
+
+- `FEATURE_MODULE_BACKUP_ENABLED`
+- `FEATURE_MODULE_APPS_ENABLED`
+- `FEATURE_MODULE_PIPELINE_ENABLED`
+- `FEATURE_MODULE_AUTOMATION_ENABLED`
+- `FEATURE_MODULE_SETTINGS_ENABLED`
+
 ### Auth and RBAC
 
 - `SECRET_KEY`
-- `AUTH_JWT_SECRET`
 - `AUTH_BOOTSTRAP_ENABLED`
-- `AUTH_BOOTSTRAP_EMAIL`
-- `AUTH_BOOTSTRAP_PASSWORD`
-- `AUTH_BOOTSTRAP_NAME`
+- `AUTH_BOOTSTRAP_PRESET`
+- `ADMIN_EMAIL`
+- `ADMIN_PASSWORD`
+- `ADMIN_NAME`
 - `AUTH_PASSWORD_LOGIN_ENABLED`
-- `AUTH_GOOGLE_LOGIN_ENABLED`
+- `AUTH_GOOGLE_ENABLED`
 - `AUTH_GOOGLE_AUTO_CREATE_USERS`
 
 ### Frontend auth flags
@@ -250,6 +215,5 @@ uvicorn apps.api.src.main:app --reload --host 0.0.0.0 --port 8010
 
 - Root `.env.example` is the portable template. Root `.env` is machine-specific and should stay uncommitted.
 - The backend creates database tables from current SQLAlchemy models on startup.
-- The frontend uses the unified `Apps` module paths: `/apps`, `/apps/connections`, and `/apps/storage`.
-- Legacy source/destination concepts still exist at the domain layer, but the active UI now treats them as one Apps workspace.
+- The frontend exposes the Apps module at `/apps` (registry) and `/apps/:appId` (per-app credentials). The Apps module is role-neutral — it stores reusable credentials. The Backup module decides, per flow, which credential plays the source role and which plays the destination role.
 - `docker-compose.yml` builds the web image with Vite auth flags, while `docker-compose.dev.yml` mounts the repo for hot reload.
