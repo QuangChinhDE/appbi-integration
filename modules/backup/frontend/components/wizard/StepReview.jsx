@@ -24,30 +24,33 @@ function buildServiceTreeLines(googleAuth, backupType) {
   const lines = [
     { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
     { indent: 1, icon: '📁', text: 'Base Service', color: '#10b981' },
-    { indent: 2, icon: '📁', text: '01. Danh mục', color: '#60a5fa' },
-    { indent: 3, icon: '📊', text: 'Danh sách service.xlsx', color: '#4ade80' },
-    { indent: 3, icon: '📊', text: 'Danh sách compound.xlsx', color: '#4ade80' },
-    { indent: 3, icon: '📊', text: 'Danh sách group.xlsx', color: '#4ade80' },
-    { indent: 2, icon: '📁', text: '[1001] Example Service', color: '#60a5fa' },
-    { indent: 3, icon: '📊', text: 'Thông tin service.xlsx', color: '#4ade80' },
-    { indent: 3, icon: '📊', text: 'Danh sách ticket.xlsx', color: '#4ade80' },
-    { indent: 3, icon: '📊', text: 'Danh sách stage.xlsx', color: '#4ade80' },
+    { indent: 2, icon: '📁', text: 'Services', color: '#60a5fa' },
+    { indent: 3, icon: '📁', text: '[1001] Example Service', color: '#60a5fa' },
+    { indent: 4, icon: '📁', text: '1. Thông tin', color: '#bfdbfe' },
+    { indent: 5, icon: '📊', text: 'Thông tin service.xlsx', color: '#4ade80' },
+    { indent: 5, icon: '📊', text: 'Danh sách ticket.xlsx', color: '#4ade80' },
+    { indent: 5, icon: '📊', text: 'Danh sách stage.xlsx', color: '#4ade80' },
   ]
 
   if (hasTicketFolders) {
-    lines.push({ indent: 3, icon: '📁', text: 'Tickets', color: '#a78bfa' })
-    lines.push({ indent: 4, icon: '📁', text: '[INC-001] Example Ticket', color: '#93c5fd' })
-    lines.push({ indent: 5, icon: '📊', text: 'Thông tin ticket.xlsx', color: '#4ade80' })
-    lines.push({ indent: 5, icon: '📋', text: 'ticket.json', color: '#94a3b8' })
-    lines.push({ indent: 5, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
-    lines.push({ indent: 5, icon: '📊', text: '[resolution steps].xlsx', color: '#4ade80' })
-    lines.push({ indent: 5, icon: '📁', text: 'Tệp đính kèm', color: '#94a3b8' })
-    lines.push({ indent: 6, icon: '📄', text: 'file.pdf', color: '#64748b' })
-    lines.push({ indent: 6, icon: '🖼️', text: 'image.png', color: '#64748b' })
-    lines.push({ indent: 4, icon: '…', text: '(one folder per ticket)', color: '#64748b' })
+    lines.push({ indent: 4, icon: '📁', text: '2. Tickets', color: '#a78bfa' })
+    lines.push({ indent: 5, icon: '📁', text: '[10001] Example Ticket', color: '#93c5fd' })
+    lines.push({ indent: 6, icon: '📁', text: '1. Thông tin', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📊', text: 'Thông tin ticket.xlsx', color: '#4ade80' })
+    lines.push({ indent: 7, icon: '📋', text: 'ticket.json', color: '#94a3b8' })
+    lines.push({ indent: 6, icon: '📁', text: '2. Tùy chỉnh', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
+    lines.push({ indent: 6, icon: '📁', text: '3. Tệp đính kèm', color: '#bfdbfe' })
+    lines.push({ indent: 7, icon: '📊', text: 'Thông tin files.xlsx', color: '#4ade80' })
+    lines.push({ indent: 5, icon: '…', text: '(one folder per ticket)', color: '#64748b' })
   }
 
-  lines.push({ indent: 2, icon: '…', text: '(one folder per selected service)', color: '#64748b' })
+  lines.push({ indent: 3, icon: '…', text: '(one folder per selected service)', color: '#64748b' })
+  lines.push({ indent: 2, icon: '📁', text: '0. Danh mục chung', color: '#60a5fa' })
+  lines.push({ indent: 3, icon: '📊', text: 'Danh sách service.xlsx', color: '#4ade80' })
+  lines.push({ indent: 3, icon: '📊', text: 'Danh sách compound.xlsx', color: '#4ade80' })
+  lines.push({ indent: 3, icon: '📊', text: 'Danh sách group.xlsx', color: '#4ade80' })
+  lines.push({ indent: 3, icon: '📋', text: 'backup_manifest.json', color: '#94a3b8' })
 
   return lines
 }
@@ -62,7 +65,7 @@ function buildRequestTreeLines(googleAuth, selectedObjects, selectedGroupIds) {
 
   const lines = [
     { indent: 0, icon: '📁', text: root, color: '#e2e8f0' },
-    { indent: 1, icon: '📁', text: 'Requests', color: '#10b981' },
+    { indent: 1, icon: '📁', text: 'Base Request', color: '#10b981' },
   ]
 
   if (!hasGroupScope) {
@@ -82,8 +85,7 @@ function buildRequestTreeLines(googleAuth, selectedObjects, selectedGroupIds) {
       lines.push({ indent: 4, icon: '📊', text: '[table name].xlsx', color: '#4ade80' })
       lines.push({ indent: 4, icon: '📝', text: 'post_and_comment.txt', color: '#94a3b8' })
       lines.push({ indent: 4, icon: '📁', text: 'Tệp đính kèm', color: '#94a3b8' })
-      lines.push({ indent: 5, icon: '📄', text: 'file1.pdf', color: '#64748b' })
-      lines.push({ indent: 5, icon: '🖼️', text: 'image.png', color: '#64748b' })
+      lines.push({ indent: 5, icon: '�', text: 'Thông tin files.xlsx', color: '#4ade80' })
       lines.push({ indent: 3, icon: '📁', text: '[1235] Request name 2', color: '#60a5fa' })
       lines.push({ indent: 4, icon: '…', text: '(similar)', color: '#64748b' })
     } else {
@@ -105,6 +107,10 @@ function buildRequestTreeLines(googleAuth, selectedObjects, selectedGroupIds) {
   } else {
     lines.push({ indent: 2, icon: '…', text: '(direct requests are excluded by the current group selection)', color: '#64748b' })
   }
+
+  lines.push({ indent: 2, icon: '�', text: '0. Danh mục chung', color: '#60a5fa' })
+  lines.push({ indent: 3, icon: '📊', text: 'Danh sách group.xlsx', color: '#4ade80' })
+  lines.push({ indent: 3, icon: '📋', text: 'backup_manifest.json', color: '#94a3b8' })
 
   return lines
 }
@@ -221,7 +227,7 @@ function buildWeworkTreeLines(googleAuth, selectedObjects, selectedProjectIds) {
       lines.push({ indent: 6, icon: '📊', text: 'Danh sách milestone.xlsx', color: '#4ade80' })
       lines.push({ indent: 5, icon: '📁', text: '2. Tùy chỉnh', color: '#bfdbfe' })
       lines.push({ indent: 6, icon: '📊', text: 'Thông tin trường tùy chỉnh.xlsx', color: '#4ade80' })
-      lines.push({ indent: 6, icon: '📊', text: 'custom_budget.xlsx', color: '#4ade80' })
+      lines.push({ indent: 6, icon: '📊', text: '[table name].xlsx', color: '#4ade80' })
     } else {
       lines.push({ indent: 5, icon: '…', text: '(project info and custom exports are skipped when Project is not selected)', color: '#64748b' })
     }

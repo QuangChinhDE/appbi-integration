@@ -67,6 +67,8 @@ class ScheduleInfo(BaseModel):
 # ─── Flow CRUD payloads ─────────────────────────────────────────────────────
 class BackupFlowDraftCreate(BaseModel):
     created_by: Optional[str] = None
+    name: Optional[str] = None
+    source: Optional[SourceRoleRef] = None
 
 
 class BackupFlowAutosave(BaseModel):

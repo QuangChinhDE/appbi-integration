@@ -244,6 +244,12 @@ function FlowSummaryBlock({ record }) {
 }
 
 
+function shouldIgnoreOpenDetails(event) {
+  const target = event.target
+  return Boolean(target instanceof Element && target.closest('button, a, input, label, [role="button"], [data-no-open-details="true"]'))
+}
+
+
 function FlowListView({
   flows,
   hasFlows,
@@ -328,7 +334,14 @@ function FlowListView({
           const icon = APP_ICONS[record.app] || <Cloud className="h-4 w-4" />
 
           return (
-            <div key={record.id} className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5 transition-[border-color,box-shadow] hover:border-brand/30 hover:shadow-linear-sm">
+            <div
+              key={record.id}
+              onClick={(event) => {
+                if (shouldIgnoreOpenDetails(event)) return
+                onOpenDetails(record)
+              }}
+              className="cursor-pointer rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5 transition-[border-color,box-shadow] hover:border-brand/30 hover:shadow-linear-sm"
+            >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-3">
                   <div
@@ -430,7 +443,14 @@ function FlowListView({
               const canDelete = getResourcePermissions(record.user_permission).canDelete
 
               return (
-                <tr key={record.id} className="hover:bg-surface-2">
+                <tr
+                  key={record.id}
+                  onClick={(event) => {
+                    if (shouldIgnoreOpenDetails(event)) return
+                    onOpenDetails(record)
+                  }}
+                  className="cursor-pointer hover:bg-surface-2"
+                >
                   {selectable && (
                     <td className="w-10 px-3 py-4">
                       <input

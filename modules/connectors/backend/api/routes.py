@@ -159,14 +159,14 @@ async def preview_service_source(payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail="service_ids must be a list of strings")
 
     try:
-        ticket_sample_limit = max(int(payload.get("ticket_sample_limit") or 2), 1)
+        ticket_sample_limit = max(int(payload.get("ticket_sample_limit") if payload.get("ticket_sample_limit") is not None else 2), 0)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="ticket_sample_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="ticket_sample_limit must be a non-negative integer") from exc
 
     try:
-        detail_service_limit = min(max(int(payload.get("detail_service_limit") or 2), 1), 10)
+        detail_service_limit = min(max(int(payload.get("detail_service_limit") if payload.get("detail_service_limit") is not None else 2), 0), 10)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="detail_service_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="detail_service_limit must be a non-negative integer") from exc
 
     if not domain or not access_token:
         raise HTTPException(status_code=400, detail="domain and access_token are required")
@@ -297,14 +297,14 @@ async def preview_workflow_source(payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail="workflow_ids must be a list of strings")
 
     try:
-        job_sample_limit = max(int(payload.get("job_sample_limit") or 2), 1)
+        job_sample_limit = max(int(payload.get("job_sample_limit") if payload.get("job_sample_limit") is not None else 2), 0)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="job_sample_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="job_sample_limit must be a non-negative integer") from exc
 
     try:
-        detail_workflow_limit = min(max(int(payload.get("detail_workflow_limit") or 5), 1), 20)
+        detail_workflow_limit = min(max(int(payload.get("detail_workflow_limit") if payload.get("detail_workflow_limit") is not None else 5), 0), 20)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="detail_workflow_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="detail_workflow_limit must be a non-negative integer") from exc
 
     if not domain or not access_token:
         raise HTTPException(status_code=400, detail="domain and access_token are required")
@@ -429,14 +429,14 @@ async def preview_request_source(payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail="group_ids must be a list of strings")
 
     try:
-        request_sample_limit = max(int(payload.get("request_sample_limit") or 2), 1)
+        request_sample_limit = max(int(payload.get("request_sample_limit") if payload.get("request_sample_limit") is not None else 2), 0)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="request_sample_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="request_sample_limit must be a non-negative integer") from exc
 
     try:
-        detail_group_limit = min(max(int(payload.get("detail_group_limit") or 5), 1), 20)
+        detail_group_limit = min(max(int(payload.get("detail_group_limit") if payload.get("detail_group_limit") is not None else 5), 0), 20)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="detail_group_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="detail_group_limit must be a non-negative integer") from exc
 
     if not domain or not access_token:
         raise HTTPException(status_code=400, detail="domain and access_token are required")
@@ -557,14 +557,14 @@ async def preview_wework_source(payload: dict[str, Any]):
         raise HTTPException(status_code=400, detail="project_ids must be a list of strings")
 
     try:
-        task_sample_limit = max(int(payload.get("task_sample_limit") or 3), 1)
+        task_sample_limit = max(int(payload.get("task_sample_limit") if payload.get("task_sample_limit") is not None else 3), 0)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="task_sample_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="task_sample_limit must be a non-negative integer") from exc
 
     try:
-        detail_project_limit = min(max(int(payload.get("detail_project_limit") or 5), 1), 20)
+        detail_project_limit = min(max(int(payload.get("detail_project_limit") if payload.get("detail_project_limit") is not None else 5), 0), 20)
     except (TypeError, ValueError) as exc:
-        raise HTTPException(status_code=400, detail="detail_project_limit must be a positive integer") from exc
+        raise HTTPException(status_code=400, detail="detail_project_limit must be a non-negative integer") from exc
 
     if not domain or not access_token:
         raise HTTPException(status_code=400, detail="domain and access_token are required")

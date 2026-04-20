@@ -134,7 +134,13 @@ const Sidebar = ({ collapsed, onToggle }) => {
               return (
                 <li key={route}>
                   <button
-                    onClick={() => navigate(route)}
+                    onClick={() => {
+                      if (route === '/backup') {
+                        navigate(route, { state: { resetToListToken: Date.now() } })
+                        return
+                      }
+                      navigate(route)
+                    }}
                     title={collapsed ? label : undefined}
                     className={cn(
                       'flex w-full items-center h-8 rounded-md transition-colors duration-150',

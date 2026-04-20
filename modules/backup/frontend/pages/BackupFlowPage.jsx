@@ -126,7 +126,7 @@ const BackupFlowPage = () => {
   const { setDetailsFlow, setDetailsRuns } = backupFlows
   const { resetAll } = wizard
 
-  const resetToBackupList = useCallback(() => {
+  const resetBackupListState = useCallback(() => {
     setViewMode('list')
     setDetailsFlowId(null)
     setDetailsFlowRecord(null)
@@ -134,11 +134,26 @@ const BackupFlowPage = () => {
     setDetailsFlow(null)
     setDetailsRuns([])
     resetAll()
+  }, [resetAll, setDetailsFlow, setDetailsRuns])
+
+  const resetToBackupList = useCallback(() => {
+    resetBackupListState()
     navigate('/backup', { replace: true })
-  }, [resetAll, setDetailsFlow, setDetailsRuns, navigate])
+  }, [resetBackupListState, navigate])
 
   // ── Fetch flows on mount ──────────────────────────────────────────────
   useEffect(() => { backupFlows.fetchFlows() }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (viewMode !== 'create' && viewMode !== 'edit') return
+    void wizard.loadSavedSourceConnections(null)
+    void wizard.loadSavedDestinationProfiles(null)
+  }, [viewMode, wizard.loadSavedSourceConnections, wizard.loadSavedDestinationProfiles])
+
+  useEffect(() => {
+    if (viewMode !== 'create' || !wizard.draftFlowId) return
+    void backupFlows.fetchFlows()
+  }, [viewMode, wizard.draftFlowId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── URL-driven detail view (direct link /backup/:flowId) ──────────────
   useEffect(() => {
@@ -151,6 +166,11 @@ const BackupFlowPage = () => {
     if (!location.state?.resetToListToken) return
     resetToBackupList()
   }, [location.state?.resetToListToken, resetToBackupList])
+
+  useEffect(() => {
+    if (paramFlowId || viewMode !== 'detail') return
+    resetBackupListState()
+  }, [paramFlowId, viewMode, resetBackupListState])
 
   useEffect(() => {
     if (!backupFlows.detailsFlow) return
@@ -226,12 +246,8 @@ const BackupFlowPage = () => {
   const handleCreateDraft = async () => {
     if (!canConfigureBackup) return
     resetAll()
-    const id = await backupFlows.createDraft()
-    if (!id) return
-    wizard.setDraftFlowId(id)
-    void wizard.loadSavedSourceConnections(null)
-    void wizard.loadSavedDestinationProfiles(null)
     setViewMode('create')
+    navigate('/backup', { replace: true })
   }
 
   const handleOpenDetails = async (record) => {
@@ -256,8 +272,6 @@ const BackupFlowPage = () => {
     if (!id) return
     const loaded = await wizard.loadFlowForEdit(id)
     if (loaded) {
-      void wizard.loadSavedSourceConnections(null)
-      void wizard.loadSavedDestinationProfiles(null)
       setViewMode('edit')
     }
   }

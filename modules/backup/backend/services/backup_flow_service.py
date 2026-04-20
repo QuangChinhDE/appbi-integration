@@ -324,8 +324,23 @@ class BackupFlowService:
 
     # ── Flow CRUD ─────────────────────────────────────────────────────────
     async def create_draft(self, draft_data: BackupFlowDraftCreate, current_user: User) -> BackupFlowResponse:
+        source = None
+        if draft_data.source is not None:
+            source = await require_credential_access(
+                self.db,
+                current_user,
+                draft_data.source.credential_id,
+                min_level='view',
+            )
+            ConnectorBindingValidationService.validate_source_credential(
+                source,
+                module_key='backup',
+            )
+
         new_flow = BackupFlow(
             owner_id=current_user.id,
+            name=draft_data.name.strip() if draft_data.name and draft_data.name.strip() else None,
+            source_credential_id=source.id if source else None,
             is_draft=1,
             is_published=0,
             status='active',
@@ -637,7 +652,21 @@ class BackupFlowService:
         validate_service_account_drive_destination(validation_view)
 
         from modules.backup.backend.extractors.generic_connector_extractor import run_generic_connector_backup
-        runner = run_generic_connector_backup
+
+        if source.app_id == 'workflow':
+            from modules.backup.backend.extractors.workflow_extractor import run_workflow_backup
+            runner = run_workflow_backup
+        elif source.app_id == 'service':
+            from modules.backup.backend.extractors.service_extractor import run_service_backup
+            runner = run_service_backup
+        elif source.app_id == 'request':
+            from modules.backup.backend.extractors.request_extractor import run_request_backup
+            runner = run_request_backup
+        elif source.app_id == 'wework':
+            from modules.backup.backend.extractors.wework_extractor import run_wework_backup
+            runner = run_wework_backup
+        else:
+            runner = run_generic_connector_backup
 
         new_run = BackupFlowRun(
             flow_id=flow_id,

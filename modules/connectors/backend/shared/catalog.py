@@ -338,6 +338,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='workflow_id', field_type='string', required=True, description='Workflow ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='jobs',
@@ -381,6 +382,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='job_id', field_type='string', required=True, description='Job ID'),
                 ),
+                supported_modules=('backup',),
             ),
             StreamDefinition(
                 stream_key='posts',
