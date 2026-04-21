@@ -10,9 +10,12 @@ from packages.database.src.models import AppCredential, ResourceType, User
 from .validation import ConnectorBindingValidationService
 
 
-AUTOMATION_MANIFESTS: tuple[dict[str, object], ...] = (
-    SERVICE_CONNECTOR_MANIFEST,
-)
+# Intentionally empty: the Automation module should start with no connector
+# templates. Real connectors will be added later once workflow execution is
+# implemented. Keep SERVICE_CONNECTOR_MANIFEST imported so tuple type stays
+# valid if we want to re-enable a manifest later.
+_ = SERVICE_CONNECTOR_MANIFEST  # noqa: F841 - kept for future re-enable
+AUTOMATION_MANIFESTS: tuple[dict[str, object], ...] = ()
 
 
 def _operation_payload(operation_key: str, spec: dict[str, object]) -> dict[str, object]:
