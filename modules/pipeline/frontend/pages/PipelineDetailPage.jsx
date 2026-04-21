@@ -33,7 +33,7 @@ const BINDING_META = {
 
 const TOKEN_LABELS = {
   apps: 'Apps registry',
-  google_oauth: 'Google OAuth',
+  google_oauth: 'Sign in',
   service_account: 'Service account',
   full_refresh: 'Full refresh',
   catalog_preview: 'Catalog preview',
@@ -202,12 +202,12 @@ function PipelineDetailPage() {
         )}
         icon={<Icon className="h-5 w-5" />}
         iconClassName={iconClassName}
-        bodyClassName="px-6 py-6 lg:px-8 xl:px-10"
+        bodyClassName="px-4 py-6 sm:px-6 xl:px-8"
       >
         {loading ? (
           <SpinCenter text="Loading pipeline capability..." />
         ) : error ? (
-          <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4">
+          <div className="flex w-full flex-col gap-4">
             <Alert
               type="error"
               message="Pipeline capability unavailable"
@@ -220,7 +220,7 @@ function PipelineDetailPage() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-5">
+          <div className="flex w-full flex-col gap-5">
             <ModuleOverview
               icon={Icon}
               title={`${capability.app_name} ${kindMeta.label.toLowerCase()}`}

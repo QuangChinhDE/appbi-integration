@@ -4,6 +4,9 @@ import {
   FileSpreadsheet, Folder, Database,
 } from 'lucide-react'
 
+const formatRunProgress = (completed, total, label) => `${Number(completed || 0)}/${Number(total || 0)} ${label}`
+const formatRunCount = (count, label) => `${Number(count || 0)} ${label}`
+
 // ── App definitions ─────────────────────────────────────────────────────────
 export const APPS = {
   request: {
@@ -16,6 +19,11 @@ export const APPS = {
     objects: ['group', 'request'],
     objectLabels: { group: 'Group', request: 'Request' },
     isSpecial: true,
+    supportsRun: true,
+    runHistorySummary: (details) => [
+      formatRunProgress(details.completed_groups, details.total_groups, 'groups'),
+      formatRunCount(details.total_requests, 'requests'),
+    ].join(' · '),
   },
   workflow: {
     id: 'workflow',
@@ -27,6 +35,11 @@ export const APPS = {
     objects: ['workflow', 'job'],
     objectLabels: { workflow: 'Workflow', job: 'Job', todo: 'Todo' },
     isSpecial: false,
+    supportsRun: true,
+    runHistorySummary: (details) => [
+      formatRunProgress(details.completed_workflows, details.total_workflows, 'workflows'),
+      formatRunProgress(details.completed_jobs, details.total_jobs, 'jobs'),
+    ].join(' · '),
   },
   wework: {
     id: 'wework',
@@ -38,6 +51,11 @@ export const APPS = {
     objects: ['department', 'project', 'task'],
     objectLabels: { department: 'Department', project: 'Project', task: 'Task' },
     isSpecial: false,
+    supportsRun: true,
+    runHistorySummary: (details) => [
+      formatRunProgress(details.completed_projects, details.total_projects, 'projects'),
+      formatRunProgress(details.completed_tasks, details.total_tasks, 'tasks'),
+    ].join(' · '),
   },
   service: {
     id: 'service',
@@ -49,8 +67,17 @@ export const APPS = {
     objects: ['service', 'ticket'],
     objectLabels: { service: 'Service', ticket: 'Ticket' },
     isSpecial: false,
+    supportsRun: true,
+    runHistorySummary: (details) => [
+      formatRunProgress(details.completed_services, details.total_services, 'services'),
+      formatRunCount(details.total_tickets, 'tickets'),
+      formatRunCount(details.attachments_downloaded, 'attachments'),
+    ].join(' · '),
   },
 }
+
+export const ACTIVE_BACKUP_SOURCE_APP_IDS = ['request', 'workflow', 'wework', 'service']
+export const SELECTABLE_BACKUP_APPS = ACTIVE_BACKUP_SOURCE_APP_IDS.map((appId) => APPS[appId]).filter(Boolean)
 
 // ── App meta for list/detail views (compact) ────────────────────────────────
 export const APP_META = {
@@ -201,17 +228,22 @@ export const DESTINATION_OPTIONS = [
     icon: <Folder className="w-5 h-5" />,
     color: '#1a73e8',
   },
-  {
-    id: 'gsheets',
-    title: 'Google Sheets',
-    desc: 'Create spreadsheets directly in Google Sheets',
-    icon: <FileSpreadsheet className="w-5 h-5" />,
-    color: '#0f9d58',
-  },
 ]
 
+export const ACTIVE_BACKUP_DESTINATION_IDS = ['gdrive']
+
+export const BACKUP_DESTINATION_LABELS = {
+  gdrive: 'Google Drive',
+  gsheets: 'Google Sheets (legacy unsupported)',
+}
+
+export const getBackupDestinationLabel = (destinationType) => {
+  if (!destinationType) return 'Google Drive'
+  return BACKUP_DESTINATION_LABELS[destinationType] || destinationType
+}
+
 // ── Google ───────────────────────────────────────────────────────────────────
-export const DEFAULT_GOOGLE_REDIRECT = `${window.location.protocol}//${window.location.hostname}:8010/api/google/callback`
+export const DEFAULT_GOOGLE_REDIRECT = `${window.location.origin}/api/v1/auth/google/data-access/callback`
 
 export const SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE =
   'This folder is shared with the service account, but it still belongs to regular My Drive, not a Shared Drive. Google service accounts can browse directly shared My Drive folders, but they cannot upload backup files there because they have no storage quota. Choose a folder inside a Shared Drive or switch this destination to OAuth User authentication.'

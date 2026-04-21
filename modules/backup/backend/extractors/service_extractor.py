@@ -33,17 +33,12 @@ import logging
 from datetime import datetime
 from typing import Any
 
-import pandas as pd
-
-from modules.backup.backend.extractors._gdrive import (
-    build_cached_gdrive_token_provider,
-    gdrive_create_folder,
-    gdrive_recreate_folder,
-    gdrive_upload_bytes,
-    gdrive_upload_tabular_bytes,
+from modules.backup.backend.extractors.destination_writers import (
+    BackupDestinationWriter,
+    build_backup_destination_writer,
 )
+from modules.backup.backend.extractors._gdrive import build_cached_gdrive_token_provider
 from modules.backup.backend.extractors._helpers import (
-    build_excel_bytes,
     sanitize_name,
     strip_html,
     truncate_name,
@@ -68,6 +63,7 @@ _ID_FIELDS = ('service_id', 'id')
 _NAME_FIELDS = ('name', 'title', 'display_name', 'label')
 _TICKET_ID_FIELDS = ('ticket_id', 'id', 'hid')
 _TICKET_CODE_FIELDS = ('code', 'ticket_code', 'hid')
+_DETAIL_FOLDER_LINK_FIELD = 'Link thư mục chi tiết'
 
 
 def _pick(record: dict, candidates: tuple[str, ...]) -> str:
@@ -134,35 +130,19 @@ def _extract_files(detail: dict) -> list[dict]:
     return rows
 
 
-# ── Log & upload helpers ─────────────────────────────────────────────────────
+def _with_detail_folder_link(record: dict, folder_link: str | None) -> dict[str, Any]:
+    row = dict(record or {})
+    row[_DETAIL_FOLDER_LINK_FIELD] = str(folder_link or '').strip()
+    return row
+
+
+# ── Log helper ───────────────────────────────────────────────────────────────
 
 
 async def _update_log(db, run: BackupFlowRun, message: str) -> None:
     ts = datetime.utcnow().strftime('%H:%M:%S')
     run.logs = f"{run.logs or ''}\n[{ts}] {message}".strip()
     await db.commit()
-
-
-async def _upload_excel(
-    get_token, folder_id: str, filename: str,
-    records: list[dict], dest_type: str | None,
-) -> tuple[str, int]:
-    df = pd.DataFrame(records or [])
-    content = build_excel_bytes(df)
-    file_id = await gdrive_upload_tabular_bytes(
-        get_token, filename, content, folder_id,
-        destination_type=dest_type,
-    )
-    return file_id, len(records or [])
-
-
-async def _upload_text(
-    get_token, folder_id: str, filename: str, text: str,
-) -> str:
-    return await gdrive_upload_bytes(
-        get_token, filename, text.encode('utf-8'),
-        'text/plain', folder_id,
-    )
 
 
 # ── Main runner ──────────────────────────────────────────────────────────────
@@ -216,6 +196,15 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
             )
             drive_id = destination_auth.get('drive_id')
             dest_type = destination_binding.credential.app_id
+            writer: BackupDestinationWriter = build_backup_destination_writer(
+                destination_type=dest_type,
+                get_token=get_token,
+                root_folder_id=root_folder_id,
+                drive_id=drive_id,
+                flow_id=str(flow.id),
+                flow_name=flow.name,
+                app_folder_name='Base Service',
+            )
 
             # Build Service API client
             domain = source_binding.auth.get('domain') or source_binding.config.get('domain') or ''
@@ -232,13 +221,12 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
 
             uploaded_files: list[dict[str, Any]] = []
             manifest_entries: list[dict[str, Any]] = []
+            service_folder_links: dict[str, str] = {}
 
             # ── Trash old folder and create fresh ────────────────────
             await _update_log(db, run, 'Preparing destination folder...')
             app_folder_name = sanitize_name('Base Service')
-            app_folder_id, archived_count = await gdrive_recreate_folder(
-                get_token, app_folder_name, root_folder_id, drive_id=drive_id,
-            )
+            app_folder_id, archived_count = await writer.prepare_app_folder()
             if archived_count:
                 await _update_log(db, run, f'Archived {archived_count} old "{app_folder_name}" folder(s)')
 
@@ -265,16 +253,7 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
 
             # ── 0. Danh mục chung ─────────────────────────────────────
             await _update_log(db, run, 'Creating "0. Danh mục chung"...')
-            common_folder_id = await gdrive_create_folder(
-                get_token, '0. Danh mục chung', app_folder_id, drive_id=drive_id,
-            )
-
-            # Danh sách service
-            fid, cnt = await _upload_excel(
-                get_token, common_folder_id, 'Danh sách service.xlsx',
-                all_services, dest_type,
-            )
-            uploaded_files.append({'path': '0. Danh mục chung/Danh sách service.xlsx', 'file_id': fid, 'record_count': cnt})
+            common_folder_id = await writer.create_folder('0. Danh mục chung', app_folder_id)
 
             # Danh sách compound
             try:
@@ -282,9 +261,9 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                 compounds = _ensure_list(compounds_raw)
             except Exception:
                 compounds = []
-            fid, cnt = await _upload_excel(
-                get_token, common_folder_id, 'Danh sách compound.xlsx',
-                compounds, dest_type,
+            fid, cnt = await writer.upload_excel(
+                common_folder_id, 'Danh sách compound.xlsx',
+                compounds,
             )
             uploaded_files.append({'path': '0. Danh mục chung/Danh sách compound.xlsx', 'file_id': fid, 'record_count': cnt})
 
@@ -294,16 +273,14 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                 groups = _ensure_list(groups_raw)
             except Exception:
                 groups = []
-            fid, cnt = await _upload_excel(
-                get_token, common_folder_id, 'Danh sách group.xlsx',
-                groups, dest_type,
+            fid, cnt = await writer.upload_excel(
+                common_folder_id, 'Danh sách group.xlsx',
+                groups,
             )
             uploaded_files.append({'path': '0. Danh mục chung/Danh sách group.xlsx', 'file_id': fid, 'record_count': cnt})
 
             # ── Per-service folders ──────────────────────────────────
-            services_parent_id = await gdrive_create_folder(
-                get_token, 'Services', app_folder_id, drive_id=drive_id,
-            )
+            services_parent_id = await writer.create_folder('Services', app_folder_id)
             total = len(selected_services)
             for svc_index, service in enumerate(selected_services, 1):
                 svc_id = _pick(service, _ID_FIELDS)
@@ -311,26 +288,25 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                 svc_label = sanitize_name(f'[{svc_id}] {truncate_name(svc_name)}')
                 await _update_log(db, run, f'[{svc_index}/{total}] Processing service "{svc_name}" ...')
 
-                svc_folder_id = await gdrive_create_folder(
-                    get_token, svc_label, services_parent_id, drive_id=drive_id,
-                )
+                svc_folder_id = await writer.create_folder(svc_label, services_parent_id)
+                if svc_id:
+                    service_folder_links[svc_id] = writer.get_folder_url(svc_folder_id)
 
                 manifest_svc: dict[str, Any] = {
                     'service_id': svc_id,
                     'service_name': svc_name,
                     'folder': svc_label,
+                    'folder_link': writer.get_folder_url(svc_folder_id),
                     'tickets': [],
                 }
 
                 # ── 1. Thông tin/ ────────────────────────────────────
-                info_folder_id = await gdrive_create_folder(
-                    get_token, '1. Thông tin', svc_folder_id, drive_id=drive_id,
-                )
+                info_folder_id = await writer.create_folder('1. Thông tin', svc_folder_id)
 
                 # Thông tin service.xlsx
-                fid, cnt = await _upload_excel(
-                    get_token, info_folder_id, 'Thông tin service.xlsx',
-                    [service], dest_type,
+                fid, cnt = await writer.upload_excel(
+                    info_folder_id, 'Thông tin service.xlsx',
+                    [service],
                 )
                 uploaded_files.append({
                     'path': f'Services/{svc_label}/1. Thông tin/Thông tin service.xlsx', 'file_id': fid,
@@ -350,14 +326,6 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                         tickets = []
                 await _update_log(db, run, f'  Found {len(tickets)} ticket(s)')
 
-                fid, cnt = await _upload_excel(
-                    get_token, info_folder_id, 'Danh sách ticket.xlsx',
-                    tickets, dest_type,
-                )
-                uploaded_files.append({
-                    'path': f'Services/{svc_label}/1. Thông tin/Danh sách ticket.xlsx', 'file_id': fid, 'record_count': cnt,
-                })
-
                 # Danh sách stage.xlsx
                 if include_stages:
                     try:
@@ -370,19 +338,18 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                         except Exception as exc:
                             logger.warning('Failed to load stages for service %s: %s', svc_id, exc)
                             stages = []
-                    fid, cnt = await _upload_excel(
-                        get_token, info_folder_id, 'Danh sách stage.xlsx',
-                        stages, dest_type,
+                    fid, cnt = await writer.upload_excel(
+                        info_folder_id, 'Danh sách stage.xlsx',
+                        stages,
                     )
                     uploaded_files.append({
                         'path': f'Services/{svc_label}/1. Thông tin/Danh sách stage.xlsx', 'file_id': fid, 'record_count': cnt,
                     })
 
                 # ── 2. Tickets/ (per-ticket detail folders) ──────────
+                ticket_folder_links: dict[str, str] = {}
                 if include_ticket_details and tickets:
-                    tickets_parent_id = await gdrive_create_folder(
-                        get_token, '2. Tickets', svc_folder_id, drive_id=drive_id,
-                    )
+                    tickets_parent_id = await writer.create_folder('2. Tickets', svc_folder_id)
                     ticket_total = len(tickets)
                     for t_index, ticket in enumerate(tickets, 1):
                         t_id = _pick(ticket, _TICKET_ID_FIELDS)
@@ -393,14 +360,12 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                         if t_index % 20 == 1 or t_index == ticket_total:
                             await _update_log(db, run, f'  [{t_index}/{ticket_total}] Processing ticket "{t_name}"...')
 
-                        t_folder_id = await gdrive_create_folder(
-                            get_token, t_label, tickets_parent_id, drive_id=drive_id,
-                        )
+                        t_folder_id = await writer.create_folder(t_label, tickets_parent_id)
+                        if t_id:
+                            ticket_folder_links[t_id] = writer.get_folder_url(t_folder_id)
 
                         # ── 1. Thông tin/ (ticket) ────────────────
-                        t_info_folder_id = await gdrive_create_folder(
-                            get_token, '1. Thông tin', t_folder_id, drive_id=drive_id,
-                        )
+                        t_info_folder_id = await writer.create_folder('1. Thông tin', t_folder_id)
 
                         # Fetch ticket detail
                         try:
@@ -415,9 +380,9 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                                 detail = ticket
 
                         # Thông tin ticket.xlsx
-                        fid, _ = await _upload_excel(
-                            get_token, t_info_folder_id, 'Thông tin ticket.xlsx',
-                            [detail], dest_type,
+                        fid, _ = await writer.upload_excel(
+                            t_info_folder_id, 'Thông tin ticket.xlsx',
+                            [detail],
                         )
                         uploaded_files.append({
                             'path': f'Services/{svc_label}/2. Tickets/{t_label}/1. Thông tin/Thông tin ticket.xlsx', 'file_id': fid,
@@ -425,20 +390,18 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
 
                         # ticket.json
                         ticket_json = json.dumps(detail, ensure_ascii=False, indent=2, default=str)
-                        fid = await _upload_text(get_token, t_info_folder_id, 'ticket.json', ticket_json)
+                        fid = await writer.upload_text(t_info_folder_id, 'ticket.json', ticket_json)
                         uploaded_files.append({
                             'path': f'Services/{svc_label}/2. Tickets/{t_label}/1. Thông tin/ticket.json', 'file_id': fid,
                         })
 
                         # ── 2. Tùy chỉnh/ (ticket) ──────────────────
-                        t_custom_folder_id = await gdrive_create_folder(
-                            get_token, '2. Tùy chỉnh', t_folder_id, drive_id=drive_id,
-                        )
+                        t_custom_folder_id = await writer.create_folder('2. Tùy chỉnh', t_folder_id)
                         cf_records = _flatten_custom_fields(detail)
                         if cf_records:
-                            fid, _ = await _upload_excel(
-                                get_token, t_custom_folder_id, 'Thông tin trường tùy chỉnh.xlsx',
-                                cf_records, dest_type,
+                            fid, _ = await writer.upload_excel(
+                                t_custom_folder_id, 'Thông tin trường tùy chỉnh.xlsx',
+                                cf_records,
                             )
                             uploaded_files.append({
                                 'path': f'Services/{svc_label}/2. Tickets/{t_label}/2. Tùy chỉnh/Thông tin trường tùy chỉnh.xlsx', 'file_id': fid,
@@ -447,12 +410,10 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                         # ── 3. Tệp đính kèm/ (ticket) ───────────────
                         file_records = _extract_files(detail)
                         if file_records:
-                            attach_folder_id = await gdrive_create_folder(
-                                get_token, '3. Tệp đính kèm', t_folder_id, drive_id=drive_id,
-                            )
-                            fid, _ = await _upload_excel(
-                                get_token, attach_folder_id, 'Thông tin files.xlsx',
-                                file_records, dest_type,
+                            attach_folder_id = await writer.create_folder('3. Tệp đính kèm', t_folder_id)
+                            fid, _ = await writer.upload_excel(
+                                attach_folder_id, 'Thông tin files.xlsx',
+                                file_records,
                             )
                             uploaded_files.append({
                                 'path': f'Services/{svc_label}/2. Tickets/{t_label}/3. Tệp đính kèm/Thông tin files.xlsx', 'file_id': fid,
@@ -463,22 +424,56 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
                             'ticket_code': str(t_code),
                             'ticket_name': t_name,
                             'folder': t_label,
+                            'folder_link': writer.get_folder_url(t_folder_id),
                         })
 
+                ticket_rows_with_links = [
+                    _with_detail_folder_link(
+                        ticket,
+                        ticket_folder_links.get(_pick(ticket, _TICKET_ID_FIELDS)),
+                    )
+                    for ticket in tickets
+                ]
+                fid, cnt = await writer.upload_excel(
+                    info_folder_id, 'Danh sách ticket.xlsx',
+                    ticket_rows_with_links,
+                    hyperlink_columns=(_DETAIL_FOLDER_LINK_FIELD,),
+                )
+                uploaded_files.append({
+                    'path': f'Services/{svc_label}/1. Thông tin/Danh sách ticket.xlsx', 'file_id': fid, 'record_count': cnt,
+                })
+
                 manifest_entries.append(manifest_svc)
+
+            service_rows_with_links = [
+                _with_detail_folder_link(
+                    service,
+                    service_folder_links.get(_pick(service, _ID_FIELDS)),
+                )
+                for service in all_services
+            ]
+            fid, cnt = await writer.upload_excel(
+                common_folder_id, 'Danh sách service.xlsx',
+                service_rows_with_links,
+                hyperlink_columns=(_DETAIL_FOLDER_LINK_FIELD,),
+            )
+            uploaded_files.append({'path': '0. Danh mục chung/Danh sách service.xlsx', 'file_id': fid, 'record_count': cnt})
 
             # ── Manifest ─────────────────────────────────────────────
             await _update_log(db, run, 'Writing backup manifest...')
             manifest = {
+                'flow_id': str(flow.id),
+                'flow_name': flow.name,
                 'backup_type': backup_type,
                 'connector': 'service',
+                'destination_type': writer.destination_type,
                 'service_count': len(selected_services),
                 'total_files': len(uploaded_files),
                 'created_at': datetime.utcnow().isoformat() + 'Z',
                 'services': manifest_entries,
             }
             manifest_json = json.dumps(manifest, ensure_ascii=False, indent=2)
-            fid = await _upload_text(get_token, common_folder_id, 'backup_manifest.json', manifest_json)
+            fid = await writer.upload_text(common_folder_id, 'backup_manifest.json', manifest_json)
             uploaded_files.append({'path': '0. Danh mục chung/backup_manifest.json', 'file_id': fid})
 
             # ── Done ─────────────────────────────────────────────────
@@ -488,6 +483,7 @@ async def run_service_backup(flow_id: str, run_id: str) -> None:
             run.execution_details = {
                 'mode': 'service_backup',
                 'backup_type': backup_type,
+                'destination_writer': writer.destination_type,
                 'uploaded_files': uploaded_files,
             }
             run.logs = f"{run.logs}\n[COMPLETED] Uploaded {len(uploaded_files)} file(s) across {len(selected_services)} service(s)"

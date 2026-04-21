@@ -182,12 +182,12 @@ function AutomationDetailPage() {
         )}
         icon={<Zap className="h-5 w-5" />}
         iconClassName="bg-brand/10 text-brand"
-        bodyClassName="px-6 py-6 lg:px-8 xl:px-10"
+        bodyClassName="px-4 py-6 sm:px-6 xl:px-8"
       >
         {loading ? (
           <SpinCenter text="Loading automation connector..." />
         ) : error ? (
-          <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-4">
+          <div className="flex w-full flex-col gap-4">
             <Alert
               type="error"
               message="Automation connector unavailable"
@@ -200,7 +200,7 @@ function AutomationDetailPage() {
             </div>
           </div>
         ) : (
-          <div className="mx-auto flex w-full max-w-[1320px] flex-col gap-5">
+          <div className="flex w-full flex-col gap-5">
             <ModuleOverview
               icon={Zap}
               title={`${connector.app_name} automation contract`}

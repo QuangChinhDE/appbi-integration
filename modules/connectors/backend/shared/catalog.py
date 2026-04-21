@@ -72,9 +72,9 @@ _BASE_CONNECTION_CONFIG = {
 
 _GOOGLE_CONNECTION_CONFIG = {
     'step_title': 'Google Connection',
-    'step_description': 'Connect via Google OAuth or a Service Account.',
+    'step_description': 'Connect via Sign in or a Service Account.',
     'auth_mode_label': 'Authentication Mode',
-    'auth_mode_help': 'Choose google_oauth for interactive login or service_account for server-to-server.',
+    'auth_mode_help': 'Choose Sign in for interactive login or Service account for server-to-server.',
 }
 
 
@@ -511,7 +511,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                     default_mode='append',
                     target_kind='resource',
                 ),
-                supported_modules=('pipeline', 'automation'),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
             StreamDefinition(
                 stream_key='tasklists',
@@ -524,6 +524,7 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
                 config_fields=(
                     FieldDescriptor(name='project_id', field_type='string', required=True, description='Project ID'),
                 ),
+                supported_modules=('backup', 'pipeline', 'automation'),
             ),
         ),
         operations=(

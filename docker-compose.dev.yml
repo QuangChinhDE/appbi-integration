@@ -59,7 +59,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3002,http://frontend:3002}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:8010/api/google/callback}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3002/api/v1/auth/google/data-access/callback}
       GCP_SERVICE_ACCOUNT_EMAIL: ${GCP_SERVICE_ACCOUNT_EMAIL:-}
       GCP_SERVICE_ACCOUNT_JSON: ${GCP_SERVICE_ACCOUNT_JSON:-}
       GCP_SERVICE_ACCOUNT_TYPE: ${GCP_SERVICE_ACCOUNT_TYPE:-service_account}

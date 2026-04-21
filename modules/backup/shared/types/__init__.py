@@ -164,6 +164,7 @@ class BackupFlowResponse(BaseModel):
     last_run_at: Optional[datetime] = None
     last_run_status: Optional[str] = None
     last_run_message: Optional[str] = None
+    run_blocked_reason: Optional[str] = None
     created_by: Optional[str] = None
     updated_by: Optional[str] = None
     created_at: datetime
@@ -182,14 +183,17 @@ class BackupFlowListResponse(BaseModel):
     is_published: int
     app: Optional[str] = None
     app_name: Optional[str] = None
+    source_name: Optional[str] = None
     backup_type: Optional[str] = None
     destination_type: Optional[str] = None
     destination_name: Optional[str] = None
+    destination_profile_name: Optional[str] = None
     status: str
     last_run_at: Optional[datetime] = None
     last_run_status: Optional[str] = None
     run_blocked_reason: Optional[str] = None
     created_at: datetime
+    updated_at: datetime
 
     class Config:
         from_attributes = True
@@ -202,6 +206,7 @@ class BackupFlowRunResponse(BaseModel):
     started_at: datetime
     completed_at: Optional[datetime] = None
     execution_details: Optional[Dict[str, Any]] = None
+    logs: Optional[str] = None
     error_message: Optional[str] = None
     triggered_by: str
 

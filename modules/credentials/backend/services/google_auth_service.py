@@ -296,13 +296,17 @@ class AppConfigService:
         await self.db.commit()
 
     async def get_google_config(self) -> Dict[str, str]:
-        """Return Google OAuth credentials (DB first, env fallback)."""
-        client_id = await self.get("google_client_id") or os.getenv("GOOGLE_CLIENT_ID", "")
-        client_secret = await self.get("google_client_secret") or os.getenv("GOOGLE_CLIENT_SECRET", "")
-        redirect_uri = (
-            await self.get("google_redirect_uri")
-            or os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8010/api/google/callback")
-        )
+        """Return Google OAuth credentials, preferring env over stored workspace overrides."""
+        env_client_id = os.getenv("GOOGLE_CLIENT_ID", "").strip()
+        env_client_secret = os.getenv("GOOGLE_CLIENT_SECRET", "").strip()
+        env_redirect_uri = os.getenv(
+            "GOOGLE_REDIRECT_URI",
+            "http://localhost:3002/api/v1/auth/google/data-access/callback",
+        ).strip()
+
+        client_id = env_client_id or str(await self.get("google_client_id") or "").strip()
+        client_secret = env_client_secret or str(await self.get("google_client_secret") or "").strip()
+        redirect_uri = env_redirect_uri or str(await self.get("google_redirect_uri") or "").strip()
         return {
             "client_id": client_id,
             "client_secret": client_secret,

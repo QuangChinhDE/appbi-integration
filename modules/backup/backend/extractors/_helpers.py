@@ -9,7 +9,7 @@ from __future__ import annotations
 import re
 from datetime import datetime
 from io import BytesIO
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 import pandas as pd
 
@@ -57,9 +57,33 @@ def strip_html(text: str) -> str:
     return re.sub(r"<[^>]+>", "", text or "").strip()
 
 
-def build_excel_bytes(df: pd.DataFrame) -> bytes:
+def build_excel_bytes(
+    df: pd.DataFrame,
+    *,
+    hyperlink_columns: Iterable[str] | None = None,
+) -> bytes:
     buf = BytesIO()
-    df.to_excel(buf, index=False, engine="openpyxl")
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False)
+
+        worksheet = writer.book.active
+        header_index = {
+            str(cell.value): idx
+            for idx, cell in enumerate(worksheet[1], start=1)
+            if cell.value not in (None, "")
+        }
+        for column_name in hyperlink_columns or ():
+            column_index = header_index.get(str(column_name))
+            if not column_index:
+                continue
+            for row_index in range(2, worksheet.max_row + 1):
+                cell = worksheet.cell(row=row_index, column=column_index)
+                url = str(cell.value or '').strip()
+                if not url:
+                    continue
+                cell.hyperlink = url
+                cell.style = 'Hyperlink'
+
     buf.seek(0)
     return buf.read()
 

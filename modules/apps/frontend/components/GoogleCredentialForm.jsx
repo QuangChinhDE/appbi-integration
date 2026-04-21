@@ -2,10 +2,10 @@ import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useState } 
 import { CheckCircle, Globe, Loader2, Lock, Shield } from 'lucide-react'
 
 import api from '@shared/api/client'
-import { DEFAULT_GOOGLE_REDIRECT, getAppMeta } from '@modules/apps/frontend/constants'
+import { getAppMeta } from '@modules/apps/frontend/constants'
 import { hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
-import { Alert, Button, Modal, SpinCenter, message } from '@packages/ui/src/components/common/ui'
+import { Alert, SpinCenter, message } from '@packages/ui/src/components/common/ui'
 
 
 function openGoogleOAuthPopup(authUrl, onSuccess, onError) {
@@ -78,7 +78,6 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
 ) {
   const permissions = useAuthStore((state) => state.permissions)
   const canEdit = hasPermission(permissions, 'apps', 'edit')
-  const canManageSettings = hasPermission(permissions, 'settings', 'full')
   const option = useMemo(
     () => getAppMeta(appId) || getAppMeta('gdrive') || { id: appId, title: appId },
     [appId],
@@ -90,17 +89,6 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
   const [googleConnections, setGoogleConnections] = useState([])
   const [platformServiceAccount, setPlatformServiceAccount] = useState({ available: false, email: '' })
   const [connectingGoogle, setConnectingGoogle] = useState(false)
-
-  // Google OAuth config sub-modal
-  const [googleConfigModalOpen, setGoogleConfigModalOpen] = useState(false)
-  const [googleConfigLoading, setGoogleConfigLoading] = useState(false)
-  const [googleConfigSaving, setGoogleConfigSaving] = useState(false)
-  const [googleSecretSet, setGoogleSecretSet] = useState(false)
-  const [googleRedirectUri, setGoogleRedirectUri] = useState(DEFAULT_GOOGLE_REDIRECT)
-  const [googleConfigError, setGoogleConfigError] = useState('')
-  const [gcClientId, setGcClientId] = useState('')
-  const [gcClientSecret, setGcClientSecret] = useState('')
-  const [gcRedirectUri, setGcRedirectUri] = useState(DEFAULT_GOOGLE_REDIRECT)
 
   useEffect(() => { onSavingChange?.(saving) }, [saving, onSavingChange])
 
@@ -169,36 +157,13 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
     message.success(`Connected as ${data.display_name || data.email}`)
   }
 
-  const openGoogleConfigModal = async () => {
-    if (!canManageSettings) return
-    setGoogleConfigModalOpen(true)
-    setGoogleConfigError('')
-    setGoogleConfigLoading(true)
-    try {
-      const res = await api.get('/api/settings/google')
-      const data = res.data || {}
-      const redirectUri = data.redirect_uri || DEFAULT_GOOGLE_REDIRECT
-      setGoogleRedirectUri(redirectUri)
-      setGoogleSecretSet(Boolean(data.client_secret))
-      setGcClientId(data.client_id || '')
-      setGcClientSecret('')
-      setGcRedirectUri(redirectUri)
-    } catch {
-      setGoogleRedirectUri(DEFAULT_GOOGLE_REDIRECT)
-      setGoogleSecretSet(false)
-      setGcClientId('')
-      setGcClientSecret('')
-      setGcRedirectUri(DEFAULT_GOOGLE_REDIRECT)
-    } finally {
-      setGoogleConfigLoading(false)
-    }
-  }
-
   const handleGoogleConnect = async () => {
     if (!canEdit) return
     setConnectingGoogle(true)
     try {
-      const res = await api.get('/api/google/auth-url')
+      const res = await api.get('/api/google/auth-url', {
+        params: { frontend_origin: window.location.origin },
+      })
       openGoogleOAuthPopup(
         res.data.url,
         (data) => { setConnectingGoogle(false); void handleConnectedGoogle(data) },
@@ -207,39 +172,10 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
     } catch (err) {
       setConnectingGoogle(false)
       if (err.response?.status === 503) {
-        if (canManageSettings) { await openGoogleConfigModal(); return }
-        message.error('Google OAuth has not been configured yet. Ask an administrator to finish the workspace setup in Settings.')
+        message.error(err.response?.data?.detail || 'Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first.')
         return
       }
       message.error(err.response?.data?.detail || 'Failed to start Google authentication')
-    }
-  }
-
-  const handleSaveGoogleConfigAndConnect = async () => {
-    if (!gcClientId.trim()) { setGoogleConfigError('Client ID is required'); return }
-    if (!gcClientSecret.trim() && !googleSecretSet) { setGoogleConfigError('Client Secret is required'); return }
-    setGoogleConfigSaving(true)
-    setGoogleConfigError('')
-    try {
-      await api.put('/api/settings/google', {
-        client_id: gcClientId.trim(),
-        client_secret: gcClientSecret.trim() || '__KEEP__',
-        redirect_uri: gcRedirectUri.trim() || DEFAULT_GOOGLE_REDIRECT,
-      })
-      const authRes = await api.get('/api/google/auth-url')
-      openGoogleOAuthPopup(
-        authRes.data.url,
-        (data) => {
-          setGoogleConfigSaving(false)
-          setGoogleConfigModalOpen(false)
-          setGoogleSecretSet(true)
-          void handleConnectedGoogle(data)
-        },
-        (err) => { setGoogleConfigSaving(false); setGoogleConfigError(err) },
-      )
-    } catch (err) {
-      setGoogleConfigSaving(false)
-      setGoogleConfigError(err.response?.data?.detail || err.message || 'Failed to configure Google OAuth')
     }
   }
 
@@ -356,8 +292,8 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
               <div className="flex items-center gap-2">
                 <Globe className="h-3.5 w-3.5 text-brand" />
                 <div>
-                  <div className="text-caption font-emphasis text-text-primary">Saved Google OAuth</div>
-                  <div className="mt-0.5 text-tiny text-text-tertiary">Use a connected Google account.</div>
+                  <div className="text-caption font-emphasis text-text-primary">Sign in</div>
+                  <div className="mt-0.5 text-tiny text-text-tertiary">Use a signed-in Google account.</div>
                 </div>
               </div>
             </button>
@@ -403,15 +339,6 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
                       {connectingGoogle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Globe className="h-3.5 w-3.5" />}
                       {connectingGoogle ? 'Waiting for Google…' : 'Sign in with Google'}
                     </button>
-                    {canManageSettings && (
-                      <button
-                        type="button"
-                        onClick={openGoogleConfigModal}
-                        className="rounded-md border border-[rgb(var(--border-strong))] px-3 py-1.5 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2"
-                      >
-                        Configure OAuth Client
-                      </button>
-                    )}
                   </div>
                 </div>
               </div>
@@ -495,7 +422,7 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
                 <Alert
                   type="warning"
                   message="Shared platform credential is not configured"
-                  description="Set the GCP_SERVICE_ACCOUNT_* environment values first, or use a saved Google OAuth connection instead."
+                  description="Set the GCP_SERVICE_ACCOUNT_* environment values first, or switch this profile to Sign in instead."
                 />
               )}
 
@@ -559,64 +486,6 @@ const GoogleCredentialForm = forwardRef(function GoogleCredentialForm(
           </div>
         </div>
       </div>
-
-      <Modal
-        open={googleConfigModalOpen}
-        onCancel={googleConfigSaving ? undefined : () => { setGoogleConfigModalOpen(false); setGoogleConfigError('') }}
-        title="Configure Google OAuth"
-        width={600}
-        footer={(
-          <>
-            <Button variant="secondary" size="sm" onClick={() => { setGoogleConfigModalOpen(false); setGoogleConfigError('') }} disabled={googleConfigSaving}>Cancel</Button>
-            <Button variant="primary" size="sm" onClick={handleSaveGoogleConfigAndConnect} loading={googleConfigSaving}>Save & Connect Google</Button>
-          </>
-        )}
-      >
-        <p className="mb-4 text-caption text-text-tertiary">
-          Enter <strong>Client ID</strong>, <strong>Client Secret</strong>, and <strong>Redirect URI</strong>, then start Google sign-in. If these values already exist in `.env`, this step is optional.
-        </p>
-        {googleConfigError && <Alert type="error" message={googleConfigError} className="mb-4" />}
-        {googleConfigLoading ? (
-          <SpinCenter text="Loading Google OAuth settings…" />
-        ) : (
-          <div className="space-y-4">
-            <div>
-              <label className="mb-1 block text-caption font-emphasis text-text-secondary">Client ID <span className="text-danger">*</span></label>
-              <input
-                value={gcClientId}
-                onChange={(event) => setGcClientId(event.target.value)}
-                placeholder="123456789-abc.apps.googleusercontent.com"
-                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
-              />
-            </div>
-            <div>
-              <label className="mb-1 block text-caption font-emphasis text-text-secondary">Client Secret</label>
-              <input
-                type="password"
-                value={gcClientSecret}
-                onChange={(event) => setGcClientSecret(event.target.value)}
-                placeholder={googleSecretSet ? 'Leave blank to keep current secret' : 'GOCSPX-xxxxxxxxxxxxxxxx'}
-                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
-              />
-              <p className="mt-1 text-tiny text-text-quaternary">{googleSecretSet ? 'A secret is already stored. Leave blank to keep it.' : 'Stored encrypted in the database.'}</p>
-            </div>
-            <div>
-              <label className="mb-1 block text-caption font-emphasis text-text-secondary">Redirect URI <span className="text-danger">*</span></label>
-              <input
-                value={gcRedirectUri}
-                onChange={(event) => setGcRedirectUri(event.target.value)}
-                placeholder={DEFAULT_GOOGLE_REDIRECT}
-                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary focus:outline-none focus:border-brand focus:shadow-focus-brand transition-colors"
-              />
-            </div>
-            <Alert
-              type="info"
-              message="Google Cloud Console reminder"
-              description={`Authorized redirect URI must include ${googleRedirectUri || DEFAULT_GOOGLE_REDIRECT}`}
-            />
-          </div>
-        )}
-      </Modal>
     </>
   )
 })

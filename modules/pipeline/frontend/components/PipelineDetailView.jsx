@@ -126,7 +126,7 @@ function PipelineDetailView({
       )}
       icon={<Workflow className="h-5 w-5" />}
       iconClassName="bg-surface-2 text-text-secondary"
-      bodyClassName="px-6 py-6 lg:px-8 xl:px-10"
+      bodyClassName="px-4 py-6 sm:px-6 xl:px-8"
       footer={footer}
     >
       {loadingDetails ? (

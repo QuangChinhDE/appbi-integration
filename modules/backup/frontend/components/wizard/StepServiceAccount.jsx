@@ -25,29 +25,29 @@ const StepServiceAccount = ({ wizard }) => {
   const blockedReason = getGoogleDriveRunBlockedReason()
 
   return (
-    <div className="w-full max-w-none space-y-6">
+    <div className="w-full max-w-none space-y-5">
       {/* Upload area */}
       {platformServiceAccount?.available ? (
-        <div className="bg-[#7c3aed]/10 border border-[#7c3aed]/20 rounded-xl p-5 space-y-2">
+        <div className="space-y-3 rounded-xl border border-[#7c3aed]/20 bg-[#7c3aed]/10 p-5">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-[#7c3aed]" />
-            <span className="text-caption font-strong text-[#7c3aed]">Platform credential active</span>
+            <span className="text-small font-strong text-[#7c3aed]">Platform credential active</span>
           </div>
-          <p className="text-tiny text-[#7c3aed] leading-relaxed">
+          <p className="text-caption leading-6 text-[#7c3aed]">
             This flow can use the shared service account, similar to appbi-ai. Share the target Drive folder or Sheet with <span className="font-strong">{platformServiceAccount.email}</span>.
           </p>
-          <p className="text-tiny text-[#7c3aed]">Upload another JSON key below only if you want to override the shared credential.</p>
+          <p className="text-caption text-[#7c3aed]">Upload another JSON key below only if you want to override the shared credential.</p>
         </div>
       ) : (
         <Alert type="warning" message="Shared platform credential is not configured" description="Upload a Google service account JSON key to continue with service account mode." />
       )}
 
-      <div className="border-2 border-dashed border-[rgb(var(--border-line))] rounded-xl p-6 hover:border-[#7c3aed]/30 transition-colors">
+      <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] p-6 transition-colors hover:border-[#7c3aed]/30">
         <div className="flex items-center gap-2 mb-1">
           <Lock className="w-4 h-4 text-[#7c3aed]" />
-          <p className="text-caption font-strong text-text-primary">{platformServiceAccount?.available ? 'Optional Google Service Account JSON override' : 'Upload Google Service Account JSON'}</p>
+          <p className="text-small font-strong text-text-primary">{platformServiceAccount?.available ? 'Optional Google Service Account JSON override' : 'Upload Google Service Account JSON'}</p>
         </div>
-        <p className="text-tiny text-text-quaternary mb-4 leading-relaxed">
+        <p className="mb-4 text-caption leading-6 text-text-quaternary">
           {platformServiceAccount?.available
             ? <>Upload a different <code className="bg-surface-2 px-1 rounded">.json</code> key only when this flow should not use the shared platform credential.</>
             : <>Go to <strong>Google Cloud Console</strong> → <strong>IAM &amp; Admin</strong> → <strong>Service Accounts</strong> → select account → <strong>Keys</strong> tab → <strong>Add Key</strong> → download <code className="bg-surface-2 px-1 rounded">.json</code> file</>}
@@ -56,10 +56,10 @@ const StepServiceAccount = ({ wizard }) => {
           type="file"
           accept=".json,application/json"
           onChange={handleServiceAccountFileUpload}
-          className="text-caption text-text-secondary file:mr-3 file:py-2 file:px-4 file:rounded-md file:border file:border-[rgb(var(--border-strong))] file:text-tiny file:font-strong file:bg-surface-1 file:text-text-secondary hover:file:bg-surface-2"
+          className="text-caption text-text-secondary file:mr-3 file:rounded-md file:border file:border-[rgb(var(--border-strong))] file:bg-surface-1 file:px-4 file:py-2 file:text-label file:font-emphasis file:text-text-secondary hover:file:bg-surface-2"
         />
         {serviceAccountFileName && (
-          <div className="flex items-center gap-1.5 mt-3 text-tiny text-text-tertiary">
+          <div className="mt-3 flex items-center gap-1.5 text-caption text-text-tertiary">
             <CheckCircle className="w-3.5 h-3.5 text-success" />
             <span>Uploaded: {serviceAccountFileName}</span>
           </div>
@@ -74,23 +74,23 @@ const StepServiceAccount = ({ wizard }) => {
 
       {/* Analysis result */}
       {serviceAccountEmail && !serviceAccountAnalysisLoading && (
-        <div className="bg-[#7c3aed]/10 border border-[#7c3aed]/20 rounded-xl p-5 space-y-3">
+        <div className="space-y-3 rounded-xl border border-[#7c3aed]/20 bg-[#7c3aed]/10 p-5">
           <div className="flex items-center gap-2">
             <CheckCircle className="w-4 h-4 text-[#7c3aed]" />
-            <span className="text-caption font-strong text-[#7c3aed]">Service Account Confirmed</span>
+            <span className="text-small font-strong text-[#7c3aed]">Service Account Confirmed</span>
           </div>
-          <div className="space-y-2 text-caption">
+          <div className="space-y-2 text-small">
             <div className="flex gap-3">
-              <span className="text-tiny text-text-quaternary w-20 shrink-0 pt-0.5">Email</span>
-              <span className="font-strong text-text-primary break-all">{serviceAccountEmail}</span>
+              <span className="w-20 shrink-0 pt-0.5 text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Email</span>
+              <span className="break-all font-strong text-text-primary">{serviceAccountEmail}</span>
             </div>
             <div className="flex gap-3">
-              <span className="text-tiny text-text-quaternary w-20 shrink-0 pt-0.5">Project</span>
+              <span className="w-20 shrink-0 pt-0.5 text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Project</span>
               <span className="font-strong text-text-primary">{projectId || '—'}</span>
             </div>
             {availableDrives.length > 0 && (
               <div className="flex gap-3">
-                <span className="text-tiny text-text-quaternary w-20 shrink-0 pt-0.5">Shared Drives</span>
+                <span className="w-20 shrink-0 pt-0.5 text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Shared Drives</span>
                 <div className="flex flex-wrap gap-1">
                   {availableDrives.map(d => <Tag key={d.id} color="default">{d.name}</Tag>)}
                 </div>
@@ -103,18 +103,18 @@ const StepServiceAccount = ({ wizard }) => {
       {/* Folder picker for Google Drive */}
       {storageDestination === 'gdrive' && googleAuth && (
         <div>
-          <label className="block text-caption font-strong text-text-primary mb-1">
-            Storage Folder <span className="text-tiny text-text-quaternary font-normal">(optional)</span>
+          <label className="mb-1 block text-label font-emphasis text-text-primary">
+            Storage Folder <span className="text-caption font-normal text-text-quaternary">(optional)</span>
           </label>
-          <p className="text-tiny text-text-quaternary mb-2">
+          <p className="mb-2 text-caption text-text-quaternary">
             Choose a folder in Google Drive for your backup. Only Shared Drive folders are supported with Service Account.
           </p>
           <button
             onClick={handleOpenFolderPicker}
-            className="w-full border-2 border-dashed border-[rgb(var(--border-line))] rounded-md px-4 py-3.5 text-caption flex items-center gap-3 hover:border-brand/30 hover:bg-brand/10 transition-all text-left"
+            className="flex w-full items-center gap-3 rounded-xl border border-dashed border-[rgb(var(--border-line))] px-4 py-4 text-left transition-all hover:border-brand/30 hover:bg-brand/10"
           >
             <Folder className={`w-5 h-5 shrink-0 ${googleAuth.folder_name ? 'text-brand' : 'text-text-quaternary'}`} />
-            <span className={googleAuth.folder_name ? 'font-emphasis text-text-primary' : 'text-text-quaternary'}>
+            <span className={googleAuth.folder_name ? 'text-small font-emphasis text-text-primary' : 'text-small text-text-quaternary'}>
               {googleAuth.folder_name ? `📁 ${googleAuth.folder_name}` : 'Click to choose a folder…'}
             </span>
           </button>
@@ -122,7 +122,7 @@ const StepServiceAccount = ({ wizard }) => {
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               <Tag color={folderSummary.color}>{folderSummary.tag}</Tag>
               <Tag color="default">{folderSummary.driveName}</Tag>
-              <span className="text-tiny text-text-quaternary self-center">{folderSummary.help}</span>
+              <span className="self-center text-caption text-text-quaternary">{folderSummary.help}</span>
             </div>
           )}
           {blockedReason && (

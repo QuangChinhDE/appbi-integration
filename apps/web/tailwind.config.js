@@ -11,7 +11,7 @@ export default {
     extend: {
       fontFamily: {
         sans: [
-          'Inter',
+          'var(--font-inter)',
           'SF Pro Display',
           '-apple-system',
           'system-ui',
@@ -21,7 +21,7 @@ export default {
           'sans-serif',
         ],
         mono: [
-          'JetBrains Mono',
+          'var(--font-mono)',
           'ui-monospace',
           'SF Mono',
           'Menlo',

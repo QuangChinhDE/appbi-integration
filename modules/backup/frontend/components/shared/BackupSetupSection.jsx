@@ -1,9 +1,9 @@
 import React, { useEffect } from 'react'
 import {
-  Check, CheckCircle, Folder, FileSpreadsheet, Link2, RefreshCw,
+  Check, CheckCircle, Folder, Link2, RefreshCw,
 } from 'lucide-react'
-import { Tag, Alert, Button, Spinner } from '@packages/ui/src/components/common/ui'
-import { BACKUP_TYPE_OPTIONS } from '../../constants'
+import { Tag, Alert, Button } from '@packages/ui/src/components/common/ui'
+import { BACKUP_TYPE_OPTIONS, getBackupDestinationLabel } from '../../constants'
 import SearchablePickerCard from './SearchablePickerCard'
 
 /**
@@ -25,19 +25,18 @@ const BackupSetupSection = ({ wizard }) => {
     googleAuthMethod, googleAuth,
     setServiceBackupSetupSaved,
     handleOpenFolderPicker,
+    getCompatibilityBlockedReason,
     getGoogleDriveRunBlockedReason,
     getGoogleDriveFolderSummary,
   } = wizard
   const appliedProfile = savedDestinationProfiles.find(profile => String(profile.id) === String(destinationProfileId)) || null
 
   const folderSummary = getGoogleDriveFolderSummary()
-  const blockedReason = getGoogleDriveRunBlockedReason()
+  const blockedReason = getCompatibilityBlockedReason() || getGoogleDriveRunBlockedReason()
   const availableBackupTypes = isWorkflowApp
     ? BACKUP_TYPE_OPTIONS.filter(type => type.id !== 'unstructured')
     : BACKUP_TYPE_OPTIONS
-  const visibleDestinationProfiles = savedDestinationProfiles.filter(profile => (
-    backupType !== 'unstructured' || profile.destination_type === 'gdrive'
-  ))
+  const visibleDestinationProfiles = savedDestinationProfiles
   const [destinationSearch, setDestinationSearch] = React.useState('')
 
   const filteredDestinationProfiles = React.useMemo(() => {
@@ -92,12 +91,12 @@ const BackupSetupSection = ({ wizard }) => {
       <section className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-tiny font-emphasis uppercase tracking-[0.18em] text-text-quaternary">Backup mode</p>
-            <h3 className="mt-2 text-caption font-strong text-text-primary">Choose how this flow should write data</h3>
-            <p className="mt-1 text-tiny leading-6 text-text-tertiary">Pick the output style first, then search a saved destination profile that matches it.</p>
+            <p className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Backup mode</p>
+            <h3 className="mt-2 text-h3 font-strong text-text-primary">Choose how this flow should write data</h3>
+            <p className="mt-1.5 text-small leading-6 text-text-tertiary">Pick the output style first, then search a saved destination profile that matches it.</p>
           </div>
           {backupType && (
-            <div className="shrink-0 rounded-full bg-brand/10 px-3 py-1.5 text-tiny font-emphasis text-brand">
+            <div className="shrink-0 rounded-full bg-brand/10 px-3 py-1.5 text-micro font-emphasis text-brand">
               {availableBackupTypes.find((type) => type.id === backupType)?.title || backupType}
             </div>
           )}
@@ -112,7 +111,7 @@ const BackupSetupSection = ({ wizard }) => {
             <div
               key={type.id}
               onClick={() => { setBackupType(type.id); setServiceBackupSetupSaved(false) }}
-              className="flex h-full items-center gap-4 p-3.5 rounded-xl border-2 cursor-pointer transition-all"
+              className="flex h-full items-center gap-4 rounded-xl border p-4 cursor-pointer transition-all"
               style={{
                 borderColor: backupType === type.id ? type.color : '#e5e7eb',
                 backgroundColor: backupType === type.id ? `${type.color}0f` : '#fff',
@@ -123,14 +122,14 @@ const BackupSetupSection = ({ wizard }) => {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 mb-0.5">
-                  <span className="font-strong text-caption" style={{ color: backupType === type.id ? type.color : '#1f2937' }}>{type.title}</span>
+                  <span className="text-small font-emphasis" style={{ color: backupType === type.id ? type.color : '#1f2937' }}>{type.title}</span>
                   {type.badge && (
-                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-strong" style={{ backgroundColor: `${type.color}20`, color: type.color }}>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-micro font-emphasis" style={{ backgroundColor: `${type.color}20`, color: type.color }}>
                       {type.badge}
                     </span>
                   )}
                 </div>
-                <p className="text-tiny text-text-tertiary leading-relaxed">{type.desc}</p>
+                <p className="text-caption text-text-tertiary leading-6">{type.desc}</p>
               </div>
               <div className="w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all"
                 style={{ borderColor: backupType === type.id ? type.color : '#d1d5db', backgroundColor: backupType === type.id ? type.color : 'transparent' }}>
@@ -170,15 +169,13 @@ const BackupSetupSection = ({ wizard }) => {
             {savedDestinationProfilesError || backupAppsPermissionConflict
               ? (savedDestinationProfilesError || backupAppsPermissionMessage)
               : visibleDestinationProfiles.length === 0
-              ? (backupType === 'unstructured'
-                  ? 'No Google Drive destination profiles are available for this backup type yet.'
-                  : 'No saved destination profiles yet. Create one in the Apps module, then come back here to reuse it.')
+              ? 'No saved Google Drive destination profiles yet. Create one in the Apps module, then come back here to reuse it.'
               : 'No saved destination matches your search. Try another keyword.'}
           </div>
         )}
         footer={storageDestination && (
           <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-2 px-3 py-3 text-caption text-text-secondary">
-            Selected destination type: {storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}
+            Selected destination type: {getBackupDestinationLabel(storageDestination)}
           </div>
         )}
       >
@@ -199,12 +196,12 @@ const BackupSetupSection = ({ wizard }) => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <div className={`truncate text-caption font-strong ${isActive ? 'text-brand' : 'text-text-primary'}`}>{profile.name}</div>
-                      <div className="mt-1 text-tiny text-text-tertiary">{profile.connection_label || (profile.auth_mode === 'service_account' ? 'Platform service account' : 'Google OAuth')}</div>
+                      <div className={`truncate text-small font-emphasis ${isActive ? 'text-brand' : 'text-text-primary'}`}>{profile.name}</div>
+                      <div className="mt-1 text-caption text-text-tertiary">{profile.connection_label || (profile.auth_mode === 'service_account' ? 'Platform service account' : 'Sign in')}</div>
                     </div>
                     {isActive && <CheckCircle className="mt-0.5 w-4 h-4 text-brand shrink-0" />}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[11px] text-text-quaternary">
+                  <div className="mt-2 flex flex-wrap gap-1.5 text-micro text-text-quaternary">
                     <span className="rounded-full bg-surface-2 px-2 py-0.5 text-text-secondary">{profile.destination_name}</span>
                     {profile.folder_name && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-text-secondary">{profile.folder_name}</span>}
                     {profile.drive_name && <span className="rounded-full bg-surface-2 px-2 py-0.5 text-text-secondary">{profile.drive_name}</span>}
@@ -218,7 +215,7 @@ const BackupSetupSection = ({ wizard }) => {
 
       {storageDestination && (
         <div>
-          <label className="block text-caption font-strong text-text-primary mb-1">Applied destination profile</label>
+          <label className="mb-1 block text-label font-emphasis text-text-primary">Applied destination profile</label>
           {!destinationProfileId ? (
             <Alert
               type="warning"
@@ -226,19 +223,19 @@ const BackupSetupSection = ({ wizard }) => {
               description="Create or edit reusable Google destinations in the Apps module, then pick one here for this backup flow."
             />
           ) : (
-            <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-4 space-y-3">
+            <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5 space-y-4">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
-                  {storageDestination === 'gsheets' ? <FileSpreadsheet className="h-5 w-5" /> : <Folder className="h-5 w-5" />}
+                  <Folder className="h-5 w-5" />
                 </div>
                 <div className="min-w-0 flex-1">
-                  <div className="text-caption font-strong text-text-primary">{appliedProfile?.name || 'Selected destination profile'}</div>
-                  <div className="mt-1 text-tiny text-text-tertiary">
+                  <div className="text-small font-emphasis text-text-primary">{appliedProfile?.name || 'Selected destination profile'}</div>
+                  <div className="mt-1 text-caption text-text-tertiary">
                     {appliedProfile?.connection_label || googleAuth?.display_name || googleAuth?.email || 'Managed from the Apps module'}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     <Tag color={googleAuthMethod === 'service_account' ? 'purple' : 'blue'}>
-                      {googleAuthMethod === 'service_account' ? 'Service account' : 'Google OAuth'}
+                      {googleAuthMethod === 'service_account' ? 'Service account' : 'Sign in'}
                     </Tag>
                     {folderSummary && <Tag color={folderSummary.color}>{folderSummary.tag}</Tag>}
                     {folderSummary && <Tag color="default">{folderSummary.driveName}</Tag>}
@@ -247,20 +244,20 @@ const BackupSetupSection = ({ wizard }) => {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                <div className="rounded-xl bg-surface-2 px-3 py-3 text-caption text-text-secondary">
-                  <div className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Owner</div>
-                  <div className="mt-1">{appliedProfile?.owner_email || 'Unknown'}</div>
+                <div className="rounded-xl bg-surface-2 px-3 py-3 text-small text-text-secondary">
+                  <div className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Owner</div>
+                  <div className="mt-1 leading-6">{appliedProfile?.owner_email || 'Unknown'}</div>
                 </div>
-                <div className="rounded-xl bg-surface-2 px-3 py-3 text-caption text-text-secondary">
-                  <div className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Folder</div>
-                  <div className="mt-1">{googleAuth?.folder_name || appliedProfile?.folder_name || 'Drive root / default folder'}</div>
+                <div className="rounded-xl bg-surface-2 px-3 py-3 text-small text-text-secondary">
+                  <div className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Folder</div>
+                  <div className="mt-1 leading-6">{googleAuth?.folder_name || appliedProfile?.folder_name || 'Drive root / default folder'}</div>
                 </div>
               </div>
 
               <div className="flex flex-col gap-2 rounded-xl border border-dashed border-brand/20 bg-brand/10 px-3 py-3 md:flex-row md:items-center md:justify-between">
                 <div>
-                  <div className="text-caption font-strong text-brand">Override folder path for this flow</div>
-                  <div className="mt-1 text-tiny text-brand">
+                  <div className="text-small font-emphasis text-brand">Override folder path for this flow</div>
+                  <div className="mt-1 text-caption text-brand">
                     Browse the Drive tree, search visible folders, or paste a folder link or ID. This keeps the selected destination profile and only changes where this backup writes data.
                   </div>
                 </div>
@@ -280,10 +277,10 @@ const BackupSetupSection = ({ wizard }) => {
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               <Tag color={folderSummary.color}>{folderSummary.tag}</Tag>
               <Tag color="default">{folderSummary.driveName}</Tag>
-              <span className="text-tiny text-text-quaternary self-center">{folderSummary.help}</span>
+              <span className="self-center text-caption text-text-quaternary">{folderSummary.help}</span>
             </div>
           )}
-          {blockedReason && <Alert type="warning" message="This folder cannot be used for running backups" description={blockedReason} className="mt-2" />}
+          {blockedReason && <Alert type="warning" message="This flow cannot run with the current configuration" description={blockedReason} className="mt-2" />}
         </div>
       )}
     </div>

@@ -29,12 +29,12 @@ const WorkflowSelectorModal = ({ wizard }) => {
       footer={
         <>
           <button onClick={() => loadWorkflowPreview(draftSelectedWorkflowIds)} disabled={loadingWorkflowPreview}
-            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
+            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
             {loadingWorkflowPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeWorkflowSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
+          <button onClick={closeWorkflowSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
           <button onClick={applyWorkflowSelectorModal} disabled={!workflowPreview}
-            className="rounded-md bg-brand px-4 py-2 text-caption font-strong text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
+            className="rounded-md bg-brand px-4 py-2 text-label font-emphasis text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
@@ -51,16 +51,16 @@ const WorkflowSelectorModal = ({ wizard }) => {
               <table className="w-full text-caption">
                 <thead className="bg-surface-2 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-8">
+                    <th className="w-8 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">
                       <input type="checkbox"
                         checked={draftSelectedWorkflowIds.length === rows.length && rows.length > 0}
                         onChange={e => setDraftSelectedWorkflowIds(e.target.checked ? rows.map(r => r.workflow_id) : [])}
                         className="rounded" />
                     </th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Workflow</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-20">Stages</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-20">Jobs</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Sample Jobs</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Workflow</th>
+                    <th className="w-20 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Stages</th>
+                    <th className="w-20 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Jobs</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Sample Jobs</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgb(var(--border-line))]">
@@ -73,17 +73,17 @@ const WorkflowSelectorModal = ({ wizard }) => {
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="font-strong">{record.workflow_name}</div>
-                        <div className="text-tiny text-text-quaternary">ID: {record.workflow_id}</div>
-                        {record.preview_error && <div className="text-tiny text-warning mt-0.5">{record.preview_error}</div>}
+                        <div className="text-caption text-text-quaternary">ID: {record.workflow_id}</div>
+                        {record.preview_error && <div className="mt-0.5 text-caption text-warning">{record.preview_error}</div>}
                       </td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.stage_count ?? '—'}</td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.job_count ?? '—'}</td>
                       <td className="px-3 py-2.5">
                         {record.detail_loaded
                           ? (record.sample_jobs || []).length > 0
-                            ? (record.sample_jobs || []).map(job => <div key={job.job_id || job.job_code} className="text-tiny text-text-secondary">{job.job_code} - {job.job_name}</div>)
-                            : <span className="text-tiny text-text-quaternary">No sample jobs</span>
-                          : <span className="text-tiny text-text-quaternary">Refresh after selecting</span>}
+                            ? (record.sample_jobs || []).map(job => <div key={job.job_id || job.job_code} className="text-caption text-text-secondary">{job.job_code} - {job.job_name}</div>)
+                            : <span className="text-caption text-text-quaternary">No sample jobs</span>
+                          : <span className="text-caption text-text-quaternary">Refresh after selecting</span>}
                       </td>
                     </tr>
                   ))}

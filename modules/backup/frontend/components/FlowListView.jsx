@@ -21,7 +21,8 @@ import { Button, FilterTag, IconButton } from '@packages/ui/src/components/commo
 import OwnerBadge from '@packages/ui/src/components/common/OwnerBadge'
 import { getListAccessMeta, getResourcePermissions } from '@modules/identity/frontend/lib/resourcePermissions'
 
-import { APP_META, BACKUP_TYPE_TAG } from '../constants'
+import { APP_META, BACKUP_TYPE_TAG, getBackupDestinationLabel } from '../constants'
+import { isBackupRunActive, supportsBackupFlowRun } from '../runSupport'
 
 
 const BACKUP_TYPE_TONE = {
@@ -60,14 +61,63 @@ function formatDateTitle(value) {
 }
 
 
+function getFlowActivityValue(record) {
+  return record.last_run_at || record.updated_at || record.created_at || null
+}
+
+
 function FlowTitleButton({ children, onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="truncate text-left text-caption font-emphasis text-text-primary transition-colors hover:text-brand"
+      className="app-list-text-main text-left text-small font-emphasis leading-6 text-text-primary transition-colors hover:text-brand"
     >
       {children}
+    </button>
+  )
+}
+
+
+function getSourcePrimaryLabel(record) {
+  return record.source_name || record.app_name || record.app || 'Unknown source'
+}
+
+
+function getSourceSecondaryLabel(record) {
+  if (record.source_name && record.app_name) {
+    return record.app_name
+  }
+  return null
+}
+
+
+function getDestinationPrimaryLabel(record) {
+  return record.destination_profile_name || record.destination_name || getBackupDestinationLabel(record.destination_type) || 'Not set'
+}
+
+
+function getDestinationSecondaryLabel(record) {
+  const destinationLabel = record.destination_name || getBackupDestinationLabel(record.destination_type)
+  if (record.destination_profile_name && destinationLabel && destinationLabel !== record.destination_profile_name) {
+    return destinationLabel
+  }
+  return null
+}
+
+
+function FlowFilterValueButton({ value, detail, active, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="min-w-0 text-left"
+      data-no-open-details="true"
+    >
+      <div className={`text-small font-emphasis leading-6 transition-colors ${active ? 'text-brand' : 'text-text-primary hover:text-brand'}`}>
+        {value}
+      </div>
+      {detail && <div className="mt-0.5 text-caption text-text-tertiary">{detail}</div>}
     </button>
   )
 }
@@ -78,10 +128,12 @@ function FlowStatusTags({ record, activeFilters, onFilterClick }) {
   const backupTypeMeta = BACKUP_TYPE_TAG[record.backup_type]
   const stateValue = record.is_draft === 1 ? 'draft' : 'ready'
   const publishValue = record.is_published === 1 ? 'published' : 'unpublished'
+  const compactTagClass = 'px-2 text-micro'
 
   return (
-    <div className="flex flex-wrap gap-1.5">
+    <div className="mt-2 flex flex-wrap gap-1">
       <FilterTag
+        className={compactTagClass}
         tone={record.is_draft === 1 ? 'warning' : 'info'}
         active={activeFilters?.state === stateValue}
         onClick={() => onFilterClick?.('state', stateValue)}
@@ -89,6 +141,7 @@ function FlowStatusTags({ record, activeFilters, onFilterClick }) {
         {record.is_draft === 1 ? 'Draft' : 'Ready'}
       </FilterTag>
       <FilterTag
+        className={compactTagClass}
         tone={record.is_published === 1 ? 'success' : 'neutral'}
         active={activeFilters?.publish === publishValue}
         onClick={() => onFilterClick?.('publish', publishValue)}
@@ -97,6 +150,7 @@ function FlowStatusTags({ record, activeFilters, onFilterClick }) {
       </FilterTag>
       {backupTypeMeta && (
         <FilterTag
+          className={compactTagClass}
           tone={BACKUP_TYPE_TONE[backupTypeMeta.color] || 'neutral'}
           active={activeFilters?.backupType === record.backup_type}
           onClick={() => onFilterClick?.('backupType', record.backup_type)}
@@ -105,6 +159,7 @@ function FlowStatusTags({ record, activeFilters, onFilterClick }) {
         </FilterTag>
       )}
       <FilterTag
+        className={compactTagClass}
         tone={accessMeta.tone}
         active={activeFilters?.access === record.user_permission}
         onClick={() => onFilterClick?.('access', record.user_permission)}
@@ -118,7 +173,7 @@ function FlowStatusTags({ record, activeFilters, onFilterClick }) {
 
 function FlowOwnerCell({ record, activeFilters, onFilterClick }) {
   if (!record.owner_email) {
-    return <span className="text-tiny text-text-quaternary">-</span>
+    return <span className="text-caption text-text-quaternary">-</span>
   }
 
   return (
@@ -145,8 +200,8 @@ function FlowActionButtons({
   stoppingFlowId,
 }) {
   const perms = getResourcePermissions(record.user_permission)
-  const supportsRun = ['request', 'service', 'workflow', 'wework'].includes(record.app)
-  const hasActiveRun = ['pending', 'running'].includes(record.last_run_status)
+  const supportsRun = supportsBackupFlowRun(record.app || record.source?.app_id)
+  const hasActiveRun = isBackupRunActive(record.last_run_status)
   const isStopping = stoppingFlowId === record.id
 
   return (
@@ -229,15 +284,12 @@ function FlowSummaryBlock({ record }) {
   const lastRunLabel = record.last_run_at ? formatDateLabel(record.last_run_at) : 'Never'
 
   return (
-    <div className="mt-2 space-y-0.5 text-tiny text-text-tertiary">
-      <div>
-        Destination: <span className="text-text-secondary">{record.destination_name || 'Not set'}</span>
-      </div>
+    <div className="mt-2 space-y-1 text-caption leading-5 text-text-tertiary">
       <div>
         Last run: <span className="text-text-secondary">{lastRunLabel}</span>
       </div>
       {record.run_blocked_reason && (
-        <div className="text-warning">{record.run_blocked_reason}</div>
+        <div className="text-caption text-warning">{record.run_blocked_reason}</div>
       )}
     </div>
   )
@@ -278,6 +330,8 @@ function FlowListView({
     activeFilters?.state
     || activeFilters?.publish
     || activeFilters?.backupType
+    || activeFilters?.source
+    || activeFilters?.destination
     || activeFilters?.owner
     || activeFilters?.access
   )
@@ -285,12 +339,12 @@ function FlowListView({
 
   if (!hasFlows) {
     return (
-      <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] bg-surface-1 px-6 py-14 text-center">
+      <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] bg-surface-1 px-8 py-16 text-center">
         <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-text-quaternary">
           <Cloud className="h-4 w-4" />
         </div>
-        <h3 className="mt-4 text-caption font-emphasis text-text-primary">No backup flows yet</h3>
-        <p className="mx-auto mt-2 max-w-md text-tiny leading-6 text-text-tertiary">
+        <h3 className="mt-4 text-h3 font-strong text-text-primary">No backup flows yet</h3>
+        <p className="mx-auto mt-3 max-w-md text-small leading-6 text-text-tertiary">
           {canEdit
             ? (canConfigure ? 'Create your first draft flow.' : configurationBlockedMessage || 'Read-only access.')
             : 'No flows available.'}
@@ -308,19 +362,19 @@ function FlowListView({
 
   if (flows.length === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] bg-surface-1 px-6 py-12 text-center">
+      <div className="rounded-xl border border-dashed border-[rgb(var(--border-line))] bg-surface-1 px-8 py-14 text-center">
         <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-text-quaternary">
           <Search className="h-4 w-4" />
         </div>
-        <h3 className="mt-4 text-caption font-emphasis text-text-primary">No flows match</h3>
+        <h3 className="mt-4 text-h3 font-strong text-text-primary">No flows match</h3>
         {hasFilterText ? (
-          <p className="mt-2 text-tiny text-text-tertiary">
+          <p className="mt-3 text-small text-text-tertiary">
             No results for <span className="font-emphasis text-text-secondary">"{filterText}"</span>.
           </p>
         ) : hasActiveFilters ? (
-          <p className="mt-2 text-tiny text-text-tertiary">No flows match the current filters.</p>
+          <p className="mt-3 text-small text-text-tertiary">No flows match the current filters.</p>
         ) : (
-          <p className="mt-2 text-tiny text-text-tertiary">No flows are available in this view.</p>
+          <p className="mt-3 text-small text-text-tertiary">No flows are available in this view.</p>
         )}
       </div>
     )
@@ -340,7 +394,7 @@ function FlowListView({
                 if (shouldIgnoreOpenDetails(event)) return
                 onOpenDetails(record)
               }}
-              className="cursor-pointer rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5 transition-[border-color,box-shadow] hover:border-brand/30 hover:shadow-linear-sm"
+              className="cursor-pointer rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-6 transition-[border-color,box-shadow] hover:border-brand/30 hover:shadow-linear-sm"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="flex min-w-0 items-start gap-3">
@@ -354,8 +408,9 @@ function FlowListView({
                     <FlowTitleButton onClick={() => onOpenDetails(record)}>
                       {record.name || 'Untitled draft'}
                     </FlowTitleButton>
-                    <div className="mt-0.5 text-tiny text-text-tertiary">{record.app_name || record.app || 'Unknown'}</div>
+                    <div className="mt-0.5 text-caption text-text-tertiary">{record.app_name || record.app || 'Unknown'}</div>
                     <FlowSummaryBlock record={record} />
+                    <FlowStatusTags record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
                   </div>
                 </div>
                 <FlowActionButtons
@@ -373,16 +428,12 @@ function FlowListView({
                 />
               </div>
 
-              <div className="mt-4">
-                <FlowStatusTags record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
-              </div>
-
               <div className="mt-4 flex items-center justify-between gap-3 border-t border-[rgb(var(--border-line))] pt-3">
                 <div className="min-w-0">
                   <FlowOwnerCell record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
                 </div>
-                <span className="text-tiny text-text-tertiary" title={formatDateTitle(record.updated_at)}>
-                  Updated {formatDateLabel(record.updated_at)}
+                <span className="text-caption text-text-tertiary" title={formatDateTitle(getFlowActivityValue(record))}>
+                  Activity {formatDateLabel(getFlowActivityValue(record))}
                 </span>
               </div>
             </div>
@@ -394,8 +445,8 @@ function FlowListView({
 
   return (
     <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+      <div className="app-list-table-wrap">
+        <table className="app-list-table divide-y divide-[rgb(var(--border-line))]">
           <thead className="bg-surface-2">
             <tr>
               {selectable && (() => {
@@ -419,19 +470,22 @@ function FlowListView({
                   </th>
                 )
               })()}
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[34%]">
                 Flow
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
-                Tags
+              <th className="app-list-header w-[18%]">
+                Source
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[18%]">
+                Destination
+              </th>
+              <th className="app-list-header w-[14%]">
                 Owner
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
-                Updated
+              <th className="app-list-header w-[10%]">
+                Activity
               </th>
-              <th className="px-6 py-3 text-right text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[120px] text-right">
                 Actions
               </th>
             </tr>
@@ -441,6 +495,10 @@ function FlowListView({
               const meta = APP_META[record.app] || { color: '#64748b' }
               const icon = APP_ICONS[record.app] || <Cloud className="h-4 w-4" />
               const canDelete = getResourcePermissions(record.user_permission).canDelete
+              const sourcePrimaryLabel = getSourcePrimaryLabel(record)
+              const sourceSecondaryLabel = getSourceSecondaryLabel(record)
+              const destinationPrimaryLabel = getDestinationPrimaryLabel(record)
+              const destinationSecondaryLabel = getDestinationSecondaryLabel(record)
 
               return (
                 <tr
@@ -462,7 +520,7 @@ function FlowListView({
                       />
                     </td>
                   )}
-                  <td className="max-w-[360px] px-6 py-4">
+                  <td className="app-list-cell max-w-[360px]">
                     <div className="flex items-start gap-3">
                       <div
                         className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
@@ -474,21 +532,35 @@ function FlowListView({
                         <FlowTitleButton onClick={() => onOpenDetails(record)}>
                           {record.name || 'Untitled draft'}
                         </FlowTitleButton>
-                        <div className="mt-0.5 text-tiny text-text-tertiary">{record.app_name || record.app || 'Unknown'}</div>
+                        <div className="mt-0.5 text-caption text-text-tertiary">{record.app_name || record.app || 'Unknown'}</div>
                         <FlowSummaryBlock record={record} />
+                        <FlowStatusTags record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
-                    <FlowStatusTags record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
+                  <td className="app-list-cell">
+                    <FlowFilterValueButton
+                      value={sourcePrimaryLabel}
+                      detail={sourceSecondaryLabel}
+                      active={activeFilters?.source === sourcePrimaryLabel}
+                      onClick={() => onFilterClick?.('source', sourcePrimaryLabel)}
+                    />
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4">
+                  <td className="app-list-cell">
+                    <FlowFilterValueButton
+                      value={destinationPrimaryLabel}
+                      detail={destinationSecondaryLabel}
+                      active={activeFilters?.destination === destinationPrimaryLabel}
+                      onClick={() => onFilterClick?.('destination', destinationPrimaryLabel)}
+                    />
+                  </td>
+                  <td className="app-list-cell whitespace-nowrap">
                     <FlowOwnerCell record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4 text-caption text-text-tertiary" title={formatDateTitle(record.updated_at)}>
-                    {formatDateLabel(record.updated_at)}
+                  <td className="app-list-cell whitespace-nowrap text-caption text-text-tertiary" title={formatDateTitle(getFlowActivityValue(record))}>
+                    {formatDateLabel(getFlowActivityValue(record))}
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4 text-right">
+                  <td className="app-list-cell-tight whitespace-nowrap text-right">
                     <FlowActionButtons
                       record={record}
                       canConfigure={canConfigure}

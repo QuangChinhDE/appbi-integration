@@ -2,6 +2,8 @@ import { useState, useCallback } from 'react'
 import api from '@shared/api/client'
 import { message } from '@packages/ui/src/components/common/ui'
 
+import { supportsBackupFlowRun } from '../runSupport'
+
 /**
  * Hook for CRUD operations on backup flows (list, fetch details, delete, publish, run).
  */
@@ -16,22 +18,34 @@ export default function useBackupFlows() {
   const [loadingFlowDetails, setLoadingFlowDetails] = useState(false)
 
   // ── List ──────────────────────────────────────────────────────────────────
-  const fetchFlows = useCallback(async () => {
-    setLoadingFlows(true)
+  const fetchFlows = useCallback(async (options = {}) => {
+    const silent = options.silent === true
+    if (!silent) {
+      setLoadingFlows(true)
+    }
     try {
       const res = await api.get('/api/backup-flows')
       setFlows(res.data)
+      return res.data
     } catch (err) {
-      message.error('Failed to load backup flows')
+      if (!silent) {
+        message.error('Failed to load backup flows')
+      }
       console.error(err)
+      return null
     } finally {
-      setLoadingFlows(false)
+      if (!silent) {
+        setLoadingFlows(false)
+      }
     }
   }, [])
 
   // ── Detail ────────────────────────────────────────────────────────────────
-  const fetchFlowDetails = useCallback(async (flowId) => {
-    setLoadingFlowDetails(true)
+  const fetchFlowDetails = useCallback(async (flowId, options = {}) => {
+    const silent = options.silent === true
+    if (!silent) {
+      setLoadingFlowDetails(true)
+    }
     try {
       const [flowResult, runsResult] = await Promise.allSettled([
         api.get(`/api/backup-flows/${flowId}`),
@@ -44,19 +58,27 @@ export default function useBackupFlows() {
 
       if (runsResult.status === 'fulfilled' && Array.isArray(runsResult.value.data)) {
         setDetailsRuns(runsResult.value.data)
-      } else {
+      } else if (!silent) {
         setDetailsRuns([])
         if (runsResult.status === 'rejected') {
           message.warning('Loaded flow details, but could not load run history')
         }
       }
+      return flowResult.value.data
     } catch (err) {
-      message.error('Failed to load backup flow details')
+      if (!silent) {
+        message.error('Failed to load backup flow details')
+      }
       console.error(err)
-      setDetailsFlow(null)
-      setDetailsRuns([])
+      if (!silent) {
+        setDetailsFlow(null)
+        setDetailsRuns([])
+      }
+      return null
     } finally {
-      setLoadingFlowDetails(false)
+      if (!silent) {
+        setLoadingFlowDetails(false)
+      }
     }
   }, [])
 
@@ -99,7 +121,7 @@ export default function useBackupFlows() {
     try {
       await api.post(`/api/backup-flows/${record.id}/publish`)
       message.success('Flow published!')
-      fetchFlows()
+      await fetchFlows({ silent: true })
       return true
     } catch {
       message.error('Failed to publish')
@@ -109,8 +131,9 @@ export default function useBackupFlows() {
 
   // ── Run ───────────────────────────────────────────────────────────────────
   const runFlow = useCallback(async (record, options = {}) => {
-    if (!['request', 'service', 'workflow', 'wework'].includes(record.app)) {
-      message.warning('Run is currently supported only for Request, Service, Workflow, and WeWork flows')
+    const appId = record?.app || record?.source?.app_id || null
+    if (!supportsBackupFlowRun(appId)) {
+      message.warning('Run is not configured for this app yet')
       return false
     }
     if (record.run_blocked_reason) {
@@ -118,10 +141,10 @@ export default function useBackupFlows() {
       return false
     }
     try {
-      await api.post(`/api/backup-flows/${record.id}/run`)
+      const res = await api.post(`/api/backup-flows/${record.id}/run`)
       message.success('Backup flow started')
-      fetchFlows()
-      if (typeof options.onStarted === 'function') await options.onStarted()
+      await fetchFlows({ silent: true })
+      if (typeof options.onStarted === 'function') await options.onStarted(res.data)
       return true
     } catch (err) {
       message.error(err.response?.data?.detail || 'Failed to run flow')
@@ -144,7 +167,7 @@ export default function useBackupFlows() {
         message.info('No running backup found for this flow')
       }
 
-      await fetchFlows()
+      await fetchFlows({ silent: true })
       if (typeof options.onStopped === 'function') await options.onStopped()
       return true
     } catch (err) {

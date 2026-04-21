@@ -29,12 +29,12 @@ const ServiceSelectorModal = ({ wizard }) => {
       footer={
         <>
           <button onClick={() => loadServicePreview(draftSelectedServiceIds)} disabled={loadingServicePreview}
-            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
+            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
             {loadingServicePreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeServiceSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
+          <button onClick={closeServiceSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
           <button onClick={applyServiceSelectorModal} disabled={!servicePreview}
-            className="rounded-md bg-brand px-4 py-2 text-caption font-strong text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
+            className="rounded-md bg-brand px-4 py-2 text-label font-emphasis text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
@@ -51,16 +51,16 @@ const ServiceSelectorModal = ({ wizard }) => {
               <table className="w-full text-caption">
                 <thead className="bg-surface-2 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-8">
+                    <th className="w-8 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">
                       <input type="checkbox"
                         checked={draftSelectedServiceIds.length === rows.length && rows.length > 0}
                         onChange={e => setDraftSelectedServiceIds(e.target.checked ? rows.map(r => r.service_id) : [])}
                         className="rounded" />
                     </th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Service</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-20">Stages</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-20">Tickets</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Sample Tickets</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Service</th>
+                    <th className="w-20 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Stages</th>
+                    <th className="w-20 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Tickets</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Sample Tickets</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgb(var(--border-line))]">
@@ -73,17 +73,17 @@ const ServiceSelectorModal = ({ wizard }) => {
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="font-strong">{record.service_name}</div>
-                        <div className="text-tiny text-text-quaternary">ID: {record.service_id}</div>
-                        {record.preview_error && <div className="text-tiny text-warning mt-0.5">{record.preview_error}</div>}
+                        <div className="text-caption text-text-quaternary">ID: {record.service_id}</div>
+                        {record.preview_error && <div className="mt-0.5 text-caption text-warning">{record.preview_error}</div>}
                       </td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.stage_count ?? '—'}</td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.ticket_count ?? '—'}</td>
                       <td className="px-3 py-2.5">
                         {record.detail_loaded
                           ? (record.sample_tickets || []).length > 0
-                            ? (record.sample_tickets || []).map(t => <div key={t.ticket_id} className="text-tiny text-text-secondary">{t.ticket_code} - {t.ticket_name}</div>)
-                            : <span className="text-tiny text-text-quaternary">No sample tickets</span>
-                          : <span className="text-tiny text-text-quaternary">Refresh after selecting</span>}
+                            ? (record.sample_tickets || []).map(t => <div key={t.ticket_id} className="text-caption text-text-secondary">{t.ticket_code} - {t.ticket_name}</div>)
+                            : <span className="text-caption text-text-quaternary">No sample tickets</span>
+                          : <span className="text-caption text-text-quaternary">Refresh after selecting</span>}
                       </td>
                     </tr>
                   ))}

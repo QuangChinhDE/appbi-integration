@@ -1,4 +1,6 @@
+import json
 import uuid
+from urllib.parse import urlparse
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -14,12 +16,54 @@ from packages.database.src import get_db
 
 router = APIRouter(tags=["credentials"])
 SUPPORTED_TYPES = {"google"}
+DEFAULT_GOOGLE_OAUTH_REDIRECT_URI = "http://localhost:3002/api/v1/auth/google/data-access/callback"
+
+
+def _sanitize_frontend_origin(value: Optional[str]) -> Optional[str]:
+    raw_value = str(value or '').strip()
+    if not raw_value:
+        return None
+
+    parsed = urlparse(raw_value)
+    if parsed.scheme not in {'http', 'https'} or not parsed.netloc:
+        return None
+    if parsed.path not in {'', '/'} or parsed.params or parsed.query or parsed.fragment:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _build_google_oauth_state(frontend_origin: Optional[str]) -> str:
+    payload: Dict[str, str] = {'nonce': str(uuid.uuid4())}
+    sanitized_origin = _sanitize_frontend_origin(frontend_origin)
+    if sanitized_origin:
+        payload['frontend_origin'] = sanitized_origin
+    return json.dumps(payload, separators=(',', ':'))
+
+
+def _parse_google_oauth_state(state: Optional[str]) -> Dict[str, str]:
+    if not state:
+        return {}
+    try:
+        payload = json.loads(state)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+
+    normalized: Dict[str, str] = {}
+    nonce = payload.get('nonce')
+    if isinstance(nonce, str) and nonce.strip():
+        normalized['nonce'] = nonce.strip()
+    frontend_origin = _sanitize_frontend_origin(payload.get('frontend_origin'))
+    if frontend_origin:
+        normalized['frontend_origin'] = frontend_origin
+    return normalized
 
 
 class GoogleOAuthConfig(BaseModel):
     client_id: str
     client_secret: str = "__KEEP__"
-    redirect_uri: str = "http://localhost:8010/api/google/callback"
+    redirect_uri: str = DEFAULT_GOOGLE_OAUTH_REDIRECT_URI
 
 
 class GoogleServiceAccountPayload(BaseModel):
@@ -106,6 +150,7 @@ async def save_google_settings(
 
 @router.get("/api/google/auth-url")
 async def google_auth_url(
+    frontend_origin: Optional[str] = Query(None, description="Frontend origin that opened the popup"),
     db: AsyncSession = Depends(get_db),
     _: object = Depends(require_any_permission([('settings', 'full'), ('backup', 'edit'), ('apps', 'edit')])) ,
 ):
@@ -116,17 +161,18 @@ async def google_auth_url(
     """
     service = GoogleAuthService(db)
     try:
-        state = str(uuid.uuid4())
+        state = _build_google_oauth_state(frontend_origin)
         url = await service.get_auth_url(state)
         return {"url": url, "state": state}
     except ValueError:
         raise HTTPException(
             status_code=503,
-            detail="Google OAuth is not configured. Please set Client ID and Client Secret in Settings.",
+            detail="Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env or workspace settings.",
         )
 
 
 @router.get("/api/google/callback", response_class=HTMLResponse)
+@router.get("/api/v1/auth/google/data-access/callback", response_class=HTMLResponse)
 async def google_callback(
     code: Optional[str] = Query(None),
     error: Optional[str] = Query(None),
@@ -138,12 +184,19 @@ async def google_callback(
     Exchanges code for tokens, saves the connection, then closes the popup
     via window.opener.postMessage.
     """
+    state_payload = _parse_google_oauth_state(state)
+    frontend_origin = state_payload.get('frontend_origin')
+
     if error:
-        return HTMLResponse(_oauth_result_html(success=False, message=error))
+        return HTMLResponse(_oauth_result_html(success=False, message=error, target_origin=frontend_origin))
 
     if not code:
         return HTMLResponse(
-            _oauth_result_html(success=False, message="No authorization code received")
+            _oauth_result_html(
+                success=False,
+                message="No authorization code received",
+                target_origin=frontend_origin,
+            )
         )
 
     try:
@@ -158,10 +211,11 @@ async def google_callback(
                 email=connection.email,
                 display_name=connection.display_name or connection.email,
                 picture_url=connection.picture_url or "",
+                target_origin=frontend_origin,
             )
         )
     except Exception as exc:
-        return HTMLResponse(_oauth_result_html(success=False, message=str(exc)))
+        return HTMLResponse(_oauth_result_html(success=False, message=str(exc), target_origin=frontend_origin))
 
 
 def _oauth_result_html(
@@ -171,6 +225,7 @@ def _oauth_result_html(
     display_name: str = "",
     picture_url: str = "",
     message: str = "",
+    target_origin: str | None = None,
 ) -> str:
     """Tiny HTML page that posts the result back to the opener and self-closes."""
     if success:
@@ -189,8 +244,9 @@ def _oauth_result_html(
 <body>
 <script>
   var payload = {payload};
+    var targetOrigin = {json.dumps(target_origin or '*')};
   if (window.opener) {{
-    window.opener.postMessage(payload, window.location.origin);
+        window.opener.postMessage(payload, targetOrigin);
   }}
   window.close();
 </script>

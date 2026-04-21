@@ -3,7 +3,14 @@ import api from '@shared/api/client'
 import { message } from '@packages/ui/src/components/common/ui'
 import { BACKUP_APPS_PERMISSION_MESSAGE, hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { useAuthStore } from '@modules/identity/frontend/store/authStore'
-import { APPS, APP_CONNECTION_CONFIG, MOCK_FIELDS, DEFAULT_GOOGLE_REDIRECT, SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE } from '../constants'
+import {
+  APPS,
+  APP_CONNECTION_CONFIG,
+  ACTIVE_BACKUP_DESTINATION_IDS,
+  ACTIVE_BACKUP_SOURCE_APP_IDS,
+  DEFAULT_GOOGLE_REDIRECT,
+  SERVICE_ACCOUNT_SHARED_DRIVE_MESSAGE,
+} from '../constants'
 
 const GOOGLE_OAUTH_REQUEST_PARAMS = { post_message_origin: window.location.origin }
 const CONNECTOR_PREVIEW_TIMEOUT_MS = 60000
@@ -242,9 +249,9 @@ export default function useWizardState() {
         params: normalizedAppId ? { app_id: normalizedAppId } : undefined,
       })
       const rawItems = Array.isArray(res.data) ? res.data : []
-      const SOURCE_APPS = new Set(['request', 'workflow', 'wework', 'service'])
+      const SOURCE_APPS = new Set(ACTIVE_BACKUP_SOURCE_APP_IDS)
       const items = rawItems
-        .filter((item) => SOURCE_APPS.has(item.app_id))
+        .filter((item) => SOURCE_APPS.has(item.app_id) || String(item.id) === String(sourceConnectionId))
         .map((item) => ({ ...item, domain: item.preview?.domain || item.config?.domain || '' }))
       setSavedSourceConnections(items)
       setSavedSourceConnectionsError('')
@@ -254,7 +261,7 @@ export default function useWizardState() {
     } finally {
       setLoadingSavedSourceConnections(false)
     }
-  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, canEditBackup])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, canEditBackup, sourceConnectionId])
 
   const loadSavedDestinationProfiles = useCallback(async (destinationType = null) => {
     if (!canEditBackup) {
@@ -279,9 +286,9 @@ export default function useWizardState() {
         params: normalizedDestinationType ? { app_id: normalizedDestinationType } : undefined,
       })
       const rawItems = Array.isArray(res.data) ? res.data : []
-      const DEST_APPS = new Set(['gdrive', 'gsheets'])
+      const DEST_APPS = new Set(ACTIVE_BACKUP_DESTINATION_IDS)
       const items = rawItems
-        .filter((item) => DEST_APPS.has(item.app_id))
+        .filter((item) => DEST_APPS.has(item.app_id) || String(item.id) === String(destinationProfileId))
         .map((item) => {
           const preview = item.preview || {}
           const config = item.config || {}
@@ -302,7 +309,7 @@ export default function useWizardState() {
     } finally {
       setLoadingSavedDestinationProfiles(false)
     }
-  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, canEditBackup])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, canEditBackup, destinationProfileId])
 
   const ensureDraftFlow = useCallback(async () => {
     if (draftFlowId) return draftFlowId
@@ -494,11 +501,8 @@ export default function useWizardState() {
 
   // ── Custom fields ─────────────────────────────────────────────────────
   const getAvailableFields = useCallback(() => {
-    if (!selectedApp || isRequestApp) return []
-    if (selectedApp === 'service') return []
-    const allFields = MOCK_FIELDS[selectedApp] || []
-    return allFields.filter(f => selectedObjects.includes(f.object))
-  }, [selectedApp, isRequestApp, selectedObjects])
+    return []
+  }, [])
 
   const handleFieldToggle = useCallback((fieldId) => {
     setSelectedFieldIds(prev => prev.includes(fieldId) ? prev.filter(f => f !== fieldId) : [...prev, fieldId])
@@ -770,6 +774,16 @@ export default function useWizardState() {
     return drives.find(item => item.id === driveId)?.name || 'Shared Drive'
   }, [drives])
 
+  const getCompatibilityBlockedReason = useCallback((
+    sourceAppId = selectedApp,
+    destinationType = storageDestination,
+  ) => {
+    if (destinationType && destinationType !== 'gdrive') {
+      return 'Google Sheets is no longer supported as a Backup destination. Choose a Google Drive destination from the Apps module.'
+    }
+    return null
+  }, [selectedApp, storageDestination])
+
   const getGoogleDriveRunBlockedReason = useCallback((
     googleAuthState = googleAuth,
     authMethod = resolvedGoogleAuthMethod,
@@ -864,6 +878,12 @@ export default function useWizardState() {
       return
     }
 
+    const compatibilityBlockedReason = getCompatibilityBlockedReason()
+    if (compatibilityBlockedReason) {
+      message.warning(compatibilityBlockedReason)
+      return
+    }
+
     // Step 0 validation
     if (currentStep === 0) {
       if (!flowName.trim()) { message.warning('Please enter a name for this backup flow'); return }
@@ -939,7 +959,7 @@ export default function useWizardState() {
     }
 
     setCurrentStep(prev => prev + 1)
-  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, currentStep, flowName, selectedApp, usesCondensedServiceWizard, isServiceApp, isWorkflowApp, isWeworkApp, totalSteps, connectionConfig, currentApp, domain, accessToken, selectedObjects, backupType, storageDestination, googleAuthMethod, googleAuth, isRequestApp, accessTokenV2, hasServiceAccountStep, draftFlowId, buildAutosavePayload, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, hasReadyServiceAccountAuth, platformServiceAccount, ensureDraftFlow, requiresRequestSelection, requiresServiceSelection, requiresWorkflowSelection, requiresWeworkSelection, sourceConnectionId])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, currentStep, flowName, selectedApp, usesCondensedServiceWizard, isServiceApp, isWorkflowApp, isWeworkApp, totalSteps, connectionConfig, currentApp, domain, accessToken, selectedObjects, backupType, storageDestination, googleAuthMethod, googleAuth, isRequestApp, accessTokenV2, hasServiceAccountStep, draftFlowId, buildAutosavePayload, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, hasReadyServiceAccountAuth, platformServiceAccount, ensureDraftFlow, requiresRequestSelection, requiresServiceSelection, requiresWorkflowSelection, requiresWeworkSelection, sourceConnectionId, getCompatibilityBlockedReason])
 
   const prev = useCallback(() => setCurrentStep(s => s - 1), [])
 
@@ -950,6 +970,12 @@ export default function useWizardState() {
 
     if (backupAppsPermissionConflict) {
       message.warning(backupAppsPermissionMessage)
+      return
+    }
+
+    const compatibilityBlockedReason = getCompatibilityBlockedReason()
+    if (compatibilityBlockedReason) {
+      message.error(compatibilityBlockedReason)
       return
     }
 
@@ -1040,8 +1066,6 @@ export default function useWizardState() {
       destination: { credential_id: destinationProfileId, target: destinationTarget },
       structure: {
         objects: selectedObjects,
-        custom_fields: selectedFieldIds,
-        export_formats: exportFormats,
         ...(requiresWeworkSelection ? {
           project_ids: selectedProjectIds,
         } : {}),
@@ -1104,7 +1128,7 @@ export default function useWizardState() {
       console.error(err)
       return false
     }
-  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, selectedFieldIds, exportFormats, hasReadyServiceAccountAuth, platformServiceAccount, ensureDraftFlow, requiresRequestSelection, requiresServiceSelection, requiresWorkflowSelection, requiresWeworkSelection])
+  }, [backupAppsPermissionConflict, backupAppsPermissionMessage, draftFlowId, hasServiceAccountStep, googleAuth, isServiceApp, isWorkflowApp, isWeworkApp, usesCondensedServiceWizard, requestPreview, selectedGroupIds, weworkPreview, selectedProjectIds, servicePreview, selectedServiceIds, workflowPreview, selectedWorkflowIds, getGoogleDriveRunBlockedReason, getCompatibilityBlockedReason, isRequestApp, flowName, sourceConnectionId, domain, accessTokenV2, backupType, destinationProfileId, storageDestination, buildGoogleDestinationAuth, selectedApp, currentApp, connectionConfig, accessToken, selectedObjects, hasReadyServiceAccountAuth, platformServiceAccount, ensureDraftFlow, requiresRequestSelection, requiresServiceSelection, requiresWorkflowSelection, requiresWeworkSelection])
 
   // ── Load flow for editing ─────────────────────────────────────────────
   const loadFlowForEdit = useCallback(async (flowId) => {
@@ -1220,8 +1244,6 @@ export default function useWizardState() {
         if (dest.type) setStorageDestination(dest.type)
         if (src.access_token) setAccessToken(src.access_token)
         if (Array.isArray(struct.objects)) setSelectedObjects(struct.objects)
-        if (Array.isArray(struct.custom_fields)) setSelectedFieldIds(struct.custom_fields)
-        if (struct.export_formats && typeof struct.export_formats === 'object') setExportFormats(struct.export_formats)
         if (Array.isArray(struct.project_ids)) {
           setSelectedProjectIds(struct.project_ids)
           setDraftSelectedProjectIds(struct.project_ids)
@@ -1412,7 +1434,7 @@ export default function useWizardState() {
   // Preview is loaded on-demand only when user clicks "Load & Select" button.
   // No auto-load useEffect — user must explicitly trigger the preview fetch.
 
-  // ── Google OAuth popup ────────────────────────────────────────────────
+  // ── Google sign-in popup ──────────────────────────────────────────────
   const startGoogleOAuthPopup = useCallback((url) => new Promise((resolve, reject) => {
     const w = 520, h = 660
     const popup = window.open(url, 'google-oauth',
@@ -1427,41 +1449,22 @@ export default function useWizardState() {
       } else if (event.data.success === false) {
         window.removeEventListener('message', onMessage)
         popup.close()
-        reject(new Error(event.data.error || 'Unknown Google OAuth error'))
+        reject(new Error(event.data.error || 'Unknown Google sign-in error'))
       }
     }
     window.addEventListener('message', onMessage)
   }), [])
 
   // ── Google connect / disconnect ───────────────────────────────────────
-  const openGoogleConfigModal = useCallback(async () => {
-    if (!canManageSettings) return
-    setGoogleConfigModalOpen(true)
-    setGoogleConfigError('')
-    setGoogleConfigLoading(true)
-    try {
-      const res = await api.get('/api/settings/google')
-      const data = res.data || {}
-      const redirectUri = data.redirect_uri || DEFAULT_GOOGLE_REDIRECT
-      setGoogleRedirectUri(redirectUri)
-      setGoogleSecretSet(!!(data.client_secret && data.client_secret !== ''))
-      setGcClientId(data.client_id || '')
-      setGcClientSecret('')
-      setGcRedirectUri(redirectUri)
-    } catch {
-      setGoogleRedirectUri(DEFAULT_GOOGLE_REDIRECT)
-      setGoogleSecretSet(false)
-      setGcClientId('')
-      setGcClientSecret('')
-      setGcRedirectUri(DEFAULT_GOOGLE_REDIRECT)
-    } finally {
-      setGoogleConfigLoading(false)
-    }
-  }, [canManageSettings])
 
   const handleGoogleConnect = useCallback(async () => {
     try {
-      const res = await api.get('/api/google/auth-url', { params: GOOGLE_OAUTH_REQUEST_PARAMS })
+      const res = await api.get('/api/google/auth-url', {
+        params: {
+          ...GOOGLE_OAUTH_REQUEST_PARAMS,
+          frontend_origin: window.location.origin,
+        },
+      })
       const data = await startGoogleOAuthPopup(res.data.url)
       setGoogleAuthMethod('oauth')
       setDestinationProfileId(null)
@@ -1481,17 +1484,13 @@ export default function useWizardState() {
       message.success(`Connected as ${data.email}`)
     } catch (err) {
       if (err.response?.status === 503) {
-        if (canManageSettings) {
-          await openGoogleConfigModal()
-        } else {
-          message.error('Google OAuth has not been configured yet. Ask an administrator to finish the workspace setup in Settings.')
-        }
+        message.error(err.response?.data?.detail || 'Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env first.')
       } else {
         message.error(err.response?.data?.detail || err.message || 'Failed to start Google authentication')
       }
       console.error(err)
     }
-  }, [canManageSettings, startGoogleOAuthPopup, openGoogleConfigModal, loadSavedGoogleConnections])
+  }, [startGoogleOAuthPopup, loadSavedGoogleConnections])
 
   const handleGoogleDisconnect = useCallback(() => {
     const nextGoogleAuth = googleAuthMethod === 'service_account' && platformServiceAccount?.available
@@ -1675,38 +1674,6 @@ export default function useWizardState() {
     setFolderPath([{ id: folder.id, name: folder.name, driveId, isDriveRoot: false }])
     await fetchSubFolders(folder.id, driveId)
   }, [fetchSubFolders])
-
-  // ── Google config save ────────────────────────────────────────────────
-  const handleSaveGoogleConfigAndConnect = useCallback(async () => {
-    if (!gcClientId.trim()) { message.error('Client ID is required'); return }
-    if (!gcClientSecret.trim() && !googleSecretSet) { setGoogleConfigError('Client Secret is required'); return }
-    setGoogleConfigSaving(true)
-    setGoogleConfigError('')
-    try {
-      await api.put('/api/settings/google', {
-        client_id: gcClientId.trim(),
-        client_secret: gcClientSecret.trim() || '__KEEP__',
-        redirect_uri: gcRedirectUri.trim() || DEFAULT_GOOGLE_REDIRECT,
-      })
-      const authRes = await api.get('/api/google/auth-url', { params: GOOGLE_OAUTH_REQUEST_PARAMS })
-      const data = await startGoogleOAuthPopup(authRes.data.url)
-      setGoogleAuthMethod('oauth')
-      setDestinationProfileId(null)
-      setGoogleAuth({
-        auth_mode: 'google_oauth', auth_method: 'oauth', connection_id: data.connection_id,
-        google_oauth_connection_id: data.connection_id, email: data.email,
-        google_oauth_email: data.email,
-        display_name: data.display_name || data.email, picture_url: data.picture_url || '',
-        folder_id: null, folder_name: null, drive_id: null,
-      })
-      await loadSavedGoogleConnections()
-      setGoogleConfigModalOpen(false)
-      setGoogleSecretSet(true)
-      message.success(`Connected as ${data.email}`)
-    } catch (err) {
-      setGoogleConfigError(err.response?.data?.detail || err.message || 'Failed to configure Google OAuth')
-    } finally { setGoogleConfigSaving(false) }
-  }, [gcClientId, gcClientSecret, googleSecretSet, gcRedirectUri, startGoogleOAuthPopup, loadSavedGoogleConnections])
 
   // ── Service selector modal helpers ────────────────────────────────────
   const openRequestSelectorModal = useCallback(() => {
@@ -1916,17 +1883,13 @@ export default function useWizardState() {
     drives, loadingDrives, currentDriveId, folders, folderPath, loadingFolders,
     sharedFolders, loadingSharedFolders, sharedFolderQuery, setSharedFolderQuery,
     sharedFolderReference, setSharedFolderReference, resolvingSharedFolder,
-    // Google config modal
-    googleConfigModalOpen, setGoogleConfigModalOpen,
-    googleConfigLoading, googleConfigSaving, googleSecretSet,
-    googleRedirectUri, googleConfigError, setGoogleConfigError,
-    gcClientId, setGcClientId, gcClientSecret, setGcClientSecret, gcRedirectUri, setGcRedirectUri,
     // Derived
     usesCondensedServiceWizard, hasServiceAccountStep, totalSteps,
     // Actions
     resetAll, handleAppSelection, handleObjectToggle, handleSelectAllObjects,
     getAvailableFields, handleFieldToggle, handleSelectAllFields,
     buildGoogleDestinationAuth, resolveDriveName,
+    getCompatibilityBlockedReason,
     getGoogleDriveRunBlockedReason, getGoogleDriveFolderSummary,
     autosaveDestinationAuth,
     loadSavedSourceConnections, clearAppliedSourceConnection, applySourceConnection,
@@ -1935,7 +1898,6 @@ export default function useWizardState() {
     next, prev, handleFinish, loadFlowForEdit,
     loadServicePreview, handleServiceAccountFileUpload,
     handleGoogleConnect, handleGoogleDisconnect,
-    openGoogleConfigModal, handleSaveGoogleConfigAndConnect,
     handleOpenFolderPicker, handleDriveChange, handleOpenSubFolder, handleBreadcrumbNav,
     handleSelectCurrentFolder, handleResolveSharedFolder,
     applyGoogleFolderSelection, openFolderLocation, loadSharedFolders,

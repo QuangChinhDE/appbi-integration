@@ -16,12 +16,12 @@ const StepDataSelection = ({ wizard }) => {
   if (!currentApp) return null
 
   return (
-    <div className="w-full max-w-none space-y-6">
+    <div className="w-full max-w-none space-y-5">
       <div>
-        <label className="block text-caption font-strong text-text-primary mb-1">
+        <label className="mb-1 block text-small font-strong text-text-primary">
           Select data types to back up <span className="text-danger">*</span>
         </label>
-        <p className="text-tiny text-text-quaternary mb-4">
+        <p className="mb-4 text-caption text-text-quaternary">
           Choose the data types from <strong>{currentApp.name}</strong> you want to include in the backup
         </p>
 
@@ -29,7 +29,7 @@ const StepDataSelection = ({ wizard }) => {
           {/* Select all */}
           <div
             onClick={handleSelectAllObjects}
-            className="border-2 border-dashed border-[rgb(var(--border-line))] rounded-md px-4 py-3.5 cursor-pointer hover:border-brand/30 hover:bg-brand/10 flex items-center gap-3 transition-all"
+            className="flex cursor-pointer items-center gap-3 rounded-xl border border-dashed border-[rgb(var(--border-line))] px-4 py-4 transition-all hover:border-brand/30 hover:bg-brand/10"
           >
             <div className={`w-5 h-5 rounded flex items-center justify-center border-2 transition-all ${
               selectedObjects.length === currentApp.objects.length
@@ -38,40 +38,42 @@ const StepDataSelection = ({ wizard }) => {
             }`}>
               {selectedObjects.length === currentApp.objects.length && <Check className="w-3 h-3 text-white" />}
             </div>
-            <span className="font-strong text-caption text-text-secondary">Select all data types</span>
-            <span className="text-tiny text-text-quaternary ml-auto">{currentApp.objects.length} types</span>
+            <span className="text-small font-emphasis text-text-secondary">Select all data types</span>
+            <span className="ml-auto text-caption text-text-quaternary">{currentApp.objects.length} types</span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-2 2xl:grid-cols-3">
             {currentApp.objects.map(obj => (
+              (() => {
+                const isSelected = selectedObjects.includes(obj)
+                return (
               <div
                 key={obj}
                 onClick={() => handleObjectToggle(obj)}
-                className="border-2 rounded-md px-4 py-4 cursor-pointer transition-all flex items-center gap-3"
-                style={{
-                  borderColor: selectedObjects.includes(obj) ? currentApp.color : '#e5e7eb',
-                  backgroundColor: selectedObjects.includes(obj) ? currentApp.bg : '#fff',
-                }}
+                className={`flex cursor-pointer items-center gap-3 rounded-xl border px-4 py-4 transition-all ${isSelected ? '' : 'border-[rgb(var(--border-line))] bg-surface-1 hover:border-brand/20 hover:bg-brand/5'}`}
+                style={isSelected ? { borderColor: currentApp.color, backgroundColor: currentApp.bg } : undefined}
               >
                 <div
                   className="w-5 h-5 rounded flex items-center justify-center border-2 transition-all shrink-0"
                   style={{
-                    backgroundColor: selectedObjects.includes(obj) ? currentApp.color : 'transparent',
-                    borderColor: selectedObjects.includes(obj) ? currentApp.color : '#d1d5db',
+                    backgroundColor: isSelected ? currentApp.color : 'transparent',
+                    borderColor: isSelected ? currentApp.color : '#d1d5db',
                   }}
                 >
-                  {selectedObjects.includes(obj) && <Check className="w-3 h-3 text-white" />}
+                  {isSelected && <Check className="w-3 h-3 text-white" />}
                 </div>
                 <div className="flex-1">
-                  <div className="font-strong text-caption" style={{ color: selectedObjects.includes(obj) ? currentApp.color : '#374151' }}>
+                  <div className="text-small font-emphasis" style={{ color: isSelected ? currentApp.color : '#374151' }}>
                     {currentApp.objectLabels[obj]}
                   </div>
-                  <div className="text-tiny text-text-quaternary mt-0.5">{currentApp.name} › {currentApp.objectLabels[obj]}</div>
+                  <div className="mt-0.5 text-caption text-text-quaternary">{currentApp.name} › {currentApp.objectLabels[obj]}</div>
                 </div>
-                {selectedObjects.includes(obj) && (
+                {isSelected && (
                   <CheckCircle className="w-4 h-4 shrink-0" style={{ color: currentApp.color }} />
                 )}
               </div>
+                )
+              })()
             ))}
           </div>
         </div>
@@ -93,11 +95,11 @@ export const StepGenericConnection = ({ wizard }) => {
   } = wizard
 
   return (
-    <div className="w-full max-w-none space-y-6">
-      <div className="border border-brand/20 rounded-xl p-6 bg-brand/10">
+    <div className="w-full max-w-none space-y-5">
+      <div className="rounded-xl border border-brand/20 bg-brand/10 p-5">
         <div className="flex items-center gap-2">
           <Lock className="w-5 h-5 text-brand" />
-          <h4 className="text-caption font-strong text-brand">
+          <h4 className="text-small font-strong text-brand">
             {connectionConfig?.stepTitle || `Connect to ${currentApp?.name}`}
           </h4>
         </div>
@@ -105,12 +107,12 @@ export const StepGenericConnection = ({ wizard }) => {
         <div className={`mt-5 grid gap-5 ${connectionConfig?.requiresDomain ? 'xl:grid-cols-2' : ''}`}>
           {connectionConfig?.requiresDomain && (
             <div>
-              <label className="block text-caption font-strong text-text-secondary mb-1">
+              <label className="mb-1 block text-label font-emphasis text-text-secondary">
                 {connectionConfig.domainLabel || 'Domain'} <span className="text-danger">*</span>
               </label>
-              <p className="text-tiny text-text-quaternary mb-2">{connectionConfig.domainHelp}</p>
+              <p className="mb-2 text-caption text-text-quaternary">{connectionConfig.domainHelp}</p>
               <input
-                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
+                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3.5 py-2.5 text-small text-text-primary placeholder:text-text-quaternary transition-colors focus:border-brand focus:shadow-focus-brand focus:outline-none"
                 placeholder={connectionConfig.domainPlaceholder}
                 value={domain}
                 onChange={e => { clearAppliedSourceConnection(); setDomain(e.target.value); if (isServiceApp) setServicePreview(null) }}
@@ -119,16 +121,16 @@ export const StepGenericConnection = ({ wizard }) => {
           )}
 
           <div>
-            <label className="block text-caption font-strong text-text-secondary mb-1">
+            <label className="mb-1 block text-label font-emphasis text-text-secondary">
               {connectionConfig?.tokenLabel || 'API Access Token'} <span className="text-danger">*</span>
             </label>
-            <p className="text-tiny text-text-quaternary mb-2">
+            <p className="mb-2 text-caption text-text-quaternary">
               {connectionConfig?.tokenHelp || `Found in ${currentApp?.name} → Settings → API Keys`}
             </p>
             <div className="relative">
               <input
                 type={showToken ? 'text' : 'password'}
-                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3 py-2 pr-12 text-caption text-text-primary placeholder:text-text-quaternary focus:border-brand focus:shadow-focus-brand focus:outline-none transition-colors"
+                className="w-full rounded-md border border-[rgb(var(--border-strong))] bg-surface-0 px-3.5 py-2.5 pr-12 text-small text-text-primary placeholder:text-text-quaternary transition-colors focus:border-brand focus:shadow-focus-brand focus:outline-none"
                 placeholder="Paste your access token here…"
                 value={accessToken}
                 onChange={e => { clearAppliedSourceConnection(); setAccessToken(e.target.value); if (isServiceApp) setServicePreview(null) }}

@@ -29,17 +29,12 @@ import logging
 from datetime import datetime
 from typing import Any
 
-import pandas as pd
-
-from modules.backup.backend.extractors._gdrive import (
-    build_cached_gdrive_token_provider,
-    gdrive_create_folder,
-    gdrive_recreate_folder,
-    gdrive_upload_bytes,
-    gdrive_upload_tabular_bytes,
+from modules.backup.backend.extractors.destination_writers import (
+    BackupDestinationWriter,
+    build_backup_destination_writer,
 )
+from modules.backup.backend.extractors._gdrive import build_cached_gdrive_token_provider
 from modules.backup.backend.extractors._helpers import (
-    build_excel_bytes,
     sanitize_name,
     strip_html,
     truncate_name,
@@ -63,6 +58,7 @@ logger = logging.getLogger(__name__)
 _ID_FIELDS = ('id', 'group_id')
 _NAME_FIELDS = ('name', 'title', 'display_name', 'label')
 _REQUEST_ID_FIELDS = ('id', 'request_id', 'hid')
+_DETAIL_FOLDER_LINK_FIELD = 'Link thư mục chi tiết'
 
 
 def _pick(record: dict, candidates: tuple[str, ...]) -> str:
@@ -81,6 +77,12 @@ def _ensure_dict(val: Any) -> dict:
                 return inner
         return val
     return {}
+
+
+def _with_detail_folder_link(record: dict, folder_link: str | None) -> dict[str, Any]:
+    row = dict(record or {})
+    row[_DETAIL_FOLDER_LINK_FIELD] = str(folder_link or '').strip()
+    return row
 
 
 def _flatten_custom_fields(detail: dict) -> list[dict]:
@@ -169,35 +171,13 @@ def _build_posts_text(posts: list[dict], all_comments: dict[str, list[dict]]) ->
     return "\n".join(lines) or "(không có bài viết)"
 
 
-# ── Log & upload helpers ─────────────────────────────────────────────────────
+# ── Log helper ───────────────────────────────────────────────────────────────
 
 
 async def _update_log(db, run: BackupFlowRun, message: str) -> None:
     ts = datetime.utcnow().strftime('%H:%M:%S')
     run.logs = f"{run.logs or ''}\n[{ts}] {message}".strip()
     await db.commit()
-
-
-async def _upload_excel(
-    get_token, folder_id: str, filename: str,
-    records: list[dict], dest_type: str | None,
-) -> tuple[str, int]:
-    df = pd.DataFrame(records or [])
-    content = build_excel_bytes(df)
-    file_id = await gdrive_upload_tabular_bytes(
-        get_token, filename, content, folder_id,
-        destination_type=dest_type,
-    )
-    return file_id, len(records or [])
-
-
-async def _upload_text(
-    get_token, folder_id: str, filename: str, text: str,
-) -> str:
-    return await gdrive_upload_bytes(
-        get_token, filename, text.encode('utf-8'),
-        'text/plain', folder_id,
-    )
 
 
 # ── Per-request detail folder ────────────────────────────────────────────────
@@ -208,9 +188,7 @@ async def _backup_single_request(
     request_rec: dict,
     parent_folder_id: str,
     group_label: str,
-    get_token,
-    drive_id: str | None,
-    dest_type: str | None,
+    writer: BackupDestinationWriter,
     uploaded_files: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Create the detail folder for one request. Returns manifest entry."""
@@ -219,9 +197,7 @@ async def _backup_single_request(
     req_name = _pick(request_rec, _NAME_FIELDS)
     req_label = sanitize_name(f'[{req_id}] {truncate_name(req_name)}')
 
-    req_folder_id = await gdrive_create_folder(
-        get_token, req_label, parent_folder_id, drive_id=drive_id,
-    )
+    req_folder_id = await writer.create_folder(req_label, parent_folder_id)
 
     base_path = f'{group_label}/{req_label}'
 
@@ -234,18 +210,18 @@ async def _backup_single_request(
         detail = request_rec
 
     # Thông tin request.xlsx
-    fid, _ = await _upload_excel(get_token, req_folder_id, 'Thông tin request.xlsx', [detail], dest_type)
+    fid, _ = await writer.upload_excel(req_folder_id, 'Thông tin request.xlsx', [detail])
     uploaded_files.append({'path': f'{base_path}/Thông tin request.xlsx', 'file_id': fid})
 
     # request.json
     req_json = json.dumps(detail, ensure_ascii=False, indent=2, default=str)
-    fid = await _upload_text(get_token, req_folder_id, 'request.json', req_json)
+    fid = await writer.upload_text(req_folder_id, 'request.json', req_json)
     uploaded_files.append({'path': f'{base_path}/request.json', 'file_id': fid})
 
     # Thông tin trường tùy chỉnh.xlsx
     cf_records = _flatten_custom_fields(detail)
     if cf_records:
-        fid, _ = await _upload_excel(get_token, req_folder_id, 'Thông tin trường tùy chỉnh.xlsx', cf_records, dest_type)
+        fid, _ = await writer.upload_excel(req_folder_id, 'Thông tin trường tùy chỉnh.xlsx', cf_records)
         uploaded_files.append({'path': f'{base_path}/Thông tin trường tùy chỉnh.xlsx', 'file_id': fid})
 
     # Custom tables (e.g. [table name].xlsx)
@@ -259,7 +235,7 @@ async def _backup_single_request(
     for table_name, table_rows in custom_tables.items():
         safe_name = sanitize_name(table_name)
         fname = f'{safe_name}.xlsx'
-        fid, _ = await _upload_excel(get_token, req_folder_id, fname, table_rows, dest_type)
+        fid, _ = await writer.upload_excel(req_folder_id, fname, table_rows)
         uploaded_files.append({'path': f'{base_path}/{fname}', 'file_id': fid})
 
     # post_and_comment.txt
@@ -288,22 +264,21 @@ async def _backup_single_request(
         ))
 
     posts_text = _build_posts_text(posts, all_comments)
-    fid = await _upload_text(get_token, req_folder_id, 'post_and_comment.txt', posts_text)
+    fid = await writer.upload_text(req_folder_id, 'post_and_comment.txt', posts_text)
     uploaded_files.append({'path': f'{base_path}/post_and_comment.txt', 'file_id': fid})
 
     # Tệp đính kèm/
     file_records = _extract_files(detail)
     if file_records:
-        attach_folder_id = await gdrive_create_folder(
-            get_token, 'Tệp đính kèm', req_folder_id, drive_id=drive_id,
-        )
-        fid, _ = await _upload_excel(get_token, attach_folder_id, 'Thông tin files.xlsx', file_records, dest_type)
+        attach_folder_id = await writer.create_folder('Tệp đính kèm', req_folder_id)
+        fid, _ = await writer.upload_excel(attach_folder_id, 'Thông tin files.xlsx', file_records)
         uploaded_files.append({'path': f'{base_path}/Tệp đính kèm/Thông tin files.xlsx', 'file_id': fid})
 
     return {
         'request_id': req_id,
         'request_name': req_name,
         'folder': req_label,
+        'folder_link': writer.get_folder_url(req_folder_id),
     }
 
 
@@ -358,6 +333,15 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             )
             drive_id = destination_auth.get('drive_id')
             dest_type = destination_binding.credential.app_id
+            writer: BackupDestinationWriter = build_backup_destination_writer(
+                destination_type=dest_type,
+                get_token=get_token,
+                root_folder_id=root_folder_id,
+                drive_id=drive_id,
+                flow_id=str(flow.id),
+                flow_name=flow.name,
+                app_folder_name='Base Request',
+            )
 
             # Build Request API client
             domain = source_binding.auth.get('domain') or source_binding.config.get('domain') or ''
@@ -374,13 +358,12 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
 
             uploaded_files: list[dict[str, Any]] = []
             manifest_entries: list[dict[str, Any]] = []
+            group_folder_links: dict[str, str] = {}
 
             # ── Trash old folder and create fresh ────────────────────
             await _update_log(db, run, 'Preparing destination folder...')
             app_folder_name = sanitize_name('Base Request')
-            app_folder_id, archived_count = await gdrive_recreate_folder(
-                get_token, app_folder_name, root_folder_id, drive_id=drive_id,
-            )
+            app_folder_id, archived_count = await writer.prepare_app_folder()
             if archived_count:
                 await _update_log(db, run, f'Archived {archived_count} old "{app_folder_name}" folder(s)')
 
@@ -411,14 +394,14 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                 g_label = sanitize_name(f'[{g_id}] {truncate_name(g_name)}')
                 await _update_log(db, run, f'[{g_index}/{total_groups}] Processing group "{g_name}"...')
 
-                g_folder_id = await gdrive_create_folder(
-                    get_token, g_label, app_folder_id, drive_id=drive_id,
-                )
+                g_folder_id = await writer.create_folder(g_label, app_folder_id)
+                group_folder_links[g_id] = writer.get_folder_url(g_folder_id)
 
                 manifest_group: dict[str, Any] = {
                     'group_id': g_id,
                     'group_name': g_name,
                     'folder': g_label,
+                    'folder_link': group_folder_links[g_id],
                     'requests': [],
                 }
 
@@ -430,16 +413,8 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                     requests = []
                 await _update_log(db, run, f'  Found {len(requests)} request(s) in group "{g_name}"')
 
-                # Danh sách request.xlsx
-                fid, cnt = await _upload_excel(
-                    get_token, g_folder_id, 'Danh sách request.xlsx',
-                    requests, dest_type,
-                )
-                uploaded_files.append({
-                    'path': f'{g_label}/Danh sách request.xlsx', 'file_id': fid, 'record_count': cnt,
-                })
-
                 # Per-request detail folders
+                request_folder_links: dict[str, str] = {}
                 if has_request_scope:
                     req_total = len(requests)
                     for r_index, req_rec in enumerate(requests, 1):
@@ -449,9 +424,26 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
 
                         entry = await _backup_single_request(
                             client, req_rec, g_folder_id, g_label,
-                            get_token, drive_id, dest_type, uploaded_files,
+                            writer, uploaded_files,
                         )
+                        request_folder_links[entry['request_id']] = entry.get('folder_link') or ''
                         manifest_group['requests'].append(entry)
+
+                request_rows_with_links = [
+                    _with_detail_folder_link(
+                        req_rec,
+                        request_folder_links.get(_pick(req_rec, _REQUEST_ID_FIELDS)),
+                    )
+                    for req_rec in requests
+                ]
+                fid, cnt = await writer.upload_excel(
+                    g_folder_id, 'Danh sách request.xlsx',
+                    request_rows_with_links,
+                    hyperlink_columns=(_DETAIL_FOLDER_LINK_FIELD,),
+                )
+                uploaded_files.append({
+                    'path': f'{g_label}/Danh sách request.xlsx', 'file_id': fid, 'record_count': cnt,
+                })
 
                 manifest_entries.append(manifest_group)
 
@@ -459,14 +451,13 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             if has_direct:
                 await _update_log(db, run, f'[{total_groups}/{total_groups}] Processing direct requests...')
                 direct_label = '[direct] Đề xuất trực tiếp'
-                direct_folder_id = await gdrive_create_folder(
-                    get_token, sanitize_name(direct_label), app_folder_id, drive_id=drive_id,
-                )
+                direct_folder_id = await writer.create_folder(sanitize_name(direct_label), app_folder_id)
 
                 manifest_direct: dict[str, Any] = {
                     'group_id': '0',
                     'group_name': 'Đề xuất trực tiếp',
                     'folder': direct_label,
+                    'folder_link': writer.get_folder_url(direct_folder_id),
                     'requests': [],
                 }
 
@@ -477,16 +468,7 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                     direct_requests = []
                 await _update_log(db, run, f'  Found {len(direct_requests)} direct request(s)')
 
-                # Danh sách request.xlsx
-                fid, cnt = await _upload_excel(
-                    get_token, direct_folder_id, 'Danh sách request.xlsx',
-                    direct_requests, dest_type,
-                )
-                uploaded_files.append({
-                    'path': f'{sanitize_name(direct_label)}/Danh sách request.xlsx',
-                    'file_id': fid, 'record_count': cnt,
-                })
-
+                request_folder_links: dict[str, str] = {}
                 if has_request_scope:
                     req_total = len(direct_requests)
                     for r_index, req_rec in enumerate(direct_requests, 1):
@@ -497,20 +479,44 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                         entry = await _backup_single_request(
                             client, req_rec, direct_folder_id,
                             sanitize_name(direct_label),
-                            get_token, drive_id, dest_type, uploaded_files,
+                            writer, uploaded_files,
                         )
+                        request_folder_links[entry['request_id']] = entry.get('folder_link') or ''
                         manifest_direct['requests'].append(entry)
+
+                direct_request_rows_with_links = [
+                    _with_detail_folder_link(
+                        req_rec,
+                        request_folder_links.get(_pick(req_rec, _REQUEST_ID_FIELDS)),
+                    )
+                    for req_rec in direct_requests
+                ]
+                fid, cnt = await writer.upload_excel(
+                    direct_folder_id, 'Danh sách request.xlsx',
+                    direct_request_rows_with_links,
+                    hyperlink_columns=(_DETAIL_FOLDER_LINK_FIELD,),
+                )
+                uploaded_files.append({
+                    'path': f'{sanitize_name(direct_label)}/Danh sách request.xlsx',
+                    'file_id': fid, 'record_count': cnt,
+                })
 
                 manifest_entries.append(manifest_direct)
 
             # ── 0. Danh mục chung ─────────────────────────────────────
             await _update_log(db, run, 'Creating "0. Danh mục chung"...')
-            common_folder_id = await gdrive_create_folder(
-                get_token, '0. Danh mục chung', app_folder_id, drive_id=drive_id,
-            )
-            fid, cnt = await _upload_excel(
-                get_token, common_folder_id, 'Danh sách group.xlsx',
-                all_groups, dest_type,
+            common_folder_id = await writer.create_folder('0. Danh mục chung', app_folder_id)
+            group_rows_with_links = [
+                _with_detail_folder_link(
+                    group,
+                    group_folder_links.get(_pick(group, _ID_FIELDS)),
+                )
+                for group in all_groups
+            ]
+            fid, cnt = await writer.upload_excel(
+                common_folder_id, 'Danh sách group.xlsx',
+                group_rows_with_links,
+                hyperlink_columns=(_DETAIL_FOLDER_LINK_FIELD,),
             )
             uploaded_files.append({
                 'path': '0. Danh mục chung/Danh sách group.xlsx',
@@ -520,15 +526,18 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             # ── Manifest ─────────────────────────────────────────────
             await _update_log(db, run, 'Writing backup manifest...')
             manifest = {
+                'flow_id': str(flow.id),
+                'flow_name': flow.name,
                 'backup_type': backup_type,
                 'connector': 'request',
+                'destination_type': writer.destination_type,
                 'group_count': len(manifest_entries),
                 'total_files': len(uploaded_files),
                 'created_at': datetime.utcnow().isoformat() + 'Z',
                 'groups': manifest_entries,
             }
             manifest_json = json.dumps(manifest, ensure_ascii=False, indent=2)
-            fid = await _upload_text(get_token, common_folder_id, 'backup_manifest.json', manifest_json)
+            fid = await writer.upload_text(common_folder_id, 'backup_manifest.json', manifest_json)
             uploaded_files.append({'path': '0. Danh mục chung/backup_manifest.json', 'file_id': fid})
 
             # ── Done ─────────────────────────────────────────────────
@@ -538,6 +547,7 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             run.execution_details = {
                 'mode': 'request_backup',
                 'backup_type': backup_type,
+                'destination_writer': writer.destination_type,
                 'uploaded_files': uploaded_files,
             }
             total_req = sum(len(g.get('requests', [])) for g in manifest_entries)

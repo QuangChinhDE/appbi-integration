@@ -29,12 +29,12 @@ const RequestSelectorModal = ({ wizard }) => {
       footer={
         <>
           <button onClick={() => loadRequestPreview(draftSelectedGroupIds)} disabled={loadingRequestPreview}
-            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
+            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
             {loadingRequestPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeRequestSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
+          <button onClick={closeRequestSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
           <button onClick={applyRequestSelectorModal} disabled={!requestPreview}
-            className="rounded-md bg-brand px-4 py-2 text-caption font-strong text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
+            className="rounded-md bg-brand px-4 py-2 text-label font-emphasis text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
@@ -51,15 +51,15 @@ const RequestSelectorModal = ({ wizard }) => {
               <table className="w-full text-caption">
                 <thead className="bg-surface-2 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-8">
+                    <th className="w-8 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">
                       <input type="checkbox"
                         checked={draftSelectedGroupIds.length === rows.length && rows.length > 0}
                         onChange={e => setDraftSelectedGroupIds(e.target.checked ? rows.map(row => row.group_id) : [])}
                         className="rounded" />
                     </th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Group</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-24">Requests</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Sample Requests</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Group</th>
+                    <th className="w-24 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Requests</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Sample Requests</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgb(var(--border-line))]">
@@ -75,16 +75,16 @@ const RequestSelectorModal = ({ wizard }) => {
                           <div className="font-strong">{record.group_name}</div>
                           {record.is_direct && <Tag color="gold">Direct</Tag>}
                         </div>
-                        <div className="text-tiny text-text-quaternary">ID: {record.group_id}</div>
-                        {record.preview_error && <div className="text-tiny text-warning mt-0.5">{record.preview_error}</div>}
+                        <div className="text-caption text-text-quaternary">ID: {record.group_id}</div>
+                        {record.preview_error && <div className="mt-0.5 text-caption text-warning">{record.preview_error}</div>}
                       </td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.request_count ?? '—'}</td>
                       <td className="px-3 py-2.5">
                         {record.detail_loaded
                           ? (record.sample_requests || []).length > 0
-                            ? (record.sample_requests || []).map(request => <div key={request.request_id || request.request_code} className="text-tiny text-text-secondary">{request.request_code} - {request.request_name}</div>)
-                            : <span className="text-tiny text-text-quaternary">No sample requests</span>
-                          : <span className="text-tiny text-text-quaternary">Refresh after selecting</span>}
+                            ? (record.sample_requests || []).map(request => <div key={request.request_id || request.request_code} className="text-caption text-text-secondary">{request.request_code} - {request.request_name}</div>)
+                            : <span className="text-caption text-text-quaternary">No sample requests</span>
+                          : <span className="text-caption text-text-quaternary">Refresh after selecting</span>}
                       </td>
                     </tr>
                   ))}

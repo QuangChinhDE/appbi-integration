@@ -147,7 +147,7 @@ function normalizeCredentialEntry(credential) {
     }
   }
 
-  const authLabel = credential.auth_mode === 'service_account' ? 'Service account' : 'Google OAuth'
+  const authLabel = credential.auth_mode === 'service_account' ? 'Service account' : 'Sign in'
   const locationBits = [preview.folder_name, preview.drive_name].filter(Boolean)
   const connectionLabel = preview.display_name || preview.email || null
 
@@ -377,8 +377,8 @@ function CredentialTable({
 
   return (
     <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+      <div className="app-list-table-wrap">
+        <table className="app-list-table divide-y divide-[rgb(var(--border-line))]">
           <thead className="bg-surface-2">
             <tr>
               {selectable && (
@@ -394,19 +394,19 @@ function CredentialTable({
                   />
                 </th>
               )}
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[34%]">
                 Credential
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[22%]">
                 Tags
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[16%]">
                 Owner
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[12%]">
                 Updated
               </th>
-              <th className="px-6 py-3 text-right text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[120px] text-right">
                 Actions
               </th>
             </tr>
@@ -425,7 +425,7 @@ function CredentialTable({
                     />
                   </td>
                 )}
-                <td className="max-w-[360px] px-6 py-4">
+                <td className="app-list-cell max-w-[360px]">
                   <div className="flex items-start gap-3">
                     <div
                       className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md"
@@ -434,10 +434,10 @@ function CredentialTable({
                       {entry.icon}
                     </div>
                     <div className="min-w-0">
-                      <div className="truncate text-caption font-emphasis text-text-primary">{entry.title}</div>
+                      <div className="app-list-text-main text-caption font-emphasis text-text-primary">{entry.title}</div>
                       <div className="mt-0.5 text-tiny text-text-tertiary">{entry.appTitle}</div>
                       {entry.description && (
-                        <p className="mt-1 max-w-md line-clamp-1 text-tiny text-text-tertiary">{entry.description}</p>
+                        <p className="app-list-text-sub mt-1 text-tiny text-text-tertiary">{entry.description}</p>
                       )}
                       <div className="mt-2 space-y-0.5 text-tiny text-text-tertiary">
                         <div>
@@ -452,7 +452,7 @@ function CredentialTable({
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="app-list-cell">
                   <CredentialFilterTags
                     entry={entry}
                     filters={activeFilters}
@@ -460,7 +460,7 @@ function CredentialTable({
                     onToggleFilter={onFilterClick}
                   />
                 </td>
-                <td className="whitespace-nowrap px-6 py-4">
+                <td className="app-list-cell whitespace-nowrap">
                   {entry.ownerEmail ? (
                     <OwnerBadge
                       email={entry.ownerEmail}
@@ -471,10 +471,10 @@ function CredentialTable({
                     <span className="text-tiny text-text-quaternary">-</span>
                   )}
                 </td>
-                <td className="whitespace-nowrap px-6 py-4 text-caption text-text-tertiary" title={formatDateTitle(entry.updatedAt)}>
+                <td className="app-list-cell whitespace-nowrap text-caption text-text-tertiary" title={formatDateTitle(entry.updatedAt)}>
                   {formatDateLabel(entry.updatedAt)}
                 </td>
-                <td className="whitespace-nowrap px-6 py-4 text-right">
+                <td className="app-list-cell-tight whitespace-nowrap text-right">
                   <CredentialActionButtons entry={entry} onEdit={onEdit} onDelete={onDelete} onShare={onShare} onTestConnection={onTestConnection} testingId={testingId} />
                 </td>
               </tr>

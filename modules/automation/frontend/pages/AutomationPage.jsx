@@ -207,7 +207,7 @@ function TitleButton({ children, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="truncate text-left text-caption font-emphasis text-text-primary transition-colors hover:text-brand"
+      className="app-list-text-main text-left text-caption font-emphasis text-text-primary transition-colors hover:text-brand"
     >
       {children}
     </button>
@@ -363,23 +363,23 @@ function AutomationConnectorCard({ entry, filters, onToggleFilter, onOpenDetails
 function AutomationConnectorTable({ entries, filters, onToggleFilter, onOpenDetails, onOpenBindings }) {
   return (
     <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+      <div className="app-list-table-wrap">
+        <table className="app-list-table divide-y divide-[rgb(var(--border-line))]">
           <thead className="bg-surface-2">
             <tr>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[34%]">
                 Connector
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[22%]">
                 Tags
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[14%]">
                 Bindings
               </th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[14%]">
                 Coverage
               </th>
-              <th className="px-6 py-3 text-right text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
+              <th className="app-list-header w-[96px] text-right">
                 Actions
               </th>
             </tr>
@@ -387,7 +387,7 @@ function AutomationConnectorTable({ entries, filters, onToggleFilter, onOpenDeta
           <tbody className="divide-y divide-[rgb(var(--border-line))] bg-surface-1">
             {entries.map((entry) => (
               <tr key={entry.registryKey} className="hover:bg-surface-2">
-                <td className="max-w-[320px] px-6 py-4">
+                <td className="app-list-cell max-w-[320px]">
                   <div className="flex items-start gap-3">
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                       <Zap className="h-4 w-4" />
@@ -395,20 +395,20 @@ function AutomationConnectorTable({ entries, filters, onToggleFilter, onOpenDeta
                     <div className="min-w-0">
                       <TitleButton onClick={() => onOpenDetails(entry)}>{entry.title}</TitleButton>
                       <div className="mt-0.5 text-tiny text-text-tertiary">{entry.appId}</div>
-                      <p className="mt-1 max-w-md line-clamp-1 text-tiny text-text-tertiary">{entry.description}</p>
+                      <p className="app-list-text-sub mt-1 text-tiny text-text-tertiary">{entry.description}</p>
                     </div>
                   </div>
                 </td>
-                <td className="px-6 py-4">
+                <td className="app-list-cell">
                   <AutomationFilterTags entry={entry} filters={filters} onToggleFilter={onToggleFilter} />
                 </td>
-                <td className="px-6 py-4">
+                <td className="app-list-cell">
                   <AutomationBindingsCell entry={entry} />
                 </td>
-                <td className="px-6 py-4">
+                <td className="app-list-cell">
                   <AutomationCoverageCell entry={entry} />
                 </td>
-                <td className="whitespace-nowrap px-6 py-4 text-right">
+                <td className="app-list-cell-tight whitespace-nowrap text-right">
                   <AutomationActionButtons
                     entry={entry}
                     onOpenDetails={onOpenDetails}

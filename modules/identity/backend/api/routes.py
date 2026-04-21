@@ -2,12 +2,17 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
+from google.auth import exceptions as google_exceptions
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.concurrency import run_in_threadpool
 
 from packages.auth.src import (
     ACTIVE_MODULE_ALLOWED_LEVELS,
@@ -61,9 +66,203 @@ def _clear_access_token_cookie(response: Response) -> None:
     response.delete_cookie(key='access_token', path='/')
 
 
+def _normalize_email(email: str) -> str:
+    return email.strip().lower()
+
+
+def _google_client_id() -> str:
+    return os.getenv('AUTH_GOOGLE_CLIENT_ID', '').strip()
+
+
+def _google_allowed_domains() -> set[str]:
+    raw_value = os.getenv('AUTH_GOOGLE_ALLOWED_DOMAINS', '')
+    return {domain.strip().lower() for domain in raw_value.split(',') if domain.strip()}
+
+
+def _ensure_google_login_enabled() -> str:
+    client_id = _google_client_id()
+    if _env_flag('AUTH_GOOGLE_ENABLED', False) and client_id:
+        return client_id
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail='Google sign-in is not configured.',
+    )
+
+
+def _assert_google_email_allowed(email: str) -> None:
+    allowed_domains = _google_allowed_domains()
+    if not allowed_domains:
+        return
+
+    domain = _normalize_email(email).split('@')[-1]
+    if domain in allowed_domains:
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail='This Google account is not allowed for this workspace.',
+    )
+
+
+def _is_bootstrap_google_admin(email: str) -> bool:
+    configured = os.getenv('AUTH_GOOGLE_BOOTSTRAP_ADMIN_EMAIL', '').strip()
+    return bool(configured) and _normalize_email(configured) == _normalize_email(email)
+
+
+async def _get_user_by_email(db: AsyncSession, email: str) -> User | None:
+    result = await db.execute(select(User).where(func.lower(User.email) == _normalize_email(email)))
+    return result.scalar_one_or_none()
+
+
+def _verify_google_credential(credential: str) -> dict[str, Any]:
+    if not credential or not credential.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail='Google credential is required.')
+
+    try:
+        claims = google_id_token.verify_oauth2_token(
+            credential,
+            google_requests.Request(),
+            _ensure_google_login_enabled(),
+        )
+    except (ValueError, google_exceptions.GoogleAuthError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Invalid Google credential.',
+        )
+
+    issuer = claims.get('iss')
+    if issuer not in {'accounts.google.com', 'https://accounts.google.com'}:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Invalid Google token issuer.',
+        )
+
+    email = claims.get('email')
+    if not isinstance(email, str) or not email.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Google account email is missing.',
+        )
+
+    if not claims.get('sub'):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail='Google account subject is missing.',
+        )
+
+    if claims.get('email_verified') is not True:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='Google account email is not verified.',
+        )
+
+    _assert_google_email_allowed(email)
+    return claims
+
+
+async def _build_google_user_from_claims(
+    db: AsyncSession,
+    claims: dict[str, Any],
+) -> tuple[User, bool]:
+    email = _normalize_email(str(claims['email']))
+    google_sub = str(claims['sub'])
+    name = str(claims.get('name') or email.split('@')[0])
+    picture = claims.get('picture')
+    picture_url = picture.strip() if isinstance(picture, str) and picture.strip() else None
+
+    result = await db.execute(select(User).where(User.google_sub == google_sub))
+    user = result.scalar_one_or_none()
+    created = False
+
+    if not user:
+        user = await _get_user_by_email(db, email)
+
+    if not user:
+        if _is_bootstrap_google_admin(email):
+            user = User(
+                email=email,
+                full_name=name,
+                auth_provider=AuthProvider.GOOGLE,
+                google_sub=google_sub,
+                avatar_url=picture_url,
+                permissions=PRESETS['admin'].copy(),
+            )
+            db.add(user)
+            created = True
+            return user, created
+
+        if not _env_flag('AUTH_GOOGLE_AUTO_CREATE_USERS', False):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail='This Google account is not provisioned in IntegrationHub yet. Ask an admin to add your email first.',
+            )
+
+        user = User(
+            email=email,
+            full_name=name,
+            auth_provider=AuthProvider.GOOGLE,
+            google_sub=google_sub,
+            avatar_url=picture_url,
+        )
+        db.add(user)
+        created = True
+        return user, created
+
+    if user.status != UserStatus.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='This account is deactivated',
+        )
+
+    if user.google_sub and user.google_sub != google_sub:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail='This Google account does not match the user record assigned to this email.',
+        )
+
+    if _normalize_email(user.email) != email:
+        existing_email_owner = await _get_user_by_email(db, email)
+        if existing_email_owner and existing_email_owner.id != user.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail='Another IntegrationHub user already uses this Google email address.',
+            )
+        user.email = email
+
+    user.auth_provider = AuthProvider.GOOGLE
+    user.google_sub = google_sub
+    if picture_url:
+        user.avatar_url = picture_url
+    if not (user.full_name or '').strip():
+        user.full_name = name
+
+    return user, created
+
+
+async def _finalize_login(response: Response, db: AsyncSession, user: User) -> LoginResponse:
+    user.last_login_at = datetime.now(timezone.utc)
+    await db.commit()
+    await db.refresh(user)
+
+    token = create_access_token(str(user.id), user.email)
+    _set_access_token_cookie(response, token)
+
+    return LoginResponse(
+        access_token=token,
+        user=_serialize_user(user),
+        permissions=get_user_permissions(user),
+        module_levels=ACTIVE_MODULE_ALLOWED_LEVELS,
+        modules=get_active_module_payloads(),
+    )
+
+
 class LoginRequest(BaseModel):
     email: str
     password: str
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str
 
 
 class UserResponse(BaseModel):
@@ -248,7 +447,7 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
     if not _env_flag('AUTH_PASSWORD_LOGIN_ENABLED', True):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='Password login is disabled.')
 
-    email = body.email.strip().lower()
+    email = _normalize_email(body.email)
     result = await db.execute(select(User).where(func.lower(User.email) == email))
     user = result.scalar_one_or_none()
 
@@ -257,20 +456,14 @@ async def login(body: LoginRequest, response: Response, db: AsyncSession = Depen
     if user.status != UserStatus.ACTIVE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail='This account is deactivated')
 
-    user.last_login_at = datetime.now(timezone.utc)
-    await db.commit()
-    await db.refresh(user)
+    return await _finalize_login(response, db, user)
 
-    token = create_access_token(str(user.id), user.email)
-    _set_access_token_cookie(response, token)
 
-    return LoginResponse(
-        access_token=token,
-        user=_serialize_user(user),
-        permissions=get_user_permissions(user),
-        module_levels=ACTIVE_MODULE_ALLOWED_LEVELS,
-        modules=get_active_module_payloads(),
-    )
+@router.post('/api/auth/google', response_model=LoginResponse)
+async def google_login(body: GoogleLoginRequest, response: Response, db: AsyncSession = Depends(get_db)):
+    claims = await run_in_threadpool(_verify_google_credential, body.credential)
+    user, _created = await _build_google_user_from_claims(db, claims)
+    return await _finalize_login(response, db, user)
 
 
 @router.get('/api/auth/me', response_model=LoginResponse)

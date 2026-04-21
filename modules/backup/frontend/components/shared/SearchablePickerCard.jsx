@@ -20,17 +20,17 @@ const SearchablePickerCard = ({
   children,
 }) => {
   return (
-    <section className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5">
+    <section className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div className="flex items-start gap-3">
           {icon && (
-            <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
+            <div className="mt-0.5 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand/10 text-brand">
               {icon}
             </div>
           )}
           <div className="min-w-0">
-            <h3 className="text-caption font-strong text-text-primary">{title}</h3>
-            {description && <p className="mt-1 text-tiny leading-6 text-text-tertiary">{description}</p>}
+            <h3 className="text-h3 font-strong text-text-primary">{title}</h3>
+            {description && <p className="mt-1.5 text-small leading-6 text-text-tertiary">{description}</p>}
           </div>
         </div>
 
@@ -49,7 +49,7 @@ const SearchablePickerCard = ({
         </div>
 
         {summary && (
-          <div className="shrink-0 rounded-full bg-surface-2 px-3 py-1.5 text-tiny font-emphasis text-text-tertiary">
+          <div className="shrink-0 rounded-full bg-surface-2 px-3 py-1.5 text-micro font-emphasis text-text-tertiary">
             {summary}
           </div>
         )}
@@ -57,7 +57,7 @@ const SearchablePickerCard = ({
 
       <div className="mt-4">
         {loading ? (
-          <div className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-line))] bg-surface-2 px-4 py-4 text-caption text-text-tertiary">
+          <div className="flex items-center gap-2 rounded-xl border border-[rgb(var(--border-line))] bg-surface-2 px-4 py-4 text-small text-text-tertiary">
             <Spinner />
             <span>{loadingText}</span>
           </div>

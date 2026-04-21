@@ -249,6 +249,78 @@ class BackupFlowService:
             return str(exc)
         return None
 
+    @staticmethod
+    def _format_connector_blocked_reason(
+        role: str,
+        credential: Optional[AppCredential],
+        exc: ValueError,
+    ) -> str:
+        connector_key = credential.app_id if credential else role
+        raw_message = str(exc)
+
+        if connector_key == 'gsheets' and role == 'destination':
+            return (
+                "Google Sheets is no longer supported as a Backup destination. "
+                "Edit the flow and choose Google Drive instead."
+            )
+
+        if (
+            "does not support the backup module" in raw_message
+            or "not registered as a destination for backup" in raw_message
+        ):
+            if role == 'source':
+                return (
+                    f"The source connector '{connector_key}' is no longer supported by Backup. "
+                    "Edit the flow and choose a supported backup source."
+                )
+            return (
+                f"The destination connector '{connector_key}' is no longer supported by Backup. "
+                "Edit the flow and choose a supported backup destination."
+            )
+
+        return raw_message
+
+    def _get_flow_run_blocked_reason(
+        self,
+        flow: BackupFlow,
+        source: Optional[AppCredential],
+        destination: Optional[AppCredential],
+    ) -> Optional[str]:
+        if flow.source_credential_id and source is None:
+            return "The source credential used by this flow no longer exists in Apps. Edit the flow and pick a new source."
+
+        if flow.destination_credential_id and destination is None:
+            return "The destination credential used by this flow no longer exists in Apps. Edit the flow and pick a new destination."
+
+        if source is not None:
+            try:
+                ConnectorBindingValidationService.validate_source_credential(
+                    source,
+                    module_key='backup',
+                )
+            except ValueError as exc:
+                return self._format_connector_blocked_reason('source', source, exc)
+
+        if destination is not None:
+            try:
+                ConnectorBindingValidationService.validate_destination_credential(
+                    destination,
+                    module_key='backup',
+                    pipeline_destination_only=False,
+                )
+            except ValueError as exc:
+                return self._format_connector_blocked_reason('destination', destination, exc)
+
+        if not flow.source_credential_id or not flow.destination_credential_id:
+            if flow.is_draft == 1:
+                return None
+            return "This flow is missing a source or destination credential assignment."
+
+        return self.get_run_blocked_reason_from_destination(
+            destination,
+            dict(flow.destination_target or {}),
+        )
+
     # ── Response hydration ───────────────────────────────────────────────
     async def build_flow_response(self, flow: BackupFlow, current_user: User) -> BackupFlowResponse:
         source = await self._load_credential(flow.source_credential_id)
@@ -273,6 +345,7 @@ class BackupFlowService:
             module='backup',
             resource_type=ResourceType.BACKUP_FLOW,
         )
+        blocked_reason = self._get_flow_run_blocked_reason(flow, source, destination)
         return BackupFlowResponse(
             id=flow.id,
             name=flow.name,
@@ -300,6 +373,7 @@ class BackupFlowService:
             last_run_at=flow.last_run_at,
             last_run_status=flow.last_run_status,
             last_run_message=flow.last_run_message,
+            run_blocked_reason=blocked_reason,
             created_by=flow.created_by,
             updated_by=flow.updated_by,
             created_at=flow.created_at,
@@ -513,21 +587,7 @@ class BackupFlowService:
         for flow in flows:
             source = credentials_map.get(flow.source_credential_id) if flow.source_credential_id else None
             destination = credentials_map.get(flow.destination_credential_id) if flow.destination_credential_id else None
-
-            # Surface credential-level problems before any destination-specific
-            # validation, so the wizard/dashboard can explain missing pieces.
-            blocked_reason: Optional[str] = None
-            if flow.is_draft == 0:
-                if flow.source_credential_id and source is None:
-                    blocked_reason = "The source credential used by this flow no longer exists in Apps. Edit the flow and pick a new source."
-                elif flow.destination_credential_id and destination is None:
-                    blocked_reason = "The destination credential used by this flow no longer exists in Apps. Edit the flow and pick a new destination."
-                elif not flow.source_credential_id or not flow.destination_credential_id:
-                    blocked_reason = "This flow is missing a source or destination credential assignment."
-            if blocked_reason is None:
-                blocked_reason = self.get_run_blocked_reason_from_destination(
-                    destination, dict(flow.destination_target or {}),
-                )
+            blocked_reason = self._get_flow_run_blocked_reason(flow, source, destination)
 
             response.append(BackupFlowListResponse(
                 id=flow.id,
@@ -538,14 +598,17 @@ class BackupFlowService:
                 is_published=flow.is_published,
                 app=source.app_id if source else None,
                 app_name=source.app_name if source else None,
+                source_name=source.name if source else None,
                 backup_type=flow.backup_type,
                 destination_type=destination.app_id if destination else None,
                 destination_name=destination.app_name if destination else None,
+                destination_profile_name=destination.name if destination else None,
                 status=flow.status,
                 last_run_at=flow.last_run_at,
                 last_run_status=flow.last_run_status,
                 run_blocked_reason=blocked_reason,
                 created_at=flow.created_at,
+                updated_at=flow.updated_at,
             ))
 
         return response
@@ -630,43 +693,18 @@ class BackupFlowService:
         if not flow:
             return None
 
-        if not flow.source_credential_id or not flow.destination_credential_id:
+        source = await self._load_credential(flow.source_credential_id)
+        destination = await self._load_credential(flow.destination_credential_id)
+        blocked_reason = self._get_flow_run_blocked_reason(flow, source, destination)
+        if blocked_reason:
+            raise ValueError(blocked_reason)
+
+        if source is None or destination is None:
             raise ValueError("Backup flow is missing a source or destination credential assignment.")
 
-        source, destination = await self._validate_role_assignment(
-            flow.source_credential_id, flow.destination_credential_id
-        )
+        from modules.backup.backend.extractors.runner_registry import get_backup_runner
 
-        # Validate destination before launching the runner.
-        destination_auth = dict(destination.auth or {})
-        destination_config = dict(destination.config or {})
-        validation_view = {**destination_auth}
-        for key in ("folder_id", "drive_id", "uses_platform_service_account"):
-            if key in destination_config:
-                validation_view.setdefault(key, destination_config[key])
-        destination_target = dict(flow.destination_target or {})
-        for key in ("folder_id", "drive_id"):
-            if key in destination_target:
-                validation_view[key] = destination_target[key]
-        validation_view["auth_mode"] = destination.auth_mode
-        validate_service_account_drive_destination(validation_view)
-
-        from modules.backup.backend.extractors.generic_connector_extractor import run_generic_connector_backup
-
-        if source.app_id == 'workflow':
-            from modules.backup.backend.extractors.workflow_extractor import run_workflow_backup
-            runner = run_workflow_backup
-        elif source.app_id == 'service':
-            from modules.backup.backend.extractors.service_extractor import run_service_backup
-            runner = run_service_backup
-        elif source.app_id == 'request':
-            from modules.backup.backend.extractors.request_extractor import run_request_backup
-            runner = run_request_backup
-        elif source.app_id == 'wework':
-            from modules.backup.backend.extractors.wework_extractor import run_wework_backup
-            runner = run_wework_backup
-        else:
-            runner = run_generic_connector_backup
+        runner = get_backup_runner(source.app_id)
 
         new_run = BackupFlowRun(
             flow_id=flow_id,

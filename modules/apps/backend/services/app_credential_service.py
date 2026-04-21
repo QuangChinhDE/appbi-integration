@@ -512,7 +512,7 @@ class AppCredentialService:
         if auth_mode == "google_oauth":
             connection_id = working_auth.get("connection_id")
             if not connection_id:
-                raise ValueError("Select a saved Google OAuth connection for this credential")
+                raise ValueError("Select a signed-in Google connection for this credential")
             parsed = self._parse_uuid(connection_id, label="Google connection")
             connection = await self.db.get(GoogleConnection, parsed)
             if not connection:

@@ -192,4 +192,4 @@ export const APP_CONNECTION_CONFIG = {
 
 // ── Google OAuth ────────────────────────────────────────────────────────────
 
-export const DEFAULT_GOOGLE_REDIRECT = `${window.location.protocol}//${window.location.hostname}:8010/api/google/callback`
+export const DEFAULT_GOOGLE_REDIRECT = `${window.location.origin}/api/v1/auth/google/data-access/callback`

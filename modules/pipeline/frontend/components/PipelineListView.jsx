@@ -28,7 +28,7 @@ function PipelineTitleButton({ children, onClick }) {
     <button
       type="button"
       onClick={onClick}
-      className="truncate text-left text-caption font-emphasis text-text-primary transition-colors hover:text-brand"
+      className="app-list-text-main text-left text-caption font-emphasis text-text-primary transition-colors hover:text-brand"
     >
       {children}
     </button>
@@ -252,15 +252,15 @@ function PipelineListView({
   // Table view
   return (
     <div className="overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1">
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-[rgb(var(--border-line))]">
+      <div className="app-list-table-wrap">
+        <table className="app-list-table divide-y divide-[rgb(var(--border-line))]">
           <thead className="bg-surface-2">
             <tr>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Pipeline</th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Tags</th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Flow</th>
-              <th className="px-6 py-3 text-left text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Updated</th>
-              <th className="px-6 py-3 text-right text-tiny font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Actions</th>
+              <th className="app-list-header w-[32%]">Pipeline</th>
+              <th className="app-list-header w-[22%]">Tags</th>
+              <th className="app-list-header w-[22%]">Flow</th>
+              <th className="app-list-header w-[12%]">Updated</th>
+              <th className="app-list-header w-[96px] text-right">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[rgb(var(--border-line))] bg-surface-1">
@@ -270,7 +270,7 @@ function PipelineListView({
 
               return (
                 <tr key={record.id} className="hover:bg-surface-2">
-                  <td className="max-w-[320px] px-6 py-4">
+                  <td className="app-list-cell max-w-[320px]">
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-brand/10 text-brand">
                         <Workflow className="h-4 w-4" />
@@ -280,15 +280,15 @@ function PipelineListView({
                           {record.name || 'Untitled pipeline'}
                         </PipelineTitleButton>
                         {record.description && (
-                          <p className="mt-0.5 max-w-md line-clamp-1 text-tiny text-text-tertiary">{record.description}</p>
+                          <p className="app-list-text-sub mt-0.5 text-tiny text-text-tertiary">{record.description}</p>
                         )}
                       </div>
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="app-list-cell">
                     <PipelineStatusTags record={record} activeFilters={activeFilters} onFilterClick={onFilterClick} />
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="app-list-cell">
                     <div className="flex items-center gap-1 text-caption text-text-secondary">
                       <span>{srcMeta?.title || record.source_connector_key}</span>
                       <ArrowRight className="h-3 w-3 text-text-quaternary" />
@@ -298,12 +298,12 @@ function PipelineListView({
                       {(record.bindings || []).length} binding(s)
                     </div>
                   </td>
-                  <td className="px-6 py-4">
+                  <td className="app-list-cell">
                     <span className="text-caption text-text-tertiary" title={formatDateTitle(record.updated_at)}>
                       {formatDateLabel(record.updated_at)}
                     </span>
                   </td>
-                  <td className="whitespace-nowrap px-6 py-4 text-right">
+                  <td className="app-list-cell-tight whitespace-nowrap text-right">
                     <PipelineActionButtons
                       record={record}
                       onOpenDetails={onOpenDetails}

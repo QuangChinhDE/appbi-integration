@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   ArrowLeft, Cloud, Globe, Check, CheckCircle,
-  ChevronRight, Pencil, Play, Rocket, FileSpreadsheet, Folder,
+  ChevronRight, Pencil, Play, Rocket, Folder,
 } from 'lucide-react'
 import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
 import { Button } from '@packages/ui/src/components/common/ui'
@@ -11,6 +11,8 @@ import StepConnection from './wizard/StepConnection'
 import StepDataSelection, { StepGenericConnection } from './wizard/StepDataSelection'
 import StepServiceAccount from './wizard/StepServiceAccount'
 import StepReview from './wizard/StepReview'
+import { getBackupDestinationLabel } from '../constants'
+import { supportsBackupFlowRun } from '../runSupport'
 
 /**
  * Wizard shell — left sidebar + right step content + bottom nav.
@@ -79,7 +81,7 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
                 ? 'Save Changes'
                 : 'Create Backup Flow'}
             </Button>
-            {['request', 'service', 'workflow', 'wework'].includes(currentApp?.id || '') && (
+            {supportsBackupFlowRun(currentApp?.id || '') && (
               <Button
                 variant="secondary"
                 size="md"
@@ -151,38 +153,38 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
       title={isEdit ? 'Edit backup flow' : 'Create backup flow'}
       description="Configure flow scope, storage, and schedule."
       icon={<Cloud className="h-5 w-5" />}
-      bodyClassName="px-4 py-4 sm:px-6 lg:px-8 xl:px-10 2xl:px-12"
+      bodyClassName="px-4 py-5 sm:px-6 xl:px-8"
       footer={footer}
     >
       <div className="grid min-h-[calc(100vh-13rem)] gap-6 xl:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]">
         <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-gradient-to-b from-surface-1 via-brand/5 to-brand/5 shadow-linear-sm">
           <div className="border-b border-[rgb(var(--border-line))] px-5 py-5">
-            <div className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-surface-1/80 px-3 py-1 text-tiny font-strong text-brand">
+            <div className="inline-flex items-center gap-2 rounded-full border border-brand/20 bg-surface-1/80 px-3 py-1.5 text-micro font-emphasis uppercase tracking-[0.14em] text-brand">
               <Cloud className="h-3.5 w-3.5" />
               {isEdit ? 'Editing flow' : 'New flow'}
             </div>
 
             <div className="mt-4">
-              <h3 className="text-small font-strong text-text-primary">
+              <h3 className="text-h3 font-strong text-text-primary">
                 {flowName || (isEdit ? 'Editing backup configuration' : 'Draft your backup configuration')}
               </h3>
-              <p className="mt-1 text-caption leading-6 text-text-tertiary">
+              <p className="mt-1.5 text-small leading-6 text-text-tertiary">
                 Follow the step navigator to confirm app scope, source data, storage, and run behavior before saving the flow.
               </p>
             </div>
 
             {flowName && (
               <div className="mt-4 rounded-xl border border-[rgb(var(--border-line))] bg-surface-1/80 px-4 py-3 shadow-linear-sm backdrop-blur">
-                <p className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Flow name</p>
-                <p className="mt-1 truncate text-caption font-strong text-text-secondary">{flowName}</p>
+                <p className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Flow name</p>
+                <p className="mt-1 truncate text-small font-emphasis text-text-secondary">{flowName}</p>
               </div>
             )}
           </div>
 
           <div className="border-b border-[rgb(var(--border-line))] px-5 py-4">
             <div className="mb-1.5 flex items-center justify-between">
-              <span className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Progress</span>
-              <span className="text-tiny font-strong text-brand">{progressPercent}%</span>
+              <span className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Progress</span>
+              <span className="text-micro font-strong text-brand">{progressPercent}%</span>
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-surface-2">
               <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${progressPercent}%` }} />
@@ -197,7 +199,7 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
               return (
                 <div
                   key={idx}
-                  className={`flex items-start gap-3 rounded-xl px-3 py-3 transition-all ${
+                  className={`flex items-start gap-3 rounded-xl px-3 py-3.5 transition-all ${
                     isActive
                       ? 'border border-brand/20 bg-brand/10 shadow-linear-sm'
                       : isPending
@@ -205,17 +207,17 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
                         : 'border border-[rgb(var(--border-line))] bg-surface-1/80 hover:bg-surface-1'
                   }`}
                 >
-                  <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-tiny font-strong transition-all ${
+                  <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-label font-strong transition-all ${
                     isDone ? 'bg-success text-white' : isActive ? 'bg-brand text-white shadow-linear-sm shadow-brand/20' : 'bg-surface-2 text-text-quaternary'
                   }`}>
                     {isDone ? <Check className="h-3.5 w-3.5" /> : idx + 1}
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className={`text-caption font-strong leading-tight ${isActive ? 'text-brand' : isDone ? 'text-success' : 'text-text-tertiary'}`}>
+                    <p className={`text-small font-emphasis leading-6 ${isActive ? 'text-brand' : isDone ? 'text-success' : 'text-text-tertiary'}`}>
                       {step.title}
                     </p>
                     {stepDescriptions[idx] && (
-                      <p className={`mt-0.5 text-tiny leading-5 ${isActive ? 'text-brand' : isDone ? 'text-success' : 'text-text-quaternary'}`}>
+                      <p className={`mt-0.5 text-caption leading-5 ${isActive ? 'text-brand' : isDone ? 'text-success' : 'text-text-quaternary'}`}>
                         {stepDescriptions[idx]}
                       </p>
                     )}
@@ -227,25 +229,25 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
 
           {currentStep > 0 && (selectedApp || googleAuth) && (
             <div className="mx-3 mb-4 shrink-0 rounded-xl border border-[rgb(var(--border-line))] bg-surface-1/80 p-4 shadow-linear-sm backdrop-blur">
-              <p className="text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">Configured</p>
+              <p className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Configured</p>
               <div className="mt-3 space-y-2.5">
                 {currentApp && (
                   <div className="flex items-center gap-2">
                     <span style={{ color: currentApp.color }}>
                       {currentApp.icon && React.cloneElement(currentApp.icon, { className: 'w-3.5 h-3.5' })}
                     </span>
-                    <span className="text-caption font-strong" style={{ color: currentApp.color }}>{currentApp.name}</span>
+                    <span className="text-small font-emphasis" style={{ color: currentApp.color }}>{currentApp.name}</span>
                   </div>
                 )}
                 {domain && (
-                  <div className="flex items-center gap-1.5 truncate text-tiny text-text-tertiary">
+                  <div className="flex items-center gap-1.5 truncate text-caption text-text-tertiary">
                     <Globe className="h-3.5 w-3.5 shrink-0 text-text-quaternary" />
                     <span className="truncate">{domain}</span>
                   </div>
                 )}
                 {backupType && (
                   <div className="flex items-center gap-1.5">
-                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-strong ${
+                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-micro font-emphasis ${
                       backupType === 'structured' ? 'bg-brand/10 text-brand' :
                       backupType === 'unstructured' ? 'bg-warning/10 text-warning' :
                       'bg-[#7c3aed]/10 text-[#7c3aed]'
@@ -255,15 +257,13 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
                   </div>
                 )}
                 {storageDestination && (
-                  <div className="flex items-center gap-1.5 text-tiny text-text-tertiary">
-                    {storageDestination === 'gsheets'
-                      ? <FileSpreadsheet className="h-3.5 w-3.5 shrink-0 text-success" />
-                      : <Folder className="h-3.5 w-3.5 shrink-0 text-brand" />}
-                    <span>{storageDestination === 'gsheets' ? 'Google Sheets' : 'Google Drive'}</span>
+                  <div className="flex items-center gap-1.5 text-caption text-text-tertiary">
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-brand" />
+                    <span>{getBackupDestinationLabel(storageDestination)}</span>
                   </div>
                 )}
                 {googleAuth?.email && (
-                  <div className="flex items-center gap-1.5 truncate text-tiny text-text-tertiary">
+                  <div className="flex items-center gap-1.5 truncate text-caption text-text-tertiary">
                     <CheckCircle className="h-3.5 w-3.5 shrink-0 text-success" />
                     <span className="truncate">{googleAuth.email}</span>
                   </div>
@@ -274,21 +274,21 @@ const FlowWizard = ({ wizard, viewMode, onBack, onSaved, backLabel = 'Back to li
         </div>
 
         <div className="flex min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 shadow-linear-sm">
-          <div className="shrink-0 border-b border-[rgb(var(--border-line))] bg-surface-1 px-5 py-4 lg:px-8 xl:px-10">
+          <div className="shrink-0 border-b border-[rgb(var(--border-line))] bg-surface-1 px-5 py-4 lg:px-8 xl:px-8">
             <div className="w-full min-w-0">
-              <div className="mb-1 flex items-center gap-2 text-tiny font-emphasis uppercase tracking-wide text-text-quaternary">
+              <div className="mb-1 flex items-center gap-2 text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">
                 <span>Step {currentStep + 1} / {totalSteps}</span>
               </div>
-              <h1 className="text-h2 font-strong text-text-primary">
+              <h1 className="text-h3 font-strong text-text-primary">
                 {steps[currentStep]?.title || ''}
               </h1>
               {stepDescriptions[currentStep] && (
-                <p className="mt-1 text-caption leading-6 text-text-tertiary">{stepDescriptions[currentStep]}</p>
+                <p className="mt-1.5 text-small leading-6 text-text-tertiary">{stepDescriptions[currentStep]}</p>
               )}
             </div>
           </div>
 
-          <div className="flex-1 bg-surface-2 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:px-8 xl:px-10">
+          <div className="flex-1 bg-surface-2 px-5 py-5 lg:min-h-0 lg:overflow-y-auto lg:px-8 xl:px-8">
             <div className={stepContentShellClass}>
               {renderStepContent()}
             </div>

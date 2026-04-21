@@ -29,12 +29,12 @@ const WeworkSelectorModal = ({ wizard }) => {
       footer={
         <>
           <button onClick={() => loadWeworkPreview(draftSelectedProjectIds)} disabled={loadingWeworkPreview}
-            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
+            className="flex items-center gap-2 rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50">
             {loadingWeworkPreview ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />} Refresh Source
           </button>
-          <button onClick={closeWeworkSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-caption font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
+          <button onClick={closeWeworkSelectorModal} className="rounded-md border border-[rgb(var(--border-strong))] px-4 py-2 text-label font-emphasis text-text-secondary transition-colors hover:bg-surface-2">Cancel</button>
           <button onClick={applyWeworkSelectorModal} disabled={!weworkPreview}
-            className="rounded-md bg-brand px-4 py-2 text-caption font-strong text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
+            className="rounded-md bg-brand px-4 py-2 text-label font-emphasis text-white transition-colors hover:bg-brand-hover disabled:opacity-50">Apply Selection</button>
         </>
       }
     >
@@ -52,17 +52,17 @@ const WeworkSelectorModal = ({ wizard }) => {
               <table className="w-full text-caption">
                 <thead className="bg-surface-2 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-8">
+                    <th className="w-8 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">
                       <input type="checkbox"
                         checked={draftSelectedProjectIds.length === rows.length && rows.length > 0}
                         onChange={e => setDraftSelectedProjectIds(e.target.checked ? rows.map(r => r.project_id) : [])}
                         className="rounded" />
                     </th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Project</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Department</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-20">Tasks</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase w-24">Subtasks</th>
-                    <th className="px-3 py-2 text-left text-tiny font-emphasis text-text-tertiary uppercase">Sample Tasks</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Project</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Department</th>
+                    <th className="w-20 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Tasks</th>
+                    <th className="w-24 px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Subtasks</th>
+                    <th className="px-3 py-2 text-left text-label font-emphasis uppercase tracking-[0.14em] text-text-tertiary">Sample Tasks</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[rgb(var(--border-line))]">
@@ -75,8 +75,8 @@ const WeworkSelectorModal = ({ wizard }) => {
                       </td>
                       <td className="px-3 py-2.5">
                         <div className="font-strong">{record.project_name}</div>
-                        <div className="text-tiny text-text-quaternary">ID: {record.project_id}</div>
-                        {record.preview_error && <div className="text-tiny text-warning mt-0.5">{record.preview_error}</div>}
+                        <div className="text-caption text-text-quaternary">ID: {record.project_id}</div>
+                        {record.preview_error && <div className="mt-0.5 text-caption text-warning">{record.preview_error}</div>}
                       </td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.department_name || <span className="text-text-quaternary">Unassigned</span>}</td>
                       <td className="px-3 py-2.5 text-text-secondary">{record.top_level_task_count ?? record.task_count ?? '—'}</td>
@@ -85,12 +85,12 @@ const WeworkSelectorModal = ({ wizard }) => {
                         {record.detail_loaded
                           ? (record.sample_tasks || []).length > 0
                             ? (record.sample_tasks || []).map(task => (
-                              <div key={task.task_id || task.task_name} className="text-tiny text-text-secondary">
+                              <div key={task.task_id || task.task_name} className="text-caption text-text-secondary">
                                 {task.parent_id && task.parent_id !== '0' ? '↳ ' : ''}{task.task_name}
                               </div>
                             ))
-                            : <span className="text-tiny text-text-quaternary">No sample tasks</span>
-                          : <span className="text-tiny text-text-quaternary">Refresh after selecting</span>}
+                            : <span className="text-caption text-text-quaternary">No sample tasks</span>
+                          : <span className="text-caption text-text-quaternary">Refresh after selecting</span>}
                       </td>
                     </tr>
                   ))}

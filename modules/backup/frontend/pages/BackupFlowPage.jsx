@@ -16,13 +16,13 @@ import { useAuthStore } from '@modules/identity/frontend/store/authStore'
 
 import useBackupFlows from '../hooks/useBackupFlows'
 import useWizardState from '../hooks/useWizardState'
-import { BACKUP_TYPE_TAG, DEFAULT_GOOGLE_REDIRECT } from '../constants'
+import { BACKUP_TYPE_TAG, getBackupDestinationLabel } from '../constants'
+import { isBackupRunActive } from '../runSupport'
 
 import FlowListView from '../components/FlowListView'
 import FlowDetailView from '../components/FlowDetailView'
 import FlowWizard from '../components/FlowWizard'
 import AppSelectionModal from '../components/shared/AppSelectionModal'
-import GoogleConfigModal from '../components/shared/GoogleConfigModal'
 import FolderPickerModal from '../components/shared/FolderPickerModal'
 import RequestSelectorModal from '../components/shared/RequestSelectorModal'
 import ServiceSelectorModal from '../components/shared/ServiceSelectorModal'
@@ -56,11 +56,26 @@ function getDateValue(value) {
 }
 
 
+function getFlowActivityValue(record) {
+  return record.last_run_at || record.updated_at || record.created_at || null
+}
+
+
 function getFlowStatusRank(record) {
-  if (['pending', 'running'].includes(record.last_run_status)) return 0
+  if (isBackupRunActive(record.last_run_status)) return 0
   if (record.is_published === 1) return 1
   if (record.is_draft === 1) return 3
   return 2
+}
+
+
+function getSourceFilterValue(record) {
+  return record.source_name || record.app_name || record.app || 'Unknown source'
+}
+
+
+function getDestinationFilterValue(record) {
+  return record.destination_profile_name || record.destination_name || getBackupDestinationLabel(record.destination_type) || 'Not set'
 }
 
 
@@ -82,13 +97,13 @@ function sortBackupFlows(flows, sortKey) {
     if (sortKey === 'status') {
       return (
         getFlowStatusRank(left) - getFlowStatusRank(right)
-        || getDateValue(right.updated_at) - getDateValue(left.updated_at)
+        || getDateValue(getFlowActivityValue(right)) - getDateValue(getFlowActivityValue(left))
         || compareText(left.name || 'Untitled draft', right.name || 'Untitled draft')
       )
     }
 
     return (
-      getDateValue(right.updated_at) - getDateValue(left.updated_at)
+      getDateValue(getFlowActivityValue(right)) - getDateValue(getFlowActivityValue(left))
       || compareText(left.name || 'Untitled draft', right.name || 'Untitled draft')
     )
   })
@@ -178,6 +193,30 @@ const BackupFlowPage = () => {
   }, [backupFlows.detailsFlow])
 
   useEffect(() => {
+    if (viewMode !== 'detail' || !detailsFlowId) return undefined
+
+    const hasActiveRun = backupFlows.detailsRuns.some((run) => isBackupRunActive(run.status))
+      || isBackupRunActive(backupFlows.detailsFlow?.last_run_status || detailsFlowRecord?.last_run_status)
+
+    if (!hasActiveRun) return undefined
+
+    const intervalId = window.setInterval(() => {
+      void backupFlows.fetchFlowDetails(detailsFlowId, { silent: true })
+      void backupFlows.fetchFlows({ silent: true })
+    }, 4000)
+
+    return () => window.clearInterval(intervalId)
+  }, [
+    viewMode,
+    detailsFlowId,
+    detailsFlowRecord?.last_run_status,
+    backupFlows.detailsFlow?.last_run_status,
+    backupFlows.detailsRuns,
+    backupFlows.fetchFlowDetails,
+    backupFlows.fetchFlows,
+  ])
+
+  useEffect(() => {
     const validIds = new Set(backupFlows.flows.map((record) => record.id))
     setSelectedIds((current) => {
       const next = new Set([...current].filter((id) => validIds.has(id)))
@@ -185,15 +224,6 @@ const BackupFlowPage = () => {
       return unchanged ? current : next
     })
   }, [backupFlows.flows])
-
-  // ── Sync google config modal fields ───────────────────────────────────
-  useEffect(() => {
-    if (wizard.googleConfigModalOpen) {
-      wizard.setGcClientId('')
-      wizard.setGcClientSecret('')
-      wizard.setGcRedirectUri(wizard.googleRedirectUri || DEFAULT_GOOGLE_REDIRECT)
-    }
-  }, [wizard.googleConfigModalOpen]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Service preview scroll reset ──────────────────────────────────────
   useEffect(() => {
@@ -227,7 +257,7 @@ const BackupFlowPage = () => {
   // ── Derived ───────────────────────────────────────────────────────────
   const totalFlows = backupFlows.flows.length
   const publishedFlows = backupFlows.flows.filter((item) => item.is_published === 1).length
-  const activeRunFlows = backupFlows.flows.filter((item) => ['pending', 'running'].includes(item.last_run_status)).length
+  const activeRunFlows = backupFlows.flows.filter((item) => isBackupRunActive(item.last_run_status)).length
   const activeListFilterCount = Object.values(listFilters).filter(Boolean).length
 
   const toggleListFilter = useCallback((key, value) => {
@@ -277,18 +307,29 @@ const BackupFlowPage = () => {
   }
 
   const handleRunFromDetail = () => {
+    const targetFlowId = detailsFlowId || detailsFlowRecord?.id
     const source = backupFlows.detailsFlow?.source || {}
+    const normalizedRecord = {
+      id: targetFlowId,
+      app: source.app_id || detailsFlowRecord?.app || detailsFlowRecord?.source?.app_id,
+      run_blocked_reason: backupFlows.detailsFlow?.run_blocked_reason || detailsFlowRecord?.run_blocked_reason,
+    }
     backupFlows.runFlow(
-      detailsFlowRecord || { id: detailsFlowId, app: source.app, run_blocked_reason: detailsFlowRecord?.run_blocked_reason },
-      { onStarted: () => backupFlows.fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id) }
+      normalizedRecord,
+      { onStarted: () => backupFlows.fetchFlowDetails(targetFlowId, { silent: true }) }
     )
   }
 
   const handleStopFromDetail = () => {
+    const targetFlowId = detailsFlowId || detailsFlowRecord?.id
     const source = backupFlows.detailsFlow?.source || {}
     requestStopFlow(
-      detailsFlowRecord || { id: detailsFlowId, name: backupFlows.detailsFlow?.name, app: source.app },
-      { onStopped: () => backupFlows.fetchFlowDetails(detailsFlowId || detailsFlowRecord?.id) },
+      {
+        id: targetFlowId,
+        name: backupFlows.detailsFlow?.name || detailsFlowRecord?.name,
+        app: source.app_id || detailsFlowRecord?.app || detailsFlowRecord?.source?.app_id,
+      },
+      { onStopped: () => backupFlows.fetchFlowDetails(targetFlowId, { silent: true }) },
     )
   }
 
@@ -460,7 +501,7 @@ const BackupFlowPage = () => {
           ) : null}
           isLoading={backupFlows.loadingFlows}
           loadingText="Loading backup flows..."
-          searchPlaceholder="Search flows, apps, destinations, owners, or access"
+          searchPlaceholder="Search flows, source profiles, destinations, owners, or access"
           defaultView="list"
           toolbarExtra={(
             <div className="min-w-[180px]">
@@ -502,6 +543,24 @@ const BackupFlowPage = () => {
                   {BACKUP_TYPE_TAG[listFilters.backupType]?.label || listFilters.backupType}
                 </FilterTag>
               )}
+              {listFilters.source && (
+                <FilterTag
+                  tone="brand"
+                  active
+                  onClick={() => toggleListFilter('source', listFilters.source)}
+                >
+                  Source: {listFilters.source}
+                </FilterTag>
+              )}
+              {listFilters.destination && (
+                <FilterTag
+                  tone="info"
+                  active
+                  onClick={() => toggleListFilter('destination', listFilters.destination)}
+                >
+                  Destination: {listFilters.destination}
+                </FilterTag>
+              )}
               {listFilters.access && (
                 <FilterTag
                   tone={getListAccessMeta(listFilters.access).tone}
@@ -537,8 +596,11 @@ const BackupFlowPage = () => {
                       record.name,
                       record.app,
                       record.app_name,
+                      record.source_name,
                       record.destination_name,
+                      record.destination_profile_name,
                       record.destination_type,
+                      getBackupDestinationLabel(record.destination_type),
                       record.last_run_status,
                       record.owner_email,
                       record.user_permission,
@@ -553,6 +615,8 @@ const BackupFlowPage = () => {
                     (!listFilters.state || stateValue === listFilters.state) &&
                     (!listFilters.publish || publishValue === listFilters.publish) &&
                     (!listFilters.backupType || record.backup_type === listFilters.backupType) &&
+                    (!listFilters.source || getSourceFilterValue(record) === listFilters.source) &&
+                    (!listFilters.destination || getDestinationFilterValue(record) === listFilters.destination) &&
                     (!listFilters.access || record.user_permission === listFilters.access) &&
                     (!listFilters.owner || record.owner_email === listFilters.owner)
                   )
@@ -681,9 +745,6 @@ const BackupFlowPage = () => {
         onSelect={wizard.handleAppSelection}
         onCancel={() => wizard.setShowAppSelectionModal(false)}
       />
-
-      {/* ── Google OAuth Config Modal ── */}
-      <GoogleConfigModal wizard={wizard} />
 
       {/* ── Google Folder Picker Modal ── */}
       <FolderPickerModal wizard={wizard} />

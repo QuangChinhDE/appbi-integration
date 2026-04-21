@@ -381,6 +381,17 @@ class GoogleDriveClient:
             convert_to_sheet=is_google_sheets_destination(destination_type),
         )
 
+    async def download_bytes(self, file_id: str) -> bytes:
+        """Download the raw bytes for a Drive file."""
+        client = await self._http()
+        resp = await _gdrive_request(
+            client, "GET", f"{FILES_API}/{file_id}", self.token_source,
+            params={"alt": "media", "supportsAllDrives": "true"},
+            timeout=120.0,
+        )
+        resp.raise_for_status()
+        return resp.content
+
     async def delete_file(self, file_id: str) -> None:
         """Permanently delete a file."""
         client = await self._http()
