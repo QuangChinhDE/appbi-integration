@@ -9,6 +9,7 @@ import pandas as pd
 from modules.backup.backend.extractors._gdrive import (
     build_cached_gdrive_token_provider,
     gdrive_create_folder,
+    gdrive_recreate_folder,
     gdrive_upload_tabular_bytes,
 )
 from modules.backup.backend.extractors._helpers import build_excel_bytes, sanitize_name
@@ -21,6 +22,18 @@ from modules.credentials.backend.services.google_auth_service import (
 )
 from packages.database.src import async_session
 from packages.database.src.models import BackupFlow, BackupFlowRun
+
+
+# ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _singular_stem(key: str) -> str:
+    """Naively singularize a stream key: ``'jobs'`` → ``'job'``."""
+    if key.endswith('ies'):
+        return key[:-3] + 'y'
+    if key.endswith('s') and not key.endswith('ss'):
+        return key[:-1]
+    return key
 
 
 def _select_stream_keys(connector_key: str, structure: dict[str, Any]) -> list[str]:
@@ -78,7 +91,7 @@ def _select_stream_keys(connector_key: str, structure: dict[str, Any]) -> list[s
             if k not in seen:
                 seen.add(k)
                 unique.append(k)
-        return unique
+        return _expand_with_descendants(unique, backup_streams)
 
     # Default selection: top-level backup streams with no required config.
     defaults = [
@@ -87,6 +100,47 @@ def _select_stream_keys(connector_key: str, structure: dict[str, Any]) -> list[s
         if stream.parent_stream is None and not stream.config_fields
     ]
     return defaults or [backup_streams[0].stream_key]
+
+
+def _expand_with_descendants(
+    selected_keys: list[str],
+    backup_streams: tuple,
+) -> list[str]:
+    """Auto-include descendant backup-eligible streams of already-selected parents."""
+    selected_set = set(selected_keys)
+    result = list(selected_keys)
+    parent_map = {s.stream_key: s.parent_stream for s in backup_streams}
+
+    for s in backup_streams:
+        if s.stream_key in selected_set:
+            continue
+        ancestor = s.parent_stream
+        while ancestor:
+            if ancestor in selected_set:
+                result.append(s.stream_key)
+                selected_set.add(s.stream_key)
+                break
+            ancestor = parent_map.get(ancestor)
+
+    return result
+
+
+def _topo_sort_streams(
+    stream_keys: list[str],
+    backup_streams: tuple,
+) -> list[str]:
+    """Return *stream_keys* ordered so that parent streams come before children."""
+    stream_map = {s.stream_key: s for s in backup_streams}
+
+    def _depth(key: str) -> int:
+        d = 0
+        s = stream_map.get(key)
+        while s and s.parent_stream:
+            d += 1
+            s = stream_map.get(s.parent_stream)
+        return d
+
+    return sorted(stream_keys, key=_depth)
 
 
 def _resolve_stream_configs(stream, structure: dict[str, Any]) -> list[dict[str, Any]]:
@@ -126,6 +180,118 @@ def _resolve_stream_configs(stream, structure: dict[str, Any]) -> list[dict[str,
     return configs or [{}]
 
 
+def _build_display_name_map(
+    records: list[dict[str, Any]],
+    primary_key: str | None,
+    name_fields: tuple[str, ...] = ('name', 'title', 'display_name', 'label'),
+) -> dict[str, str]:
+    """Map primary-key values to human-readable display names from fetched records."""
+    if not primary_key or not records:
+        return {}
+    result: dict[str, str] = {}
+    for record in records:
+        pk = record.get(primary_key)
+        if pk is None:
+            continue
+        pk_str = str(pk)
+        display = ''
+        for field in name_fields:
+            val = record.get(field)
+            if val and str(val).strip():
+                display = str(val).strip()
+                break
+        result[pk_str] = display or pk_str
+    return result
+
+
+def _cascade_ids(
+    stream_def,
+    records: list[dict[str, Any]],
+    working_structure: dict[str, Any],
+    stream_map: dict,
+) -> None:
+    """Inject primary-key values of *records* into *working_structure* for child config resolution."""
+    if not stream_def.primary_key or not records:
+        return
+    pk = stream_def.primary_key
+    ids = list(dict.fromkeys(
+        str(r[pk]) for r in records if pk in r and r[pk] not in (None, '')
+    ))
+    if not ids:
+        return
+
+    singular = _singular_stem(stream_def.stream_key)
+    expected_field = f"{singular}_id"
+    plural_key = f"{singular}_ids"
+
+    for child in stream_map.values():
+        if child.parent_stream != stream_def.stream_key:
+            continue
+        for field in (child.config_fields or ()):
+            if field.name == expected_field:
+                existing = working_structure.get(plural_key)
+                if isinstance(existing, list):
+                    working_structure[plural_key] = list(dict.fromkeys(existing + ids))
+                else:
+                    working_structure[plural_key] = ids
+                break
+
+
+def _find_grouping_config(
+    child_keys: list[str],
+    stream_map: dict,
+    root_keys_set: set[str],
+    structure: dict[str, Any],
+) -> tuple[str, str, str] | None:
+    """
+    Identify the top-level grouping dimension for hierarchical folder creation.
+
+    Returns ``(config_field, plural_key, parent_stream_key)`` or ``None``.
+    E.g. ``('workflow_id', 'workflow_ids', 'workflows')`` for Workflow connector.
+    """
+    for key in child_keys:
+        stream = stream_map.get(key)
+        if not stream or not stream.config_fields or not stream.parent_stream:
+            continue
+        if stream.parent_stream not in root_keys_set:
+            continue
+        for field in stream.config_fields:
+            plural_key = f"{field.name[:-3]}_ids" if field.name.endswith('_id') else f"{field.name}s"
+            group_values = structure.get(plural_key)
+            if isinstance(group_values, list) and group_values:
+                return (field.name, plural_key, stream.parent_stream)
+
+    return None
+
+
+# ── Backup upload helper ─────────────────────────────────────────────────────
+
+
+async def _upload_stream(
+    source_connector,
+    stream_key: str,
+    stream,
+    stream_config: dict[str, Any],
+    folder_id: str,
+    filename: str,
+    get_gdrive_token,
+    destination_type: str | None,
+) -> tuple[list[dict[str, Any]], str]:
+    """Read a stream, convert to Excel, upload and return ``(records, file_id)``."""
+    ConnectorBindingValidationService.validate_stream_config(stream, stream_config)
+    records = await source_connector.read_stream(stream_key, config=stream_config)
+    dataframe = pd.DataFrame(records or [])
+    content = build_excel_bytes(dataframe)
+    file_id = await gdrive_upload_tabular_bytes(
+        get_gdrive_token, filename, content, folder_id,
+        destination_type=destination_type,
+    )
+    return (records or []), file_id
+
+
+# ── Main backup runner ───────────────────────────────────────────────────────
+
+
 async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
     async with async_session() as db:
         flow = await db.get(BackupFlow, flow_id)
@@ -156,6 +322,11 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
             run.logs = f"[RUNNING] Starting generic structured backup for {connector.display_name}"
             await db.commit()
 
+            async def _log(msg: str) -> None:
+                ts = datetime.utcnow().strftime('%H:%M:%S')
+                run.logs = f"{run.logs or ''}\n[{ts}] {msg}".strip()
+                await db.commit()
+
             destination_auth = {**destination_binding.auth, **destination_binding.config}
             validate_service_account_drive_destination(destination_auth)
 
@@ -170,46 +341,169 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
             get_gdrive_token = build_cached_gdrive_token_provider(load_gdrive_token)
 
             root_folder_id = destination_auth.get('folder_id') or destination_auth.get('drive_id') or 'root'
-            app_folder_id = await gdrive_create_folder(
+            drive_id = destination_auth.get('drive_id')
+
+            await _log('Preparing destination folder...')
+            app_folder_name = sanitize_name(connector.display_name)
+            app_folder_id, archived_count = await gdrive_recreate_folder(
                 get_gdrive_token,
-                sanitize_name(connector.display_name),
+                app_folder_name,
                 root_folder_id,
-                drive_id=destination_auth.get('drive_id'),
+                drive_id=drive_id,
             )
+            if archived_count:
+                await _log(f'Archived {archived_count} old "{app_folder_name}" folder(s)')
 
             source_connector = await runtime_service.build_connector(source_binding)
             structure = dict(flow.structure or {})
             stream_keys = _select_stream_keys(connector.connector_key, structure)
+            await _log(f'Selected streams: {stream_keys}')
             uploaded_files: list[dict[str, Any]] = []
+            dest_type = destination_binding.credential.app_id
 
-            for stream_key in stream_keys:
+            # ── Build hierarchy metadata ─────────────────────────────
+            backup_streams = connector.get_backup_streams()
+            stream_map = {s.stream_key: s for s in backup_streams}
+            ordered_keys = _topo_sort_streams(stream_keys, backup_streams)
+            selected_set = set(ordered_keys)
+
+            root_keys = [
+                k for k in ordered_keys
+                if not stream_map.get(k)
+                or stream_map[k].parent_stream is None
+                or stream_map[k].parent_stream not in selected_set
+            ]
+            child_keys = [k for k in ordered_keys if k not in set(root_keys)]
+            root_keys_set = set(root_keys)
+
+            display_names: dict[str, dict[str, str]] = {}
+            subfolder_cache: dict[str, str] = {}
+            cascaded = dict(structure)
+
+            # ── Phase 1: Root-level streams ───────────────────────────
+            await _log(f'Phase 1: Backing up {len(root_keys)} root stream(s)...')
+            for stream_key in root_keys:
                 stream = ConnectorBindingValidationService.validate_connector_stream(
-                    connector.connector_key,
-                    stream_key,
-                    capability='read',
-                    module_key='backup',
+                    connector.connector_key, stream_key,
+                    capability='read', module_key='backup',
                 )
-                for stream_config in _resolve_stream_configs(stream, structure):
-                    ConnectorBindingValidationService.validate_stream_config(stream, stream_config)
-                    records = await source_connector.read_stream(stream_key, config=stream_config)
-                    dataframe = pd.DataFrame(records or [])
-                    content = build_excel_bytes(dataframe)
-                    suffix = "_".join(str(value) for value in stream_config.values() if value not in (None, ''))
-                    filename = sanitize_name(f"{stream_key}{'_' + suffix if suffix else ''}.xlsx")
-                    uploaded_id = await gdrive_upload_tabular_bytes(
-                        get_gdrive_token,
-                        filename,
-                        content,
-                        app_folder_id,
-                        destination_type=destination_binding.credential.app_id,
+                for stream_config in _resolve_stream_configs(stream, cascaded):
+                    suffix = "_".join(
+                        str(v) for v in stream_config.values() if v not in (None, '')
                     )
+                    filename = sanitize_name(
+                        f"{stream_key}{'_' + suffix if suffix else ''}.xlsx"
+                    )
+                    records, file_id = await _upload_stream(
+                        source_connector, stream_key, stream, stream_config,
+                        app_folder_id, filename, get_gdrive_token, dest_type,
+                    )
+                    if stream.primary_key and records:
+                        display_names[stream_key] = _build_display_name_map(
+                            records, stream.primary_key,
+                        )
                     uploaded_files.append({
                         'stream_key': stream_key,
                         'config': stream_config,
-                        'record_count': len(records or []),
-                        'file_id': uploaded_id,
+                        'record_count': len(records),
+                        'file_id': file_id,
                         'filename': filename,
                     })
+                    await _log(f'  Uploaded {filename} ({len(records)} records)')
+
+            # ── Phase 2: Child streams — grouped into subfolders ──────
+            if child_keys:
+                await _log(f'Phase 2: Backing up {len(child_keys)} child stream(s)...')
+            grouping = _find_grouping_config(
+                child_keys, stream_map, root_keys_set, cascaded,
+            )
+
+            if grouping and child_keys:
+                config_field, plural_key, parent_stream_key = grouping
+                group_values = cascaded.get(plural_key) or []
+
+                for group_value in group_values:
+                    gv = str(group_value)
+                    display = display_names.get(parent_stream_key, {}).get(gv, gv)
+                    folder_label = sanitize_name(display)
+                    if folder_label not in subfolder_cache:
+                        subfolder_cache[folder_label] = await gdrive_create_folder(
+                            get_gdrive_token, folder_label,
+                            app_folder_id, drive_id=drive_id,
+                        )
+                    group_folder_id = subfolder_cache[folder_label]
+
+                    local = {**cascaded, config_field: gv}
+                    local.pop(plural_key, None)
+
+                    for child_key in child_keys:
+                        stream = ConnectorBindingValidationService.validate_connector_stream(
+                            connector.connector_key, child_key,
+                            capability='read', module_key='backup',
+                        )
+                        try:
+                            configs = _resolve_stream_configs(stream, local)
+                        except ValueError:
+                            continue
+
+                        for stream_config in configs:
+                            non_group = {
+                                k: v for k, v in stream_config.items()
+                                if k != config_field and v not in (None, '')
+                            }
+                            suffix = "_".join(str(v) for v in non_group.values())
+                            filename = sanitize_name(
+                                f"{child_key}{'_' + suffix if suffix else ''}.xlsx"
+                            )
+                            records, file_id = await _upload_stream(
+                                source_connector, child_key, stream, stream_config,
+                                group_folder_id, filename, get_gdrive_token, dest_type,
+                            )
+                            _cascade_ids(stream, records, local, stream_map)
+                            if stream.primary_key and records:
+                                display_names.setdefault(child_key, {}).update(
+                                    _build_display_name_map(records, stream.primary_key)
+                                )
+                            uploaded_files.append({
+                                'stream_key': child_key,
+                                'config': stream_config,
+                                'record_count': len(records),
+                                'file_id': file_id,
+                                'filename': filename,
+                                'folder': folder_label,
+                            })
+
+            elif child_keys:
+                # No grouping dimension — flat processing (legacy behaviour)
+                for child_key in child_keys:
+                    stream = ConnectorBindingValidationService.validate_connector_stream(
+                        connector.connector_key, child_key,
+                        capability='read', module_key='backup',
+                    )
+                    try:
+                        configs = _resolve_stream_configs(stream, cascaded)
+                    except ValueError:
+                        continue
+                    for stream_config in configs:
+                        suffix = "_".join(
+                            str(v) for v in stream_config.values()
+                            if v not in (None, '')
+                        )
+                        filename = sanitize_name(
+                            f"{child_key}{'_' + suffix if suffix else ''}.xlsx"
+                        )
+                        records, file_id = await _upload_stream(
+                            source_connector, child_key, stream, stream_config,
+                            app_folder_id, filename, get_gdrive_token, dest_type,
+                        )
+                        _cascade_ids(stream, records, cascaded, stream_map)
+                        uploaded_files.append({
+                            'stream_key': child_key,
+                            'config': stream_config,
+                            'record_count': len(records),
+                            'file_id': file_id,
+                            'filename': filename,
+                        })
 
             completed_at = datetime.utcnow()
             run.status = 'completed'

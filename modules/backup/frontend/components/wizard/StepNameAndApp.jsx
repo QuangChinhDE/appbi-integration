@@ -37,6 +37,10 @@ const StepNameAndApp = ({ wizard }) => {
     openWorkflowSelectorModal,
     weworkPreview, loadingWeworkPreview, selectedProjectIds,
     openWeworkSelectorModal,
+    requiresRequestSelection,
+    requiresServiceSelection,
+    requiresWorkflowSelection,
+    requiresWeworkSelection,
   } = wizard
   const isRequestSelected = selectedApp === 'request'
   const isServiceSelected = selectedApp === 'service'
@@ -305,7 +309,7 @@ const StepNameAndApp = ({ wizard }) => {
               </section>
             )}
 
-            {isRequestSelected && (
+            {isRequestSelected && requiresRequestSelection && (
               <div className="border border-[rgb(var(--border-line))] rounded-xl p-5 bg-surface-1 space-y-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -344,7 +348,7 @@ const StepNameAndApp = ({ wizard }) => {
                 {!sourceConnectionId ? (
                   <p className="text-tiny text-warning">Select a saved Request source first, then load the group list to choose what this flow will back up.</p>
                 ) : !requestPreview ? (
-                  <p className="text-tiny text-warning">Load the Request source preview to see the full list of groups available for backup.</p>
+                  <p className="text-tiny text-warning">Click "Load & Select" to load the available groups from this Request source.</p>
                 ) : selectedGroupIds.length === 0 ? (
                   <p className="text-tiny text-warning">Select at least one Request group before moving to the next step.</p>
                 ) : (
@@ -353,7 +357,7 @@ const StepNameAndApp = ({ wizard }) => {
               </div>
             )}
 
-            {isServiceSelected && (
+            {isServiceSelected && requiresServiceSelection && (
               <div className="border border-[rgb(var(--border-line))] rounded-xl p-5 bg-surface-1 space-y-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -383,6 +387,8 @@ const StepNameAndApp = ({ wizard }) => {
 
                 {!sourceConnectionId ? (
                   <p className="text-tiny text-warning">Select a saved Service source first, then load the service list to choose what this flow will back up.</p>
+                ) : !servicePreview ? (
+                  <p className="text-tiny text-warning">Click "Load & Select" to load the available services from this source.</p>
                 ) : selectedServiceIds.length === 0 ? (
                   <p className="text-tiny text-warning">Select at least one Service before moving to the next step.</p>
                 ) : (
@@ -391,7 +397,7 @@ const StepNameAndApp = ({ wizard }) => {
               </div>
             )}
 
-            {isWorkflowSelected && (
+            {isWorkflowSelected && requiresWorkflowSelection && (
               <div className="border border-[rgb(var(--border-line))] rounded-xl p-5 bg-surface-1 space-y-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -430,7 +436,7 @@ const StepNameAndApp = ({ wizard }) => {
                 {!sourceConnectionId ? (
                   <p className="text-tiny text-warning">Select a saved Workflow source first, then load the workflow list to choose what this flow will back up.</p>
                 ) : !workflowPreview ? (
-                  <p className="text-tiny text-warning">Load the Workflow source preview to see the full list of workflows available for backup.</p>
+                  <p className="text-tiny text-warning">Click "Load & Select" to load the available workflows from this source.</p>
                 ) : selectedWorkflowIds.length === 0 ? (
                   <p className="text-tiny text-warning">Select at least one Workflow before moving to the next step.</p>
                 ) : (
@@ -439,7 +445,7 @@ const StepNameAndApp = ({ wizard }) => {
               </div>
             )}
 
-            {isWeworkSelected && (
+            {isWeworkSelected && requiresWeworkSelection && (
               <div className="border border-[rgb(var(--border-line))] rounded-xl p-5 bg-surface-1 space-y-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -486,7 +492,7 @@ const StepNameAndApp = ({ wizard }) => {
                 {!sourceConnectionId ? (
                   <p className="text-tiny text-warning">Select a saved WeWork source first, then load the project list to choose what this flow will back up.</p>
                 ) : !weworkPreview ? (
-                  <p className="text-tiny text-warning">Load the WeWork source preview to see the full list of projects available for backup.</p>
+                  <p className="text-tiny text-warning">Click "Load & Select" to load the available projects from this WeWork source.</p>
                 ) : selectedProjectIds.length === 0 ? (
                   <p className="text-tiny text-warning">Select at least one WeWork project before moving to the next step.</p>
                 ) : (
