@@ -326,6 +326,7 @@ async def preview_workflow_source(payload: dict[str, Any]):
                 summary = {
                     "workflow_id": workflow_id,
                     "workflow_name": _workflow_preview_name(workflow),
+                    "workflow_data": dict(workflow),
                     "stage_count": None,
                     "job_count": None,
                     "detail_loaded": False,

@@ -84,10 +84,37 @@ export default function usePipelines() {
     }
   }, [fetchPipelines])
 
+  // ── Run / Stop ────────────────────────────────────────────────────────
+
+  const runPipeline = useCallback(async (pipelineId) => {
+    if (!pipelineId) return null
+    try {
+      const { data } = await api.post(`/api/pipeline/pipelines/${pipelineId}/run`)
+      message.success('Pipeline run queued')
+      return data
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to trigger pipeline')
+      return null
+    }
+  }, [])
+
+  const stopPipeline = useCallback(async (pipelineId) => {
+    if (!pipelineId) return null
+    try {
+      const { data } = await api.post(`/api/pipeline/pipelines/${pipelineId}/stop`)
+      message.success('Pipeline stop requested')
+      return data
+    } catch (err) {
+      message.error(err.response?.data?.detail || 'Failed to stop pipeline')
+      return null
+    }
+  }, [])
+
   return {
     pipelines, loadingPipelines, fetchPipelines,
     detailsPipeline, setDetailsPipeline, detailsRuns, setDetailsRuns, loadingDetails,
     fetchPipelineDetails,
     createPipeline, updatePipeline, deletePipeline,
+    runPipeline, stopPipeline,
   }
 }

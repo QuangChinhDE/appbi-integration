@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, Iterable, Protocol
@@ -19,6 +20,9 @@ from modules.backup.backend.extractors._helpers import build_excel_bytes, saniti
 from modules.connectors.apps.gdrive.common.constants import FOLDER_MIME
 
 
+_MAX_PARALLEL_GDRIVE_MUTATIONS = 6
+
+
 @dataclass(frozen=True)
 class BackupDestinationConfig:
     flow_id: str
@@ -32,7 +36,7 @@ class BackupDestinationConfig:
 class BackupDestinationWriter(Protocol):
     destination_type: str
 
-    async def prepare_app_folder(self) -> tuple[str, int]:
+    async def prepare_app_folder(self, *, reuse_existing: bool = False) -> tuple[str, int]:
         ...
 
     async def create_folder(self, name: str, parent_id: str) -> str:
@@ -54,6 +58,15 @@ class BackupDestinationWriter(Protocol):
     async def upload_text(self, folder_id: str, filename: str, text: str) -> str:
         ...
 
+    async def upload_bytes(
+        self,
+        folder_id: str,
+        filename: str,
+        content: bytes,
+        mime_type: str,
+    ) -> str:
+        ...
+
 
 class GoogleDriveBackupWriter:
     destination_type = 'gdrive'
@@ -61,8 +74,13 @@ class GoogleDriveBackupWriter:
     def __init__(self, get_token, config: BackupDestinationConfig):
         self._get_token = get_token
         self._config = config
+        self._mutation_sem = asyncio.Semaphore(_MAX_PARALLEL_GDRIVE_MUTATIONS)
 
-    async def prepare_app_folder(self) -> tuple[str, int]:
+    async def _run_mutation(self, operation):
+        async with self._mutation_sem:
+            return await operation()
+
+    async def prepare_app_folder(self, *, reuse_existing: bool = False) -> tuple[str, int]:
         app_folder_name = sanitize_name(self._config.app_folder_name)
         existing_folders = await gdrive_find_folders(
             self._get_token,
@@ -88,20 +106,40 @@ class GoogleDriveBackupWriter:
                     'for this backup flow to avoid overwriting another backup.'
                 )
 
-        return await gdrive_recreate_folder(
-            self._get_token,
-            app_folder_name,
-            self._config.root_folder_id,
-            drive_id=self._config.drive_id,
-        )
+        if reuse_existing:
+            if existing_folders:
+                return str(existing_folders[0]['id']), 0
+            async def create_folder() -> str:
+                return await gdrive_create_folder(
+                    self._get_token,
+                    app_folder_name,
+                    self._config.root_folder_id,
+                    drive_id=self._config.drive_id,
+                )
+
+            folder_id = await self._run_mutation(create_folder)
+            return folder_id, 0
+
+        async def recreate_folder() -> tuple[str, int]:
+            return await gdrive_recreate_folder(
+                self._get_token,
+                app_folder_name,
+                self._config.root_folder_id,
+                drive_id=self._config.drive_id,
+            )
+
+        return await self._run_mutation(recreate_folder)
 
     async def create_folder(self, name: str, parent_id: str) -> str:
-        return await gdrive_create_folder(
-            self._get_token,
-            sanitize_name(name),
-            parent_id,
-            drive_id=self._config.drive_id,
-        )
+        async def operation() -> str:
+            return await gdrive_create_folder(
+                self._get_token,
+                sanitize_name(name),
+                parent_id,
+                drive_id=self._config.drive_id,
+            )
+
+        return await self._run_mutation(operation)
 
     def get_folder_url(self, folder_id: str) -> str:
         return f'https://drive.google.com/drive/folders/{folder_id}'
@@ -116,23 +154,47 @@ class GoogleDriveBackupWriter:
     ) -> tuple[str, int]:
         df = pd.DataFrame(records or [])
         content = build_excel_bytes(df, hyperlink_columns=hyperlink_columns)
-        file_id = await gdrive_upload_tabular_bytes(
-            self._get_token,
-            filename,
-            content,
-            folder_id,
-            destination_type=self._config.destination_type,
-        )
+        async def operation() -> str:
+            return await gdrive_upload_tabular_bytes(
+                self._get_token,
+                filename,
+                content,
+                folder_id,
+                destination_type=self._config.destination_type,
+            )
+
+        file_id = await self._run_mutation(operation)
         return file_id, len(records or [])
 
     async def upload_text(self, folder_id: str, filename: str, text: str) -> str:
-        return await gdrive_upload_bytes(
-            self._get_token,
-            filename,
-            text.encode('utf-8'),
-            'text/plain',
-            folder_id,
-        )
+        async def operation() -> str:
+            return await gdrive_upload_bytes(
+                self._get_token,
+                filename,
+                text.encode('utf-8'),
+                'text/plain',
+                folder_id,
+            )
+
+        return await self._run_mutation(operation)
+
+    async def upload_bytes(
+        self,
+        folder_id: str,
+        filename: str,
+        content: bytes,
+        mime_type: str,
+    ) -> str:
+        async def operation() -> str:
+            return await gdrive_upload_bytes(
+                self._get_token,
+                filename,
+                content,
+                mime_type,
+                folder_id,
+            )
+
+        return await self._run_mutation(operation)
 
     async def _read_existing_manifest(self, app_folder_id: str) -> dict[str, Any] | None:
         common_folder = await self._find_named_child(app_folder_id, '0. Danh mục chung')

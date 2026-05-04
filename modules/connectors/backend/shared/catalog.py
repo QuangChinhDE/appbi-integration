@@ -1012,6 +1012,43 @@ CONNECTOR_REGISTRY: tuple[ConnectorDefinition, ...] = (
 )
 
 
+# ── Manifest overrides ────────────────────────────────────────────────────────
+# If an app ships a ``manifest.yaml`` next to its package, we replace the
+# hand-coded ConnectorDefinition above with the one synthesized from the
+# manifest. This keeps catalog.py small for apps that have moved to the
+# declarative runtime, while letting legacy apps stay as-is until ported.
+
+def _apply_manifest_overrides(registry: tuple[ConnectorDefinition, ...]) -> tuple[ConnectorDefinition, ...]:
+    # Lazy import to avoid a circular dependency with declarative_runtime.
+    from modules.connectors.backend.shared.manifest_loader import (
+        connector_definition_from_manifest,
+        register_all_manifests,
+    )
+
+    manifests = register_all_manifests()
+    if not manifests:
+        return registry
+
+    overridden: list[ConnectorDefinition] = []
+    seen_keys: set[str] = set()
+    for connector in registry:
+        manifest = manifests.get(connector.connector_key)
+        if manifest is not None:
+            overridden.append(connector_definition_from_manifest(manifest))
+            seen_keys.add(connector.connector_key)
+        else:
+            overridden.append(connector)
+            seen_keys.add(connector.connector_key)
+    # New manifests that don't match any existing entry are appended.
+    for key, manifest in manifests.items():
+        if key not in seen_keys:
+            overridden.append(connector_definition_from_manifest(manifest))
+    return tuple(overridden)
+
+
+CONNECTOR_REGISTRY = _apply_manifest_overrides(CONNECTOR_REGISTRY)
+
+
 # ── Lookup helpers ────────────────────────────────────────────────────────────
 
 def get_connector(connector_key: str) -> ConnectorDefinition | None:

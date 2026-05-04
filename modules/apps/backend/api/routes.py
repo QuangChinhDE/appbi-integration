@@ -83,14 +83,52 @@ async def list_app_credentials(
 @router.post("/api/apps/credentials", response_model=AppCredentialDetail, status_code=201)
 async def create_app_credential(
     payload: AppCredentialCreate,
+    verify: bool = Query(True, description="Run test_connection before committing; reject the credential on failure"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission('apps', 'edit')),
 ):
     service = AppCredentialService(db)
     try:
-        return await service.create_credential(payload, current_user)
+        detail = await service.create_credential(payload, current_user)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if not verify:
+        return detail
+
+    # Smoke-test the new credential; roll it back if the connector reports an error
+    # so we never persist credentials that are unusable.
+    runtime = ConnectorRuntimeService(db)
+    error_detail: Optional[str] = None
+    try:
+        connector = await runtime.build_connector_from_credential_id(detail.id)
+    except Exception as exc:
+        error_detail = f"Failed to initialise connector: {exc}"
+        connector = None
+
+    if connector is not None:
+        try:
+            result = await connector.test_connection()
+        except Exception as exc:
+            result = {"ok": False, "error": str(exc)}
+        finally:
+            if hasattr(connector, 'close'):
+                try:
+                    await connector.close()
+                except Exception:
+                    pass
+        if not result.get("ok"):
+            error_detail = str(result.get("error") or "Connection test failed")
+
+    if error_detail:
+        # Best-effort rollback of the credential row.
+        try:
+            await service.delete_credential(detail.id)
+        except Exception:
+            pass
+        raise HTTPException(status_code=400, detail=f"Connection test failed: {error_detail}")
+
+    return detail
 
 
 @router.get("/api/apps/credentials/{credential_id}", response_model=AppCredentialDetail)

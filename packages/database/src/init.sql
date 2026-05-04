@@ -167,13 +167,9 @@ CREATE TABLE IF NOT EXISTS app_credentials (
     name VARCHAR(255) NOT NULL,
     description VARCHAR(500),
     owner_id UUID REFERENCES users(id) ON DELETE SET NULL,
-    app_id VARCHAR(50) NOT NULL CHECK (
-        app_id IN ('request', 'workflow', 'wework', 'service', 'gdrive', 'gsheets')
-    ),
+    app_id VARCHAR(50) NOT NULL,
     app_name VARCHAR(100) NOT NULL,
-    auth_mode VARCHAR(50) NOT NULL CHECK (
-        auth_mode IN ('access_token', 'google_oauth', 'service_account')
-    ),
+    auth_mode VARCHAR(50) NOT NULL,
     auth JSONB NOT NULL,
     config JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,

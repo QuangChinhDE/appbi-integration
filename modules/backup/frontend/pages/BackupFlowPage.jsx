@@ -320,6 +320,23 @@ const BackupFlowPage = () => {
     )
   }
 
+  const handleRetryFailedFromDetail = () => {
+    const targetFlowId = detailsFlowId || detailsFlowRecord?.id
+    const source = backupFlows.detailsFlow?.source || {}
+    const normalizedRecord = {
+      id: targetFlowId,
+      app: source.app_id || detailsFlowRecord?.app || detailsFlowRecord?.source?.app_id,
+      run_blocked_reason: backupFlows.detailsFlow?.run_blocked_reason || detailsFlowRecord?.run_blocked_reason,
+    }
+    backupFlows.runFlow(
+      normalizedRecord,
+      {
+        retryFailedOnly: true,
+        onStarted: () => backupFlows.fetchFlowDetails(targetFlowId, { silent: true }),
+      },
+    )
+  }
+
   const handleStopFromDetail = () => {
     const targetFlowId = detailsFlowId || detailsFlowRecord?.id
     const source = backupFlows.detailsFlow?.source || {}
@@ -700,6 +717,7 @@ const BackupFlowPage = () => {
           onEdit={handleEditFromDetail}
           onRefresh={handleRefreshDetails}
           onRun={handleRunFromDetail}
+          onRetryFailed={handleRetryFailedFromDetail}
           onStop={handleStopFromDetail}
           onDelete={handleDeleteFromDetail}
           onShare={() => setShareTarget(backupFlows.detailsFlow || detailsFlowRecord)}

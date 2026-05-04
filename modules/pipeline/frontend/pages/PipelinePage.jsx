@@ -133,6 +133,24 @@ const PipelinePage = () => {
     await pipelinesHook.fetchPipelineDetails(detailsPipelineId)
   }
 
+  const handleRunPipeline = useCallback(async () => {
+    if (!detailsPipelineId) return
+    const result = await pipelinesHook.runPipeline(detailsPipelineId)
+    if (result) {
+      await pipelinesHook.fetchPipelineDetails(detailsPipelineId)
+      await pipelinesHook.fetchPipelines()
+    }
+  }, [detailsPipelineId, pipelinesHook])
+
+  const handleStopPipeline = useCallback(async () => {
+    if (!detailsPipelineId) return
+    const result = await pipelinesHook.stopPipeline(detailsPipelineId)
+    if (result) {
+      await pipelinesHook.fetchPipelineDetails(detailsPipelineId)
+      await pipelinesHook.fetchPipelines()
+    }
+  }, [detailsPipelineId, pipelinesHook])
+
   const handleStatusChange = useCallback(async (recordOrNull, newStatus) => {
     const record = recordOrNull || detailsPipelineRecord
     if (!record?.id) return
@@ -317,6 +335,8 @@ const PipelinePage = () => {
           onRefresh={handleRefreshDetails}
           onDelete={handleDeleteFromDetail}
           onStatusChange={(newStatus) => handleStatusChange(null, newStatus)}
+          onRun={handleRunPipeline}
+          onStop={handleStopPipeline}
         />
       ) : (
         <PipelineWizard

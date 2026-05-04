@@ -6,6 +6,7 @@ so all modules (backup, pipeline, automation) can share the same Drive helpers.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
@@ -55,6 +56,7 @@ def build_cached_token_provider(
     """Build a cached token provider with proactive refresh."""
     cached_token: Optional[str] = None
     cached_expiry: Optional[datetime] = None
+    refresh_lock = asyncio.Lock()
 
     async def provider(force_refresh: bool = False) -> str:
         nonlocal cached_token, cached_expiry
@@ -67,7 +69,16 @@ def build_cached_token_provider(
         )
 
         if force_refresh or cached_token is None or proactive_refresh:
-            cached_token, cached_expiry = await load_token(force_refresh or proactive_refresh)
+            async with refresh_lock:
+                expires_at = _normalize_expiry(cached_expiry)
+                proactive_refresh = (
+                    cached_token is not None
+                    and expires_at is not None
+                    and expires_at <= datetime.now(timezone.utc) + refresh_window
+                )
+
+                if force_refresh or cached_token is None or proactive_refresh:
+                    cached_token, cached_expiry = await load_token(force_refresh or proactive_refresh)
 
         if cached_token is None:
             raise GoogleDriveApiError("Google Drive access token could not be loaded")

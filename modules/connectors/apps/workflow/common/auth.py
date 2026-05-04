@@ -15,6 +15,8 @@ def normalize_workflow_domain(domain: str) -> str:
         cleaned = parsed.netloc or parsed.path
 
     cleaned = cleaned.split("/")[0].strip().strip(".")
+    if cleaned.startswith("workflow."):
+        cleaned = cleaned[len("workflow.") :]
     if not cleaned:
         raise ValueError("domain is invalid")
 
@@ -23,15 +25,15 @@ def normalize_workflow_domain(domain: str) -> str:
 
 def build_workflow_base_urls(domain: str) -> list[str]:
     normalized = normalize_workflow_domain(domain)
-    urls = [f"https://{normalized}{API_PREFIX}"]
-    if not normalized.startswith("workflow."):
-        urls.append(f"https://workflow.{normalized}{API_PREFIX}")
-    return urls
+    return [
+        f"https://workflow.{normalized}{API_PREFIX}",
+        f"https://{normalized}{API_PREFIX}",
+    ]
 
 
 class WorkflowCredentials(BaseModel):
     domain: str = Field(..., description="Workflow domain, e.g. company.base.com.vn")
-    access_token: str = Field(..., description="Workflow access token v2")
+    access_token: str = Field(..., description="Workflow API access token")
 
     @field_validator("domain")
     @classmethod

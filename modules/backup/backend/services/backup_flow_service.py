@@ -2,7 +2,7 @@ import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -685,9 +685,80 @@ class BackupFlowService:
         await self.db.refresh(flow)
         return await self.build_flow_response(flow, current_user)
 
+    @staticmethod
+    def _has_retryable_failures(failure_summary: Dict[str, Any] | None) -> bool:
+        if not failure_summary:
+            return False
+        return bool(
+            failure_summary.get('failed_job_count')
+            or failure_summary.get('failed_workflow_count')
+            or failure_summary.get('failed_jobs')
+            or failure_summary.get('failed_workflows')
+        )
+
+    async def _find_retry_source_run(self, flow_id: str) -> Optional[BackupFlowRun]:
+        result = await self.db.execute(
+            select(BackupFlowRun)
+            .where(
+                BackupFlowRun.flow_id == flow_id,
+                BackupFlowRun.status.in_(('completed', 'failed')),
+            )
+            .order_by(BackupFlowRun.started_at.desc())
+        )
+        for run in result.scalars():
+            details = dict(run.execution_details or {})
+            failure_summary = details.get('failure_summary')
+            if isinstance(failure_summary, dict) and self._has_retryable_failures(failure_summary):
+                return run
+        return None
+
+    @staticmethod
+    def _build_retry_context(retry_source_run: BackupFlowRun) -> Dict[str, Any]:
+        details = dict(retry_source_run.execution_details or {})
+        failure_summary = dict(details.get('failure_summary') or {})
+        failed_workflows = failure_summary.get('failed_workflows') or []
+        failed_jobs = failure_summary.get('failed_jobs') or []
+
+        workflow_ids: set[str] = set()
+        job_ids_by_workflow: Dict[str, List[str]] = {}
+
+        for item in failed_workflows:
+            if not isinstance(item, dict):
+                continue
+            workflow_id = str(item.get('workflow_id') or '').strip()
+            if workflow_id:
+                workflow_ids.add(workflow_id)
+
+        for item in failed_jobs:
+            if not isinstance(item, dict):
+                continue
+            workflow_id = str(item.get('workflow_id') or '').strip()
+            job_id = str(item.get('job_id') or '').strip()
+            if workflow_id:
+                workflow_ids.add(workflow_id)
+            if workflow_id and job_id:
+                job_ids = job_ids_by_workflow.setdefault(workflow_id, [])
+                if job_id not in job_ids:
+                    job_ids.append(job_id)
+
+        return {
+            'retry_failed_only': True,
+            'retry_source_run_id': str(retry_source_run.id),
+            'retry_context': {
+                'workflow_ids': sorted(workflow_ids),
+                'job_ids_by_workflow': job_ids_by_workflow,
+                'failed_job_count': int(failure_summary.get('failed_job_count') or len(failed_jobs)),
+                'failed_workflow_count': int(failure_summary.get('failed_workflow_count') or len(failed_workflows)),
+            },
+        }
+
     # ── Run triggering ───────────────────────────────────────────────────
     async def trigger_flow_run(
-        self, flow_id: str, triggered_by: str
+        self,
+        flow_id: str,
+        triggered_by: str,
+        *,
+        retry_failed_only: bool = False,
     ) -> Optional[BackupFlowRun]:
         flow = await self.db.get(BackupFlow, flow_id)
         if not flow:
@@ -706,10 +777,22 @@ class BackupFlowService:
 
         runner = get_backup_runner(source.app_id)
 
+        execution_details: Dict[str, Any] = {
+            'app': source.app_id,
+            'mode': f'{source.app_id}_backup',
+        }
+
+        if retry_failed_only:
+            retry_source_run = await self._find_retry_source_run(flow_id)
+            if retry_source_run is None:
+                raise ValueError('No previous backup run with retryable errors was found for this flow.')
+            execution_details.update(self._build_retry_context(retry_source_run))
+
         new_run = BackupFlowRun(
             flow_id=flow_id,
             status='pending',
             triggered_by=triggered_by,
+            execution_details=execution_details,
         )
         self.db.add(new_run)
         await self.db.commit()
@@ -717,7 +800,7 @@ class BackupFlowService:
 
         flow.last_run_at = new_run.started_at
         flow.last_run_status = 'running'
-        flow.last_run_message = 'Backup is starting'
+        flow.last_run_message = 'Retrying failed items' if retry_failed_only else 'Backup is starting'
         await self.db.commit()
 
         task = asyncio.create_task(runner(str(flow.id), str(new_run.id)))

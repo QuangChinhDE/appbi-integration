@@ -75,7 +75,14 @@ class ConnectorBindingValidationService:
             raise ValueError(f"Stream '{stream_key}' not found in connector '{connector_key}'")
         if capability not in stream.capabilities:
             raise ValueError(f"Stream '{stream_key}' in connector '{connector_key}' does not support '{capability}'")
-        if module_key and not stream.supports_module(module_key):
+        # Pipeline exposes every readable stream of a pipeline-capable connector,
+        # matching get_pipeline_source_streams / as_source_reader_payload. The
+        # supported_modules flag remains enforced for destinations and for
+        # non-pipeline modules (backup, automation).
+        skip_module_stream_check = (
+            module_key == 'pipeline' and capability == 'read'
+        )
+        if module_key and not skip_module_stream_check and not stream.supports_module(module_key):
             raise ValueError(
                 f"Stream '{stream_key}' in connector '{connector_key}' is not approved for the {module_key} module"
             )

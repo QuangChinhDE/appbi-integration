@@ -2,7 +2,7 @@ import React from 'react'
 import {
   ArrowLeft, ArrowRight, CheckCircle, Clock, Database,
   FolderKanban, Globe, Info, Loader2,
-  Pause, Pencil, Play, RefreshCw, Trash2, Workflow,
+  Pause, Pencil, Play, RefreshCw, Square, Trash2, Workflow,
 } from 'lucide-react'
 
 import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
@@ -63,12 +63,25 @@ function PipelineDetailView({
   onRefresh,
   onDelete,
   onStatusChange,
+  onRun,
+  onStop,
 }) {
   const pipeline = detailsPipeline
   const sourceMeta = getAppMeta(pipeline?.source_connector_key)
   const destMeta = getAppMeta(pipeline?.dest_connector_key)
   const statusVariant = PIPELINE_STATUS_VARIANT[pipeline?.status] || 'neutral'
   const statusLabel = PIPELINE_STATUS_LABEL[pipeline?.status] || pipeline?.status || 'Unknown'
+  const latestRun = detailsRuns?.[0]
+  const hasRunningRun = detailsRuns?.some((r) => r.status === 'pending' || r.status === 'running')
+  const canRun = Boolean(onRun) && !hasRunningRun && (pipeline?.status === 'draft' || pipeline?.status === 'active' || pipeline?.status === 'paused')
+  const canStop = Boolean(onStop) && hasRunningRun
+
+  // Auto-refresh while a run is in-flight so the UI streams log updates.
+  React.useEffect(() => {
+    if (!hasRunningRun || typeof onRefresh !== 'function') return undefined
+    const timer = setInterval(() => { onRefresh() }, 3000)
+    return () => clearInterval(timer)
+  }, [hasRunningRun, onRefresh])
 
   const footer = (
     <div className="flex w-full items-center justify-between gap-3">
@@ -87,6 +100,16 @@ function PipelineDetailView({
         >
           Refresh
         </Button>
+        {canRun && (
+          <Button variant="primary" size="md" onClick={onRun} leadingIcon={<Play className="h-4 w-4" />}>
+            Run now
+          </Button>
+        )}
+        {canStop && (
+          <Button variant="secondary" size="md" onClick={onStop} leadingIcon={<Square className="h-4 w-4" />} className="text-danger">
+            Stop run
+          </Button>
+        )}
         {pipeline?.status === 'draft' && (
           <Button variant="primary" size="md" onClick={() => onStatusChange('active')} leadingIcon={<Play className="h-4 w-4" />}>
             Activate
@@ -323,6 +346,13 @@ function PipelineDetailView({
                             <Info className="mt-0.5 h-3 w-3 shrink-0 text-danger" />
                             <span className="text-tiny leading-relaxed text-danger">{run.error_message}</span>
                           </div>
+                        )}
+
+                        {isLatest && run.logs && (
+                          <details className="mt-2 rounded-md bg-surface-2 px-3 py-2" open={run.status === 'running'}>
+                            <summary className="cursor-pointer text-tiny font-emphasis text-text-tertiary">View logs</summary>
+                            <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap text-tiny leading-relaxed text-text-secondary">{run.logs}</pre>
+                          </details>
                         )}
                       </div>
 

@@ -344,6 +344,11 @@ async def _ensure_app_credential_registry_constraints(db: AsyncSession) -> bool:
 
     await db.execute(text("ALTER TABLE app_credentials DROP CONSTRAINT IF EXISTS check_app_credential_app_id"))
     await db.execute(text("ALTER TABLE app_credentials DROP CONSTRAINT IF EXISTS check_app_credential_auth_mode"))
+    # Postgres auto-named CHECK constraints created by older init.sql revisions.
+    # The app registry (modules/apps) is now the source of truth for valid app_id / auth_mode values,
+    # so we drop these hard-coded allowlists to let new apps (e.g. bigquery) register without schema churn.
+    await db.execute(text("ALTER TABLE app_credentials DROP CONSTRAINT IF EXISTS app_credentials_app_id_check"))
+    await db.execute(text("ALTER TABLE app_credentials DROP CONSTRAINT IF EXISTS app_credentials_auth_mode_check"))
     return True
 
 

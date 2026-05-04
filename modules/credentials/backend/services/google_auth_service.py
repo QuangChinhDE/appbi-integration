@@ -28,6 +28,7 @@ GOOGLE_DRIVE_API = "https://www.googleapis.com/drive/v3"
 SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/bigquery",
     "email",
     "profile",
     "openid",
@@ -36,6 +37,7 @@ SCOPES = [
 SERVICE_ACCOUNT_SCOPES = [
     "https://www.googleapis.com/auth/drive",
     "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/bigquery",
 ]
 
 ACCESS_TOKEN_RENEWAL_WINDOW = timedelta(minutes=5)

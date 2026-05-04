@@ -141,8 +141,10 @@ export default function useBackupFlows() {
       return false
     }
     try {
-      const res = await api.post(`/api/backup-flows/${record.id}/run`)
-      message.success('Backup flow started')
+      const res = await api.post(`/api/backup-flows/${record.id}/run`, null, {
+        params: options.retryFailedOnly ? { retry_failed_only: true } : undefined,
+      })
+      message.success(options.retryFailedOnly ? 'Retry for failed items started' : 'Backup flow started')
       await fetchFlows({ silent: true })
       if (typeof options.onStarted === 'function') await options.onStarted(res.data)
       return true

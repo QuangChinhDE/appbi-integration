@@ -148,6 +148,19 @@ function getRunModeLabel(run) {
 }
 
 
+function getRunFailureSummary(run) {
+  const summary = run?.execution_details?.failure_summary
+  return summary && typeof summary === 'object' ? summary : null
+}
+
+
+function hasRetryableFailures(run) {
+  const summary = getRunFailureSummary(run)
+  if (!summary) return false
+  return Number(summary.failed_job_count || 0) > 0 || Number(summary.failed_workflow_count || 0) > 0
+}
+
+
 function getLogEntryStage(message) {
   const normalized = String(message || '').toLowerCase()
   if (!normalized) return { label: 'System', tone: 'neutral' }
@@ -235,6 +248,7 @@ function RunLogDetailModal({ run, appId, onClose }) {
   const summary = React.useMemo(() => getBackupRunSummary(run, appId), [appId, run])
   const modeLabel = getRunModeLabel(run)
   const latestLine = getRunLatestLogLine(run)
+  const failureSummary = React.useMemo(() => getRunFailureSummary(run), [run])
 
   return (
     <AppModalShell
@@ -295,6 +309,15 @@ function RunLogDetailModal({ run, appId, onClose }) {
                 {summary && <div><span className="font-emphasis text-text-secondary">Summary:</span> {summary}</div>}
                 {modeLabel && <div><span className="font-emphasis text-text-secondary">Mode:</span> {modeLabel}</div>}
                 <div><span className="font-emphasis text-text-secondary">Uploaded files:</span> {uploadedFiles.length}</div>
+                {Number(failureSummary?.failed_workflow_count || 0) > 0 && (
+                  <div className="text-warning"><span className="font-emphasis">Failed workflows:</span> {failureSummary.failed_workflow_count}</div>
+                )}
+                {Number(failureSummary?.failed_job_count || 0) > 0 && (
+                  <div className="text-danger"><span className="font-emphasis">Failed jobs:</span> {failureSummary.failed_job_count}</div>
+                )}
+                {run?.execution_details?.retry_source_run_id && (
+                  <div><span className="font-emphasis text-text-secondary">Retry source run:</span> #{String(run.execution_details.retry_source_run_id).slice(0, 8)}</div>
+                )}
                 {latestLine && <div><span className="font-emphasis text-text-secondary">Latest event:</span> {latestLine}</div>}
                 {run?.error_message && <div className="text-danger"><span className="font-emphasis">Error:</span> {run.error_message}</div>}
               </div>
@@ -390,6 +413,7 @@ function FlowDetailView({
   onEdit,
   onRefresh,
   onRun,
+  onRetryFailed,
   onStop,
   onDelete,
   onShare,
@@ -430,7 +454,19 @@ function FlowDetailView({
   const accessMeta = getAccessMeta(resourcePermission)
   const hasActiveRun = detailsRuns.some((run) => isBackupRunActive(run.status))
     || isBackupRunActive(detailsFlow?.last_run_status || detailsFlowRecord?.last_run_status)
+  const latestFinishedRun = detailsRuns.find((run) => !isBackupRunActive(run.status)) || null
+  const latestFailedRun = latestFinishedRun && String(latestFinishedRun.status || '').toLowerCase() === 'failed'
+    ? latestFinishedRun
+    : null
+  const latestRetryableRun = latestFinishedRun && hasRetryableFailures(latestFinishedRun)
+    ? latestFinishedRun
+    : null
+  const latestFailureSummary = latestRetryableRun ? getRunFailureSummary(latestRetryableRun) : null
+  const latestFreshRunMessage = latestFailedRun && !latestRetryableRun
+    ? (latestFailedRun.error_message || 'Latest run failed before a retry candidate list was recorded. Use Run again to start a fresh run.')
+    : null
   const runDisabled = !supportsRun || !isPublished || Boolean(runBlockedReason) || hasActiveRun
+  const retryDisabled = runDisabled || !latestRetryableRun
   const isStopping = stoppingFlowId === (detailsFlowId || detailsFlowRecord?.id)
 
   const footer = (
@@ -474,6 +510,27 @@ function FlowDetailView({
             {isStopping ? 'Stopping...' : 'Stop run'}
           </Button>
         )}
+        {resourcePerms.canEdit && latestRetryableRun && (
+          <Button
+            variant="secondary"
+            size="md"
+            disabled={retryDisabled}
+            onClick={onRetryFailed}
+            title={
+              runBlockedReason
+              || (hasActiveRun
+                ? 'A backup is already running'
+                : !supportsRun
+                  ? 'Run is not configured for this app'
+                  : !isPublished
+                    ? 'Publish the flow first'
+                    : 'Retry only the workflow/job items that failed in the latest finished run')
+            }
+            leadingIcon={<RefreshCw className="h-4 w-4" />}
+          >
+            Retry failed only
+          </Button>
+        )}
         {resourcePerms.canEdit && (
           <Button
             variant="primary"
@@ -492,7 +549,7 @@ function FlowDetailView({
             }
             leadingIcon={<Play className="h-4 w-4" />}
           >
-            Run now
+            {latestFailedRun && !hasActiveRun ? 'Run again' : 'Run now'}
           </Button>
         )}
       </div>
@@ -569,6 +626,34 @@ function FlowDetailView({
               {runBlockedReason && (
                 <div className="mt-3">
                   <Alert type="warning" message="Run blocked" description={runBlockedReason} />
+                </div>
+              )}
+
+              {latestFailureSummary && (
+                <div className="mt-3">
+                  <Alert
+                    type="warning"
+                    message="Latest run has retryable gaps"
+                    description={[
+                      Number(latestFailureSummary.failed_workflow_count || 0) > 0
+                        ? `${latestFailureSummary.failed_workflow_count} workflow issue(s)`
+                        : null,
+                      Number(latestFailureSummary.failed_job_count || 0) > 0
+                        ? `${latestFailureSummary.failed_job_count} job issue(s)`
+                        : null,
+                      'Use Retry failed only to rerun just the recorded failures into a dedicated retry branch.',
+                    ].filter(Boolean).join(' · ')}
+                  />
+                </div>
+              )}
+
+              {latestFreshRunMessage && (
+                <div className="mt-3">
+                  <Alert
+                    type="info"
+                    message="Latest failed run needs a fresh restart"
+                    description={`${latestFreshRunMessage} Use Run again to start a new full run.`}
+                  />
                 </div>
               )}
 
@@ -683,6 +768,9 @@ function FlowDetailView({
                       const summary = getBackupRunSummary(run, detailsFlowRecord?.app || sourceAppId)
                       const modeLabel = getRunModeLabel(run)
                       const uploadedFiles = getRunUploadedFiles(run)
+                      const failureSummary = getRunFailureSummary(run)
+                      const failedWorkflowCount = Number(failureSummary?.failed_workflow_count || 0)
+                      const failedJobCount = Number(failureSummary?.failed_job_count || 0)
 
                       return (
                         <tr key={run.id} className="hover:bg-surface-2/70">
@@ -715,6 +803,8 @@ function FlowDetailView({
                             <div className="mt-2 flex flex-wrap gap-1">
                               {modeLabel && <Badge variant="neutral" size="xs">{modeLabel}</Badge>}
                               {uploadedFiles.length > 0 && <Badge variant="info" size="xs">{uploadedFiles.length} files</Badge>}
+                              {failedWorkflowCount > 0 && <Badge variant="warning" size="xs">{failedWorkflowCount} workflows lỗi</Badge>}
+                              {failedJobCount > 0 && <Badge variant="danger" size="xs">{failedJobCount} jobs lỗi</Badge>}
                               {run.triggered_by && <Badge variant="outline" size="xs">{run.triggered_by}</Badge>}
                             </div>
                           </td>

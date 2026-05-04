@@ -35,6 +35,8 @@ from modules.connectors.apps.wework.connector import WeworkConnector
 from modules.connectors.apps.workflow.common.auth import WorkflowCredentials
 from modules.connectors.apps.workflow.connector import WorkflowConnector
 from modules.connectors.backend.shared.catalog import get_connector
+from modules.connectors.backend.shared.declarative_runtime import DeclarativeRestConnector
+from modules.connectors.backend.shared.manifest_loader import get_manifest
 from modules.credentials.backend.services.google_auth_service import (
     AppConfigService,
     GoogleAuthService,
@@ -141,6 +143,25 @@ class ConnectorRuntimeService:
     async def build_connector(self, binding: ConnectorRuntimeBinding) -> BaseConnector:
         app_id = binding.credential.app_id
 
+        # Declarative-manifest connectors take priority over any hand-coded
+        # runtime: once an app ships a manifest.yaml, the YAML is the source
+        # of truth for endpoints, pagination, and schema.
+        manifest = get_manifest(app_id)
+        if manifest is not None:
+            definition = get_connector(app_id)
+            if definition is None:
+                raise ValueError(f"Manifest for '{app_id}' has no catalog entry")
+            token_provider = None
+            if manifest.auth.type in ('google_oauth', 'service_account'):
+                token_provider = self._build_google_token_provider(binding.auth)
+            return DeclarativeRestConnector(
+                manifest=manifest,
+                definition=definition,
+                auth=binding.auth,
+                config=binding.config,
+                token_provider=token_provider,
+            )
+
         if app_id in BASE_CONNECTOR_BUILDERS:
             connector_cls, credentials_cls, field_names = BASE_CONNECTOR_BUILDERS[app_id]
             payload = {
@@ -159,6 +180,7 @@ class ConnectorRuntimeService:
             return GoogleSheetsConnector(token_source)
 
         if app_id == 'bigquery':
+            await self._require_bigquery_scope(binding)
             token_source = self._build_google_token_provider(binding.auth)
             credentials = await self._build_bigquery_credentials(binding)
             return BigQueryConnector(token_source, credentials)
@@ -217,4 +239,34 @@ class ConnectorRuntimeService:
             dataset_id=config.get('dataset_id'),
             connection_id=auth.get('connection_id'),
             service_account_info=await self._resolve_service_account_info(auth),
+        )
+
+    async def _require_bigquery_scope(self, binding: ConnectorRuntimeBinding) -> None:
+        """Fail fast if the selected Google OAuth connection was granted before
+        the BigQuery scope was added. The token itself is still valid, but
+        BigQuery will respond with 403 "insufficient authentication scopes".
+        """
+        auth = dict(binding.auth or {})
+        mode = auth.get('auth_mode') or binding.credential.auth_mode
+        if mode != 'google_oauth':
+            return
+        connection_id = auth.get('connection_id') or auth.get('google_oauth_connection_id')
+        if not connection_id:
+            return
+        from packages.database.src.models import GoogleConnection
+        from sqlalchemy import select
+        result = await self.db.execute(
+            select(GoogleConnection).where(GoogleConnection.id == connection_id)
+        )
+        conn = result.scalar_one_or_none()
+        if conn is None:
+            return
+        granted = (conn.scopes or '').lower()
+        if 'bigquery' in granted:
+            return
+        raise ValueError(
+            f"Google account '{conn.email}' was connected before BigQuery access "
+            "was enabled on this platform. Please reconnect the Google account "
+            "(Credentials → Google connections → Disconnect then Connect again) "
+            "and grant the BigQuery permission on the consent screen."
         )

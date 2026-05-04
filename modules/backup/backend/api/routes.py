@@ -1,6 +1,6 @@
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.backup.backend.services.backup_flow_service import BackupFlowService
@@ -229,6 +229,10 @@ async def publish_backup_flow(
 async def run_backup_flow(
     flow_id: str,
     triggered_by: str = "manual",
+    retry_failed_only: bool = Query(
+        False,
+        description="Retry only the workflow/job items that were recorded as failed in the latest retryable run.",
+    ),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_permission('backup', 'edit')),
 ):
@@ -243,7 +247,11 @@ async def run_backup_flow(
         if not flow:
             raise HTTPException(status_code=404, detail="Backup flow not found")
         await require_edit_access(db, current_user, flow, resource_type=ResourceType.BACKUP_FLOW)
-        run = await service.trigger_flow_run(flow_id, triggered_by or current_user.email)
+        run = await service.trigger_flow_run(
+            flow_id,
+            triggered_by or current_user.email,
+            retry_failed_only=retry_failed_only,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not run:
@@ -253,6 +261,8 @@ async def run_backup_flow(
         "run_id": str(run.id),
         "flow_id": str(run.flow_id),
         "status": run.status,
+        "retry_failed_only": retry_failed_only,
+        "retry_source_run_id": (run.execution_details or {}).get("retry_source_run_id"),
         "message": "Backup flow triggered successfully",
     }
 

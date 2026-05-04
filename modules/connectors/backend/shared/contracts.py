@@ -243,11 +243,15 @@ class ConnectorDefinition:
         )
 
     def get_pipeline_source_streams(self) -> tuple[StreamDefinition, ...]:
-        """Readable streams approved for pipeline (flat structured rows)."""
-        return tuple(
-            s for s in self.streams
-            if s.can_read and s.supports_module('pipeline')
-        )
+        """Readable streams exposed to the Pipeline wizard.
+
+        Policy: every readable stream is pickable — the pipeline wizard lets
+        the user supply the required `config_fields` (e.g. workflow_id) so
+        parent-scoped endpoints (stages, posts, comments, ticket_details, …)
+        are valid sources as long as the user provides the parent id. This
+        matches the Airbyte-style "any endpoint is a stream" model.
+        """
+        return tuple(s for s in self.streams if s.can_read)
 
     def get_pipeline_destination_streams(self) -> tuple[StreamDefinition, ...]:
         """Streams that are valid pipeline destinations.
@@ -297,10 +301,14 @@ class ConnectorDefinition:
         credential_count: int = 0,
         module_key: str = 'pipeline',
     ) -> dict[str, Any]:
-        readable = tuple(
-            s for s in self.get_readable_streams()
-            if s.supports_module(module_key)
-        )
+        if module_key == 'pipeline':
+            # Pipeline exposes every readable stream. See get_pipeline_source_streams.
+            readable = self.get_pipeline_source_streams()
+        else:
+            readable = tuple(
+                s for s in self.get_readable_streams()
+                if s.supports_module(module_key)
+            )
         all_sync_modes: set[str] = set()
         for s in readable:
             all_sync_modes.update(s.sync_modes)

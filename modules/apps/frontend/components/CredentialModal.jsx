@@ -1,12 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { ArrowLeft, Search, Sparkles } from 'lucide-react'
 
-import { APP_CATALOG, DESTINATION_APP_IDS, SOURCE_APP_IDS, getAppMeta } from '@modules/apps/frontend/constants'
+import { APP_CATALOG, getAppMeta } from '@modules/apps/frontend/constants'
 import AppModalShell from '@packages/ui/src/components/common/AppModalShell'
 import { Button, FilterTag, Input } from '@packages/ui/src/components/common/ui'
 
-import GoogleCredentialForm from './GoogleCredentialForm'
-import SourceCredentialForm from './SourceCredentialForm'
+import { getCredentialFormForApp } from './credentialFormRegistry'
 
 
 const ROLE_META = {
@@ -152,23 +151,19 @@ function CredentialModal({ open, appId: initialAppId = null, editingId = null, o
           )}
 
           <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
-            {SOURCE_APP_IDS.has(appId) ? (
-              <SourceCredentialForm
-                ref={formRef}
-                appId={appId}
-                editingId={editingId}
-                onSaved={onSaved}
-                onSavingChange={setSaving}
-              />
-            ) : DESTINATION_APP_IDS.has(appId) ? (
-              <GoogleCredentialForm
-                ref={formRef}
-                appId={appId}
-                editingId={editingId}
-                onSaved={onSaved}
-                onSavingChange={setSaving}
-              />
-            ) : null}
+            {(() => {
+              const FormComponent = getCredentialFormForApp(appId)
+              if (!FormComponent) return null
+              return (
+                <FormComponent
+                  ref={formRef}
+                  appId={appId}
+                  editingId={editingId}
+                  onSaved={onSaved}
+                  onSavingChange={setSaving}
+                />
+              )
+            })()}
           </div>
         </div>
       )}
