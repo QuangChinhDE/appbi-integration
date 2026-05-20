@@ -3,7 +3,7 @@ import { Database, Pencil, Plug, Plus, Search, Share2, Trash2 } from 'lucide-rea
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import api from '@shared/api/client'
-import { APP_CATALOG, getAppMeta } from '@modules/apps/frontend/constants'
+import { APP_CATALOG, DESTINATION_APP_IDS, getAppMeta } from '@modules/apps/frontend/constants'
 import ShareDialog from '@modules/identity/frontend/components/ShareDialog'
 import { hasPermission } from '@modules/identity/frontend/lib/permissions'
 import { getListAccessMeta, getResourcePermissions } from '@modules/identity/frontend/lib/resourcePermissions'
@@ -18,7 +18,6 @@ import AppLayout from '@packages/ui/src/components/layout/AppLayout'
 import CredentialModal from '@modules/apps/frontend/components/CredentialModal'
 
 
-const GOOGLE_APP_IDS = new Set(['gdrive', 'gsheets'])
 const APP_CREDENTIAL_RESOURCE_TYPE = 'app_credential'
 
 const ROLE_FILTER_META = {
@@ -99,9 +98,9 @@ function sortCredentialEntries(entries, sortKey) {
 
 function normalizeCredentialEntry(credential) {
   const preview = credential.preview || {}
-  const isGoogle = GOOGLE_APP_IDS.has(credential.app_id)
+  const isDestination = DESTINATION_APP_IDS.has(credential.app_id)
   const meta = getAppMeta(credential.app_id)
-  const roleKey = isGoogle ? 'destination' : 'source'
+  const roleKey = isDestination ? 'destination' : 'source'
   const roleMeta = ROLE_FILTER_META[roleKey]
 
   const appTitle = credential.app_name || meta?.title || credential.app_id
@@ -110,12 +109,12 @@ function normalizeCredentialEntry(credential) {
   const permissions = getResourcePermissions(credential.user_permission)
   const accessMeta = getListAccessMeta(credential.user_permission)
 
-  if (!isGoogle) {
+  if (!isDestination) {
     return {
       registryKey: `credential-${credential.id}`,
       id: String(credential.id),
       appId: credential.app_id,
-      isGoogle: false,
+      isDestination: false,
       title: credential.name,
       description: credential.description || '',
       appTitle,
@@ -147,7 +146,11 @@ function normalizeCredentialEntry(credential) {
     }
   }
 
-  const authLabel = credential.auth_mode === 'service_account' ? 'Service account' : 'Sign in'
+  const authLabel = credential.app_id === 'onedrive'
+    ? 'Access token'
+    : credential.auth_mode === 'service_account'
+      ? 'Service account'
+      : 'Sign in'
   const locationBits = [preview.folder_name, preview.drive_name].filter(Boolean)
   const connectionLabel = preview.display_name || preview.email || null
 
@@ -155,7 +158,7 @@ function normalizeCredentialEntry(credential) {
     registryKey: `credential-${credential.id}`,
     id: String(credential.id),
     appId: credential.app_id,
-    isGoogle: true,
+    isDestination: true,
     title: credential.name,
     description: credential.description || '',
     appTitle,
@@ -212,7 +215,7 @@ function CredentialFilterTags({ entry, filters, queryAppId, onToggleFilter }) {
   return (
     <div className="flex flex-wrap gap-1.5">
       <FilterTag
-        tone={entry.isGoogle ? 'brand' : 'info'}
+        tone={entry.isDestination ? 'brand' : 'info'}
         active={appTagActive}
         {...(appTagStatic
           ? { as: 'span' }

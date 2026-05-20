@@ -7,33 +7,34 @@ from uuid import UUID
 from modules.connectors.apps.base_connector import BaseConnector
 from modules.connectors.apps.bigquery.common.auth import BigQueryCredentials
 from modules.connectors.apps.bigquery.connector import BigQueryConnector
-from modules.connectors.apps.crm.common.auth import CrmCredentials
-from modules.connectors.apps.crm.connector import CrmConnector
+from modules.connectors.apps.base_crm.common.auth import CrmCredentials
+from modules.connectors.apps.base_crm.connector import CrmConnector
 from modules.connectors.apps.gdrive.common.auth import GoogleDriveCredentials
 from modules.connectors.apps.gdrive.connector import GoogleDriveConnector
-from modules.connectors.apps.goal.common.auth import GoalCredentials
-from modules.connectors.apps.goal.connector import GoalConnector
+from modules.connectors.apps.base_goal.common.auth import GoalCredentials
+from modules.connectors.apps.base_goal.connector import GoalConnector
 from modules.connectors.apps.gsheets.connector import GoogleSheetsConnector
-from modules.connectors.apps.hrm.common.auth import HrmCredentials
-from modules.connectors.apps.hrm.connector import HrmConnector
-from modules.connectors.apps.income.common.auth import IncomeCredentials
-from modules.connectors.apps.income.connector import IncomeConnector
-from modules.connectors.apps.meeting.common.auth import MeetingCredentials
-from modules.connectors.apps.meeting.connector import MeetingConnector
-from modules.connectors.apps.payroll.common.auth import PayrollCredentials
-from modules.connectors.apps.payroll.connector import PayrollConnector
-from modules.connectors.apps.request.common.auth import RequestCredentials
-from modules.connectors.apps.request.connector import RequestConnector
-from modules.connectors.apps.service.common.auth import ServiceCredentials
-from modules.connectors.apps.service.connector import ServiceConnector
-from modules.connectors.apps.table.common.auth import TableCredentials
-from modules.connectors.apps.table.connector import TableConnector
-from modules.connectors.apps.timeoff.common.auth import TimeoffCredentials
-from modules.connectors.apps.timeoff.connector import TimeoffConnector
-from modules.connectors.apps.wework.common.auth import WeworkCredentials
-from modules.connectors.apps.wework.connector import WeworkConnector
-from modules.connectors.apps.workflow.common.auth import WorkflowCredentials
-from modules.connectors.apps.workflow.connector import WorkflowConnector
+from modules.connectors.apps.base_hrm.common.auth import HrmCredentials
+from modules.connectors.apps.base_hrm.connector import HrmConnector
+from modules.connectors.apps.base_income.common.auth import IncomeCredentials
+from modules.connectors.apps.base_income.connector import IncomeConnector
+from modules.connectors.apps.base_meeting.common.auth import MeetingCredentials
+from modules.connectors.apps.base_meeting.connector import MeetingConnector
+from modules.connectors.apps.base_payroll.common.auth import PayrollCredentials
+from modules.connectors.apps.base_payroll.connector import PayrollConnector
+from modules.connectors.apps.base_request.common.auth import RequestCredentials
+from modules.connectors.apps.base_request.connector import RequestConnector
+from modules.connectors.apps.base_service.common.auth import ServiceCredentials
+from modules.connectors.apps.base_service.connector import ServiceConnector
+from modules.connectors.apps.base_table.common.auth import TableCredentials
+from modules.connectors.apps.base_table.connector import TableConnector
+from modules.connectors.apps.base_timeoff.common.auth import TimeoffCredentials
+from modules.connectors.apps.base_timeoff.connector import TimeoffConnector
+from modules.connectors.apps.base_wework.common.auth import WeworkCredentials
+from modules.connectors.apps.base_wework.connector import WeworkConnector
+from modules.connectors.apps.base_workflow.common.auth import WorkflowCredentials
+from modules.connectors.apps.base_workflow.connector import WorkflowConnector
+from modules.connectors.apps._packages import canonical_connector_key
 from modules.connectors.backend.shared.catalog import get_connector
 from modules.connectors.backend.shared.declarative_runtime import DeclarativeRestConnector
 from modules.connectors.backend.shared.manifest_loader import get_manifest
@@ -48,18 +49,18 @@ from packages.database.src.models import AppCredential
 
 
 BASE_CONNECTOR_BUILDERS: dict[str, tuple[type[BaseConnector], type[Any], tuple[str, ...]]] = {
-    'request': (RequestConnector, RequestCredentials, ('domain', 'access_token')),
-    'workflow': (WorkflowConnector, WorkflowCredentials, ('domain', 'access_token')),
-    'wework': (WeworkConnector, WeworkCredentials, ('domain', 'access_token')),
-    'service': (ServiceConnector, ServiceCredentials, ('domain', 'access_token')),
-    'crm': (CrmConnector, CrmCredentials, ('domain', 'access_token', 'password')),
-    'hrm': (HrmConnector, HrmCredentials, ('domain', 'access_token')),
-    'table': (TableConnector, TableCredentials, ('domain', 'access_token')),
-    'goal': (GoalConnector, GoalCredentials, ('domain', 'access_token')),
-    'income': (IncomeConnector, IncomeCredentials, ('domain', 'access_token')),
-    'meeting': (MeetingConnector, MeetingCredentials, ('domain', 'access_token')),
-    'payroll': (PayrollConnector, PayrollCredentials, ('domain', 'access_token')),
-    'timeoff': (TimeoffConnector, TimeoffCredentials, ('domain', 'access_token')),
+    'base_request': (RequestConnector, RequestCredentials, ('domain', 'access_token')),
+    'base_workflow': (WorkflowConnector, WorkflowCredentials, ('domain', 'access_token')),
+    'base_wework': (WeworkConnector, WeworkCredentials, ('domain', 'access_token')),
+    'base_service': (ServiceConnector, ServiceCredentials, ('domain', 'access_token')),
+    'base_crm': (CrmConnector, CrmCredentials, ('domain', 'access_token', 'password')),
+    'base_hrm': (HrmConnector, HrmCredentials, ('domain', 'access_token')),
+    'base_table': (TableConnector, TableCredentials, ('domain', 'access_token')),
+    'base_goal': (GoalConnector, GoalCredentials, ('domain', 'access_token')),
+    'base_income': (IncomeConnector, IncomeCredentials, ('domain', 'access_token')),
+    'base_meeting': (MeetingConnector, MeetingCredentials, ('domain', 'access_token')),
+    'base_payroll': (PayrollConnector, PayrollCredentials, ('domain', 'access_token')),
+    'base_timeoff': (TimeoffConnector, TimeoffCredentials, ('domain', 'access_token')),
 }
 
 
@@ -97,7 +98,8 @@ class ConnectorRuntimeService:
         overrides_auth: Mapping[str, Any] | None = None,
         overrides_config: Mapping[str, Any] | None = None,
     ) -> ConnectorRuntimeBinding:
-        connector = get_connector(credential.app_id)
+        app_id = canonical_connector_key(credential.app_id)
+        connector = get_connector(app_id)
         if connector is None:
             raise ValueError(f"Connector '{credential.app_id}' is not registered")
 
@@ -115,7 +117,7 @@ class ConnectorRuntimeService:
                 if raw_value in (None, '') and encrypted:
                     target[field.name] = decrypt_value(encrypted)
 
-        if credential.app_id in {'gdrive', 'gsheets', 'bigquery'}:
+        if app_id in {'gdrive', 'gsheets', 'bigquery'}:
             auth['auth_mode'] = resolve_destination_google_auth_mode(
                 {**auth, **{k: v for k, v in config.items() if k not in auth}}
             )
@@ -141,7 +143,7 @@ class ConnectorRuntimeService:
         return await self.build_connector(binding)
 
     async def build_connector(self, binding: ConnectorRuntimeBinding) -> BaseConnector:
-        app_id = binding.credential.app_id
+        app_id = canonical_connector_key(binding.credential.app_id)
 
         # Declarative-manifest connectors take priority over any hand-coded
         # runtime: once an app ships a manifest.yaml, the YAML is the source

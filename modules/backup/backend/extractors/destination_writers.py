@@ -17,10 +17,21 @@ from modules.backup.backend.extractors._gdrive import (
     gdrive_upload_tabular_bytes,
 )
 from modules.backup.backend.extractors._helpers import build_excel_bytes, sanitize_name
-from modules.connectors.apps.gdrive.common.constants import FOLDER_MIME
+from modules.backup.backend.extractors._onedrive import (
+    onedrive_create_folder,
+    onedrive_download_bytes,
+    onedrive_find_folders,
+    onedrive_list_files,
+    onedrive_recreate_folder,
+    onedrive_upload_bytes,
+    onedrive_upload_tabular_bytes,
+)
+from modules.connectors.apps.gdrive.common.constants import FOLDER_MIME as GDRIVE_FOLDER_MIME
+from modules.connectors.apps.onedrive.common.constants import FOLDER_MIME as ONEDRIVE_FOLDER_MIME
 
 
 _MAX_PARALLEL_GDRIVE_MUTATIONS = 6
+_MAX_PARALLEL_ONEDRIVE_MUTATIONS = 6
 
 
 @dataclass(frozen=True)
@@ -198,7 +209,7 @@ class GoogleDriveBackupWriter:
 
     async def _read_existing_manifest(self, app_folder_id: str) -> dict[str, Any] | None:
         common_folder = await self._find_named_child(app_folder_id, '0. Danh mục chung')
-        if not common_folder or common_folder.get('mimeType') != FOLDER_MIME:
+        if not common_folder or common_folder.get('mimeType') != GDRIVE_FOLDER_MIME:
             return None
 
         manifest_file = await self._find_named_child(str(common_folder['id']), 'backup_manifest.json')
@@ -224,6 +235,179 @@ class GoogleDriveBackupWriter:
         return None
 
 
+class OneDriveBackupWriter:
+    destination_type = 'onedrive'
+
+    def __init__(self, get_token, config: BackupDestinationConfig):
+        self._get_token = get_token
+        self._config = config
+        self._mutation_sem = asyncio.Semaphore(_MAX_PARALLEL_ONEDRIVE_MUTATIONS)
+        self._web_url_cache: dict[str, str] = {}
+
+    async def _run_mutation(self, operation):
+        async with self._mutation_sem:
+            return await operation()
+
+    async def prepare_app_folder(self, *, reuse_existing: bool = False) -> tuple[str, int]:
+        app_folder_name = sanitize_name(self._config.app_folder_name)
+        existing_folders = await onedrive_find_folders(
+            self._get_token,
+            app_folder_name,
+            self._config.root_folder_id,
+            drive_id=self._config.drive_id,
+        )
+        for folder in existing_folders:
+            if folder.get('webUrl'):
+                self._web_url_cache[str(folder['id'])] = str(folder['webUrl'])
+
+        if len(existing_folders) > 1:
+            raise ValueError(
+                f'Multiple "{app_folder_name}" folders already exist in the selected OneDrive destination. '
+                'Choose a clean target folder or archive the duplicates before running this backup flow.'
+            )
+
+        if existing_folders:
+            manifest = await self._read_existing_manifest(existing_folders[0]['id'])
+            owner_flow_id = str((manifest or {}).get('flow_id') or '').strip()
+            if owner_flow_id and owner_flow_id != self._config.flow_id:
+                owner_flow_name = str((manifest or {}).get('flow_name') or '').strip()
+                raise ValueError(
+                    f'The selected OneDrive target already contains a "{app_folder_name}" backup folder '
+                    f'for flow "{owner_flow_name or owner_flow_id}". Choose a different destination folder '
+                    'for this backup flow to avoid overwriting another backup.'
+                )
+
+        if reuse_existing:
+            if existing_folders:
+                return str(existing_folders[0]['id']), 0
+
+            async def create_folder() -> str:
+                return await onedrive_create_folder(
+                    self._get_token,
+                    app_folder_name,
+                    self._config.root_folder_id,
+                    drive_id=self._config.drive_id,
+                )
+
+            folder_id = await self._run_mutation(create_folder)
+            return folder_id, 0
+
+        async def recreate_folder() -> tuple[str, int]:
+            return await onedrive_recreate_folder(
+                self._get_token,
+                app_folder_name,
+                self._config.root_folder_id,
+                drive_id=self._config.drive_id,
+            )
+
+        return await self._run_mutation(recreate_folder)
+
+    async def create_folder(self, name: str, parent_id: str) -> str:
+        async def operation() -> str:
+            return await onedrive_create_folder(
+                self._get_token,
+                sanitize_name(name),
+                parent_id,
+                drive_id=self._config.drive_id,
+            )
+
+        return await self._run_mutation(operation)
+
+    def get_folder_url(self, folder_id: str) -> str:
+        cached = self._web_url_cache.get(str(folder_id))
+        if cached:
+            return cached
+        return f'https://onedrive.live.com/?id={folder_id}'
+
+    async def upload_excel(
+        self,
+        folder_id: str,
+        filename: str,
+        records: list[dict[str, Any]],
+        *,
+        hyperlink_columns: Iterable[str] | None = None,
+    ) -> tuple[str, int]:
+        df = pd.DataFrame(records or [])
+        content = build_excel_bytes(df, hyperlink_columns=hyperlink_columns)
+
+        async def operation() -> str:
+            return await onedrive_upload_tabular_bytes(
+                self._get_token,
+                filename,
+                content,
+                folder_id,
+                drive_id=self._config.drive_id,
+            )
+
+        file_id = await self._run_mutation(operation)
+        return file_id, len(records or [])
+
+    async def upload_text(self, folder_id: str, filename: str, text: str) -> str:
+        async def operation() -> str:
+            return await onedrive_upload_bytes(
+                self._get_token,
+                filename,
+                text.encode('utf-8'),
+                'text/plain',
+                folder_id,
+                drive_id=self._config.drive_id,
+            )
+
+        return await self._run_mutation(operation)
+
+    async def upload_bytes(
+        self,
+        folder_id: str,
+        filename: str,
+        content: bytes,
+        mime_type: str,
+    ) -> str:
+        async def operation() -> str:
+            return await onedrive_upload_bytes(
+                self._get_token,
+                filename,
+                content,
+                mime_type,
+                folder_id,
+                drive_id=self._config.drive_id,
+            )
+
+        return await self._run_mutation(operation)
+
+    async def _read_existing_manifest(self, app_folder_id: str) -> dict[str, Any] | None:
+        common_folder = await self._find_named_child(app_folder_id, '0. Danh mục chung')
+        if not common_folder or common_folder.get('mimeType') != ONEDRIVE_FOLDER_MIME:
+            return None
+
+        manifest_file = await self._find_named_child(str(common_folder['id']), 'backup_manifest.json')
+        if not manifest_file:
+            return None
+
+        try:
+            raw_content = await onedrive_download_bytes(
+                self._get_token,
+                str(manifest_file['id']),
+                drive_id=self._config.drive_id,
+            )
+            return json.loads(raw_content.decode('utf-8'))
+        except Exception:
+            return None
+
+    async def _find_named_child(self, parent_id: str, name: str) -> dict[str, Any] | None:
+        items = await onedrive_list_files(
+            self._get_token,
+            parent_id,
+            drive_id=self._config.drive_id,
+            page_size=200,
+        )
+        for item in items:
+            if item.get('webUrl'):
+                self._web_url_cache[str(item['id'])] = str(item['webUrl'])
+            if str(item.get('name') or '').strip() == name:
+                return item
+        return None
+
+
 def build_backup_destination_writer(
     *,
     destination_type: str | None,
@@ -235,19 +419,21 @@ def build_backup_destination_writer(
     app_folder_name: str,
 ) -> BackupDestinationWriter:
     normalized_destination = str(destination_type or '').strip().lower()
-    if normalized_destination != 'gdrive':
-        raise ValueError(
-            f'Backup currently supports Google Drive only. Destination "{destination_type}" is not implemented yet.'
-        )
+    config = BackupDestinationConfig(
+        flow_id=flow_id,
+        flow_name=flow_name,
+        destination_type=normalized_destination,
+        root_folder_id=root_folder_id,
+        drive_id=drive_id,
+        app_folder_name=app_folder_name,
+    )
 
-    return GoogleDriveBackupWriter(
-        get_token,
-        BackupDestinationConfig(
-            flow_id=flow_id,
-            flow_name=flow_name,
-            destination_type=normalized_destination,
-            root_folder_id=root_folder_id,
-            drive_id=drive_id,
-            app_folder_name=app_folder_name,
-        ),
+    if normalized_destination == 'gdrive':
+        return GoogleDriveBackupWriter(get_token, config)
+    if normalized_destination == 'onedrive':
+        return OneDriveBackupWriter(get_token, config)
+
+    raise ValueError(
+        f'Backup supports Google Drive and OneDrive destinations. '
+        f'Destination "{destination_type}" is not implemented.'
     )

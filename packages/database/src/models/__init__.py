@@ -270,6 +270,44 @@ class DataPipeline(Base):
     )
 
 
+class PipelineCursorState(Base):
+    """Incremental sync checkpoint for one (pipeline, binding) pair.
+
+    When a binding uses sync_mode incremental_append or incremental_dedup, the
+    executor reads this row at the start of the run to know where to resume
+    (e.g. ``updated_from``) and writes back the largest observed cursor value
+    after a successful run. One row per (pipeline_id, binding_index).
+    """
+    __tablename__ = "pipeline_cursor_states"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    pipeline_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey('data_pipelines.id', ondelete='CASCADE'),
+        nullable=False,
+        index=True,
+    )
+    # Bindings live inside a JSONB list, so their identity is positional. If
+    # the user reorders bindings, the cursor mapping moves with the slot — same
+    # semantics Airbyte's per-stream state has when streams are renamed.
+    binding_index = Column(Integer, nullable=False)
+    cursor_field = Column(String(255), nullable=False)
+    # Stored as a string so we don't lock the schema to a single datetime
+    # format. Comparable values (ISO-8601 dates, zero-padded epochs) compare
+    # correctly via lexicographic ordering.
+    cursor_value = Column(Text, nullable=False)
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint('pipeline_id', 'binding_index', name='uq_pipeline_cursor_states_slot'),
+    )
+
+
 class PipelineRun(Base):
     """A single execution of a data pipeline."""
     __tablename__ = "pipeline_runs"

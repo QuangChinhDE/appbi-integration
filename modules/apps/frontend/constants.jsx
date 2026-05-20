@@ -1,7 +1,7 @@
 import React from 'react'
 
 import {
-  Briefcase, Building2, CalendarClock, Clock, Database, DollarSign,
+  Briefcase, Building2, CalendarClock, Clock, Cloud, Database, DollarSign,
   FileSpreadsheet, Folder, FolderKanban, Headphones, Inbox,
   LayoutGrid, Target, Users, Wallet,
 } from 'lucide-react'
@@ -11,7 +11,7 @@ import {
 export const APP_CATALOG = [
   // ── Source apps (Base platform) ──────────────────────────────────────
   {
-    id: 'request',
+    id: 'base_request',
     title: 'Request',
     description: 'Base Request — save multiple token credentials for reuse.',
     icon: <Inbox className="w-5 h-5" />,
@@ -19,7 +19,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'service',
+    id: 'base_service',
     title: 'Service',
     description: 'Base Service — save multiple token credentials for reuse.',
     icon: <Headphones className="w-5 h-5" />,
@@ -27,7 +27,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'workflow',
+    id: 'base_workflow',
     title: 'Workflow',
     description: 'Base Workflow — save multiple token credentials for reuse.',
     icon: <FolderKanban className="w-5 h-5" />,
@@ -35,7 +35,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'wework',
+    id: 'base_wework',
     title: 'WeWork',
     description: 'Base WeWork — save multiple token credentials for reuse.',
     icon: <Building2 className="w-5 h-5" />,
@@ -43,7 +43,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'crm',
+    id: 'base_crm',
     title: 'CRM',
     description: 'Base CRM — leads, deals, accounts, contacts and pipelines.',
     icon: <Briefcase className="w-5 h-5" />,
@@ -51,7 +51,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'hrm',
+    id: 'base_hrm',
     title: 'HRM',
     description: 'Base HRM — employees, departments, payroll and checkin data.',
     icon: <Users className="w-5 h-5" />,
@@ -59,7 +59,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'table',
+    id: 'base_table',
     title: 'Table',
     description: 'Base Table — read and write records in Table databases.',
     icon: <LayoutGrid className="w-5 h-5" />,
@@ -67,7 +67,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'goal',
+    id: 'base_goal',
     title: 'Goal',
     description: 'Base Goal — cycles, goals, key results and targets.',
     icon: <Target className="w-5 h-5" />,
@@ -75,7 +75,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'income',
+    id: 'base_income',
     title: 'Income',
     description: 'Base Income — incomes and inflows.',
     icon: <DollarSign className="w-5 h-5" />,
@@ -83,7 +83,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'meeting',
+    id: 'base_meeting',
     title: 'Meeting',
     description: 'Base Meeting — groups and meeting schedules.',
     icon: <CalendarClock className="w-5 h-5" />,
@@ -91,7 +91,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'payroll',
+    id: 'base_payroll',
     title: 'Payroll',
     description: 'Base Payroll — payroll cycles and records.',
     icon: <Wallet className="w-5 h-5" />,
@@ -99,7 +99,7 @@ export const APP_CATALOG = [
     role: 'source',
   },
   {
-    id: 'timeoff',
+    id: 'base_timeoff',
     title: 'Timeoff',
     description: 'Base Timeoff — time-off requests and groups.',
     icon: <Clock className="w-5 h-5" />,
@@ -107,13 +107,21 @@ export const APP_CATALOG = [
     role: 'source',
   },
 
-  // ── Destination apps (Google) ────────────────────────────────────────
+  // ── Destination apps ─────────────────────────────────────────────────
   {
     id: 'gdrive',
     title: 'Google Drive',
     description: 'Save to a Drive folder — supports all file formats.',
     icon: <Folder className="w-5 h-5" />,
     color: '#1a73e8',
+    role: 'destination',
+  },
+  {
+    id: 'onedrive',
+    title: 'OneDrive',
+    description: 'Save backup files to Microsoft OneDrive via Microsoft Graph.',
+    icon: <Cloud className="w-5 h-5" />,
+    color: '#2563eb',
     role: 'destination',
   },
   {
@@ -144,7 +152,7 @@ export function getAppMeta(appId) {
 // ── Connection config per app (form labels / help text) ─────────────────────
 
 export const APP_CONNECTION_CONFIG = {
-  request: {
+  base_request: {
     stepTitle: 'Request Connection',
     stepDescription: 'Provide the Request domain and Base Account token.',
     requiresDomain: true,
@@ -155,7 +163,7 @@ export const APP_CONNECTION_CONFIG = {
     tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
     tokenHelp: 'Get this value from Request → Settings → API Keys. Use the Base Account access_token_v2 token.',
   },
-  workflow: {
+  base_workflow: {
     stepTitle: 'Workflow Connection',
     stepDescription: 'Provide the Workflow domain and API token.',
     requiresDomain: true,
@@ -166,7 +174,7 @@ export const APP_CONNECTION_CONFIG = {
     tokenPlaceholder: 'Paste your Workflow access token here…',
     tokenHelp: 'Get this value from Workflow → Settings → API Keys.',
   },
-  wework: {
+  base_wework: {
     stepTitle: 'WeWork Connection',
     stepDescription: 'Provide the WeWork domain and Base Account token.',
     requiresDomain: true,
@@ -177,7 +185,7 @@ export const APP_CONNECTION_CONFIG = {
     tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
     tokenHelp: 'Get this value from WeWork → Settings → API Keys. Use the Base Account access_token_v2 token.',
   },
-  service: {
+  base_service: {
     stepTitle: 'Service Connection',
     stepDescription: 'Provide the Service domain and Base Account token.',
     requiresDomain: true,

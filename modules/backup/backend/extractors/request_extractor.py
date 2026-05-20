@@ -13,7 +13,8 @@ Produces the hierarchical folder structure:
     │       ├── [table name].xlsx
     │       ├── post_and_comment.txt
     │       └── Tệp đính kèm/
-    │           └── Thông tin files.xlsx
+    │           ├── Thông tin files.xlsx
+    │           └── [downloaded attachment files]
     ├── [direct] Đề xuất trực tiếp/           (when group_id "0" is selected)
     │   ├── Danh sách request.xlsx
     │   └── …
@@ -29,25 +30,31 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from modules.backup.backend.extractors._attachments import (
+    ATTACHMENT_HYPERLINK_COLUMNS,
+    MAX_PARALLEL_ATTACHMENT_DOWNLOADS,
+    build_attachment_http_client,
+    build_attachment_record,
+    derive_attachment_base_urls,
+    download_attachment_records,
+)
 from modules.backup.backend.extractors.destination_writers import (
     BackupDestinationWriter,
     build_backup_destination_writer,
 )
-from modules.backup.backend.extractors._gdrive import build_cached_gdrive_token_provider
+from modules.backup.backend.extractors.destination_tokens import (
+    build_backup_destination_token_provider,
+)
 from modules.backup.backend.extractors._helpers import (
     sanitize_name,
     strip_html,
     truncate_name,
     ts_to_str,
 )
-from modules.connectors.apps.request.common.auth import RequestCredentials
-from modules.connectors.apps.request.common.client import RequestManagementClient
+from modules.connectors.apps.base_request.common.auth import RequestCredentials
+from modules.connectors.apps.base_request.common.client import RequestManagementClient
 from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
-from modules.credentials.backend.services.google_auth_service import (
-    GoogleAuthService,
-    validate_service_account_drive_destination,
-)
 from packages.database.src import async_session
 from packages.database.src.models import BackupFlow, BackupFlowRun
 
@@ -131,13 +138,7 @@ def _extract_files(detail: dict) -> list[dict]:
     for f in files:
         if not isinstance(f, dict):
             continue
-        rows.append({
-            'file_id': f.get('id') or f.get('file_id') or '',
-            'file_name': f.get('name') or f.get('file_name') or f.get('filename') or '',
-            'file_url': f.get('url') or f.get('link') or '',
-            'file_size': f.get('size') or '',
-            'uploaded_by': f.get('username') or f.get('uploaded_by') or '',
-        })
+        rows.append(build_attachment_record(f))
     return rows
 
 
@@ -190,6 +191,9 @@ async def _backup_single_request(
     group_label: str,
     writer: BackupDestinationWriter,
     uploaded_files: list[dict[str, Any]],
+    attachment_http_client,
+    attachment_download_sem: asyncio.Semaphore,
+    attachment_base_urls: list[str],
 ) -> dict[str, Any]:
     """Create the detail folder for one request. Returns manifest entry."""
 
@@ -271,7 +275,32 @@ async def _backup_single_request(
     file_records = _extract_files(detail)
     if file_records:
         attach_folder_id = await writer.create_folder('Tệp đính kèm', req_folder_id)
-        fid, _ = await writer.upload_excel(attach_folder_id, 'Thông tin files.xlsx', file_records)
+        downloaded_attachments, failed_attachment_count = await download_attachment_records(
+            writer=writer,
+            folder_id=attach_folder_id,
+            records=file_records,
+            http_client=attachment_http_client,
+            download_sem=attachment_download_sem,
+            base_urls=attachment_base_urls,
+        )
+        for uploaded_attachment in downloaded_attachments:
+            uploaded_files.append({
+                'path': f'{base_path}/Tệp đính kèm/{uploaded_attachment["filename"]}',
+                'file_id': uploaded_attachment['file_id'],
+                'size_bytes': uploaded_attachment['size_bytes'],
+            })
+        if failed_attachment_count:
+            logger.warning(
+                'Failed to download %s attachment(s) for request %s',
+                failed_attachment_count,
+                req_id,
+            )
+        fid, _ = await writer.upload_excel(
+            attach_folder_id,
+            'Thông tin files.xlsx',
+            file_records,
+            hyperlink_columns=ATTACHMENT_HYPERLINK_COLUMNS,
+        )
         uploaded_files.append({'path': f'{base_path}/Tệp đính kèm/Thông tin files.xlsx', 'file_id': fid})
 
     return {
@@ -293,6 +322,7 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             return
 
         client: RequestManagementClient | None = None
+        attachment_http_client = None
         try:
             # ── Bootstrap ────────────────────────────────────────────
             runtime_service = ConnectorRuntimeService(db)
@@ -315,16 +345,12 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             await db.commit()
 
             destination_auth = {**destination_binding.auth, **destination_binding.config}
-            validate_service_account_drive_destination(destination_auth)
-
-            google_auth_service = GoogleAuthService(db)
-
-            async def load_gdrive_token(force_refresh: bool = False):
-                return await google_auth_service.get_destination_access_token_details(
-                    destination_auth, force_refresh=force_refresh,
-                )
-
-            get_token = build_cached_gdrive_token_provider(load_gdrive_token)
+            dest_type = destination_binding.credential.app_id
+            get_token = await build_backup_destination_token_provider(
+                db,
+                dest_type,
+                destination_auth,
+            )
 
             root_folder_id = (
                 destination_auth.get('folder_id')
@@ -332,7 +358,6 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                 or 'root'
             )
             drive_id = destination_auth.get('drive_id')
-            dest_type = destination_binding.credential.app_id
             writer: BackupDestinationWriter = build_backup_destination_writer(
                 destination_type=dest_type,
                 get_token=get_token,
@@ -348,6 +373,9 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
             access_token = source_binding.auth.get('access_token') or source_binding.config.get('access_token') or ''
             credentials = RequestCredentials(domain=domain, access_token=access_token)
             client = RequestManagementClient(credentials)
+            attachment_http_client = build_attachment_http_client()
+            attachment_download_sem = asyncio.Semaphore(MAX_PARALLEL_ATTACHMENT_DOWNLOADS)
+            attachment_base_urls = derive_attachment_base_urls(client.credentials.base_url)
 
             structure = dict(flow.structure or {})
             selected_objects = structure.get('objects') or ['group', 'request']
@@ -425,6 +453,9 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                         entry = await _backup_single_request(
                             client, req_rec, g_folder_id, g_label,
                             writer, uploaded_files,
+                            attachment_http_client,
+                            attachment_download_sem,
+                            attachment_base_urls,
                         )
                         request_folder_links[entry['request_id']] = entry.get('folder_link') or ''
                         manifest_group['requests'].append(entry)
@@ -480,6 +511,9 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                             client, req_rec, direct_folder_id,
                             sanitize_name(direct_label),
                             writer, uploaded_files,
+                            attachment_http_client,
+                            attachment_download_sem,
+                            attachment_base_urls,
                         )
                         request_folder_links[entry['request_id']] = entry.get('folder_link') or ''
                         manifest_direct['requests'].append(entry)
@@ -529,7 +563,7 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
                 'flow_id': str(flow.id),
                 'flow_name': flow.name,
                 'backup_type': backup_type,
-                'connector': 'request',
+                'connector': 'base_request',
                 'destination_type': writer.destination_type,
                 'group_count': len(manifest_entries),
                 'total_files': len(uploaded_files),
@@ -571,3 +605,5 @@ async def run_request_backup(flow_id: str, run_id: str) -> None:
         finally:
             if client is not None:
                 await client.aclose()
+            if attachment_http_client is not None:
+                await attachment_http_client.aclose()

@@ -57,10 +57,10 @@ const RUN_STATUS_ICON_COLOR = {
 }
 
 const APP_ICONS = {
-  request: <Inbox className="w-4 h-4" />,
-  workflow: <FolderKanban className="w-4 h-4" />,
-  wework: <Building2 className="w-4 h-4" />,
-  service: <Headphones className="w-4 h-4" />,
+  base_request: <Inbox className="w-4 h-4" />,
+  base_workflow: <FolderKanban className="w-4 h-4" />,
+  base_wework: <Building2 className="w-4 h-4" />,
+  base_service: <Headphones className="w-4 h-4" />,
 }
 
 const BACKUP_TYPE_LABEL = {
@@ -373,7 +373,7 @@ function getDestinationIdentityLabel(auth = {}) {
 
 
 function ServiceArchiveNotice({ appId, destinationType }) {
-  if (appId !== 'service' || destinationType !== 'gdrive') return null
+  if (appId !== 'base_service' || destinationType !== 'gdrive') return null
   return (
     <Alert
       type="info"

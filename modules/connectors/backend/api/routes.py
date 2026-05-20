@@ -6,10 +6,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from modules.backup.shared.types import BackupSourceAppResponse
-from modules.connectors.apps.request.common import RequestCredentials, RequestManagementClient
-from modules.connectors.apps.service.common import ServiceCredentials, ServiceManagementClient
-from modules.connectors.apps.wework.common import WeworkCredentials, WeworkManagementClient, merge_task_collections
-from modules.connectors.apps.workflow.common import WorkflowCredentials, WorkflowManagementClient
+from modules.connectors.apps.base_request.common import RequestCredentials, RequestManagementClient
+from modules.connectors.apps.base_service.common import ServiceCredentials, ServiceManagementClient
+from modules.connectors.apps.base_wework.common import WeworkCredentials, WeworkManagementClient, merge_task_collections
+from modules.connectors.apps.base_workflow.common import WorkflowCredentials, WorkflowManagementClient
 from modules.connectors.backend.services.source_app_service import BackupSourceAppService
 from packages.auth.src import require_any_permission
 from packages.auth.src.dependencies import get_current_user

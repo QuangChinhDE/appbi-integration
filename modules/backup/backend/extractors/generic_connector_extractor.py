@@ -4,22 +4,17 @@ from datetime import datetime
 from itertools import product
 from typing import Any
 
-import pandas as pd
-
-from modules.backup.backend.extractors._gdrive import (
-    build_cached_gdrive_token_provider,
-    gdrive_create_folder,
-    gdrive_recreate_folder,
-    gdrive_upload_tabular_bytes,
+from modules.backup.backend.extractors._helpers import sanitize_name
+from modules.backup.backend.extractors.destination_tokens import (
+    build_backup_destination_token_provider,
 )
-from modules.backup.backend.extractors._helpers import build_excel_bytes, sanitize_name
+from modules.backup.backend.extractors.destination_writers import (
+    BackupDestinationWriter,
+    build_backup_destination_writer,
+)
 from modules.connectors.backend.shared.catalog import get_connector
 from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
-from modules.credentials.backend.services.google_auth_service import (
-    GoogleAuthService,
-    validate_service_account_drive_destination,
-)
 from packages.database.src import async_session
 from packages.database.src.models import BackupFlow, BackupFlowRun
 
@@ -274,18 +269,12 @@ async def _upload_stream(
     stream_config: dict[str, Any],
     folder_id: str,
     filename: str,
-    get_gdrive_token,
-    destination_type: str | None,
+    writer: BackupDestinationWriter,
 ) -> tuple[list[dict[str, Any]], str]:
     """Read a stream, convert to Excel, upload and return ``(records, file_id)``."""
     ConnectorBindingValidationService.validate_stream_config(stream, stream_config)
     records = await source_connector.read_stream(stream_key, config=stream_config)
-    dataframe = pd.DataFrame(records or [])
-    content = build_excel_bytes(dataframe)
-    file_id = await gdrive_upload_tabular_bytes(
-        get_gdrive_token, filename, content, folder_id,
-        destination_type=destination_type,
-    )
+    file_id, _ = await writer.upload_excel(folder_id, filename, records or [])
     return (records or []), file_id
 
 
@@ -328,29 +317,28 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
                 await db.commit()
 
             destination_auth = {**destination_binding.auth, **destination_binding.config}
-            validate_service_account_drive_destination(destination_auth)
-
-            google_auth_service = GoogleAuthService(db)
-
-            async def load_gdrive_token(force_refresh: bool = False):
-                return await google_auth_service.get_destination_access_token_details(
-                    destination_auth,
-                    force_refresh=force_refresh,
-                )
-
-            get_gdrive_token = build_cached_gdrive_token_provider(load_gdrive_token)
+            dest_type = destination_binding.credential.app_id
+            get_token = await build_backup_destination_token_provider(
+                db,
+                dest_type,
+                destination_auth,
+            )
 
             root_folder_id = destination_auth.get('folder_id') or destination_auth.get('drive_id') or 'root'
             drive_id = destination_auth.get('drive_id')
 
             await _log('Preparing destination folder...')
             app_folder_name = sanitize_name(connector.display_name)
-            app_folder_id, archived_count = await gdrive_recreate_folder(
-                get_gdrive_token,
-                app_folder_name,
-                root_folder_id,
+            writer: BackupDestinationWriter = build_backup_destination_writer(
+                destination_type=dest_type,
+                get_token=get_token,
+                root_folder_id=root_folder_id,
                 drive_id=drive_id,
+                flow_id=str(flow.id),
+                flow_name=flow.name,
+                app_folder_name=app_folder_name,
             )
+            app_folder_id, archived_count = await writer.prepare_app_folder()
             if archived_count:
                 await _log(f'Archived {archived_count} old "{app_folder_name}" folder(s)')
 
@@ -359,7 +347,6 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
             stream_keys = _select_stream_keys(connector.connector_key, structure)
             await _log(f'Selected streams: {stream_keys}')
             uploaded_files: list[dict[str, Any]] = []
-            dest_type = destination_binding.credential.app_id
 
             # ── Build hierarchy metadata ─────────────────────────────
             backup_streams = connector.get_backup_streams()
@@ -396,7 +383,7 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
                     )
                     records, file_id = await _upload_stream(
                         source_connector, stream_key, stream, stream_config,
-                        app_folder_id, filename, get_gdrive_token, dest_type,
+                        app_folder_id, filename, writer,
                     )
                     if stream.primary_key and records:
                         display_names[stream_key] = _build_display_name_map(
@@ -427,10 +414,7 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
                     display = display_names.get(parent_stream_key, {}).get(gv, gv)
                     folder_label = sanitize_name(display)
                     if folder_label not in subfolder_cache:
-                        subfolder_cache[folder_label] = await gdrive_create_folder(
-                            get_gdrive_token, folder_label,
-                            app_folder_id, drive_id=drive_id,
-                        )
+                        subfolder_cache[folder_label] = await writer.create_folder(folder_label, app_folder_id)
                     group_folder_id = subfolder_cache[folder_label]
 
                     local = {**cascaded, config_field: gv}
@@ -457,7 +441,7 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
                             )
                             records, file_id = await _upload_stream(
                                 source_connector, child_key, stream, stream_config,
-                                group_folder_id, filename, get_gdrive_token, dest_type,
+                                group_folder_id, filename, writer,
                             )
                             _cascade_ids(stream, records, local, stream_map)
                             if stream.primary_key and records:
@@ -494,7 +478,7 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
                         )
                         records, file_id = await _upload_stream(
                             source_connector, child_key, stream, stream_config,
-                            app_folder_id, filename, get_gdrive_token, dest_type,
+                            app_folder_id, filename, writer,
                         )
                         _cascade_ids(stream, records, cascaded, stream_map)
                         uploaded_files.append({
@@ -510,6 +494,7 @@ async def run_generic_connector_backup(flow_id: str, run_id: str) -> None:
             run.completed_at = completed_at
             run.execution_details = {
                 'mode': 'generic_structured_backup',
+                'destination_writer': writer.destination_type,
                 'uploaded_files': uploaded_files,
             }
             run.logs = f"{run.logs}\n[COMPLETED] Uploaded {len(uploaded_files)} backup file(s)"

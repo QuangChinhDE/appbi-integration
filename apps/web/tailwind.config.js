@@ -6,6 +6,7 @@ export default {
     './src/**/*.{js,jsx,ts,tsx}',
     '../../packages/ui/src/**/*.{js,jsx,ts,tsx}',
     '../../modules/*/frontend/**/*.{js,jsx,ts,tsx}',
+    '../../modules/connectors/apps/*/frontend/**/*.{js,jsx,ts,tsx}',
   ],
   theme: {
     extend: {

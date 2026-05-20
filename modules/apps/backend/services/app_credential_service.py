@@ -17,6 +17,7 @@ from modules.connectors.backend.shared.catalog import (
     CONNECTOR_REGISTRY,
     get_connector,
 )
+from modules.connectors.apps._packages import canonical_connector_key, connector_key_aliases
 from packages.auth.src.resource_permissions import (
     apply_resource_scope,
     batch_effective_permissions,
@@ -74,7 +75,8 @@ class AppCredentialService:
 
     @staticmethod
     def _resolve_app_name(app_id: str, app_name: Optional[str]) -> str:
-        return (app_name or SUPPORTED_APPS.get(app_id) or app_id).strip()
+        canonical_app_id = canonical_connector_key(app_id)
+        return (app_name or SUPPORTED_APPS.get(canonical_app_id) or canonical_app_id).strip()
 
     @staticmethod
     def _get_connector_definition(app_id: str):
@@ -148,8 +150,13 @@ class AppCredentialService:
         if credential.app_id in SOURCE_STYLE_APPS:
             return preview
         preview.update({
-            "email": auth.get("email") or auth.get("google_oauth_email") or auth.get("service_account_email"),
-            "display_name": auth.get("display_name"),
+            "email": (
+                auth.get("email")
+                or auth.get("google_oauth_email")
+                or auth.get("service_account_email")
+                or auth.get("account_email")
+            ),
+            "display_name": auth.get("display_name") or auth.get("account_email"),
             "picture_url": auth.get("picture_url"),
             "folder_name": config.get("folder_name"),
             "drive_name": config.get("drive_name"),
@@ -171,7 +178,7 @@ class AppCredentialService:
             description=credential.description,
             owner_email=owner_email,
             user_permission=user_permission,
-            app_id=credential.app_id,
+            app_id=canonical_connector_key(credential.app_id),
             app_name=credential.app_name,
             auth_mode=credential.auth_mode,
             preview=cls._preview(credential),
@@ -236,7 +243,7 @@ class AppCredentialService:
             module='apps',
         )
         if app_id:
-            stmt = stmt.where(AppCredential.app_id == app_id)
+            stmt = stmt.where(AppCredential.app_id.in_(connector_key_aliases(app_id)))
         result = await self.db.execute(stmt)
         items = result.scalars().all()
         owner_lookup = await fetch_owner_email_lookup(self.db, (item.owner_id for item in items))
@@ -295,7 +302,7 @@ class AppCredentialService:
             id=model.id,
             owner_email=owner_lookup.get(model.owner_id),
             user_permission=user_permission,
-            app_id=model.app_id,
+            app_id=canonical_connector_key(model.app_id),
             app_name=model.app_name,
             auth_mode=model.auth_mode,
             auth=auth,
@@ -304,7 +311,7 @@ class AppCredentialService:
 
     async def create_credential(self, payload: AppCredentialCreate, current_user: User) -> AppCredentialDetail:
         auth, auth_mode, config = await self._prepare_auth_and_config(
-            app_id=payload.app_id,
+            app_id=canonical_connector_key(payload.app_id),
             raw_auth=dict(payload.auth or {}),
             raw_config=dict(payload.config or {}),
         )
@@ -312,7 +319,7 @@ class AppCredentialService:
             name=payload.name.strip(),
             description=(payload.description or "").strip() or None,
             owner_id=current_user.id,
-            app_id=payload.app_id,
+            app_id=canonical_connector_key(payload.app_id),
             app_name=self._resolve_app_name(payload.app_id, payload.app_name),
             auth_mode=auth_mode,
             auth=auth,
@@ -408,6 +415,7 @@ class AppCredentialService:
         raw_auth: Dict[str, Any],
         raw_config: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], str, Dict[str, Any]]:
+        app_id = canonical_connector_key(app_id)
         connector = self._get_connector_definition(app_id)
         if app_id in GOOGLE_STYLE_APPS:
             return await self._prepare_google_style(app_id, raw_auth, raw_config)
@@ -457,7 +465,19 @@ class AppCredentialService:
             if key not in handled_config_keys and value not in (None, ''):
                 prepared_config[key] = value
 
-        auth_mode = 'token_password' if connector.auth_spec.auth_type == 'token_password' else 'access_token'
+        supported_auth_modes = set(connector.auth_spec.supported_auth_modes or ())
+        requested_auth_mode = str(auth.get("auth_mode") or "").strip()
+        if supported_auth_modes:
+            if not requested_auth_mode and "access_token" in supported_auth_modes:
+                auth_mode = "access_token"
+            elif requested_auth_mode in supported_auth_modes:
+                auth_mode = requested_auth_mode
+            elif "access_token" in supported_auth_modes:
+                auth_mode = "access_token"
+            else:
+                auth_mode = sorted(supported_auth_modes)[0]
+        else:
+            auth_mode = 'token_password' if connector.auth_spec.auth_type == 'token_password' else 'access_token'
         return prepared_auth, auth_mode, prepared_config
 
     @staticmethod
@@ -581,7 +601,7 @@ class AppCredentialService:
         auth = dict(model.auth or {})
         return {
             "credential_id": str(model.id),
-            "app": model.app_id,
+            "app": canonical_connector_key(model.app_id),
             "app_name": model.app_name,
             "domain": config.get("domain"),
             "access_token_encrypted": auth.get("access_token_encrypted"),
@@ -593,8 +613,28 @@ class AppCredentialService:
         model = await self.db.get(AppCredential, credential_id)
         if not model:
             raise ValueError("Destination credential not found")
-        if model.app_id not in GOOGLE_STYLE_APPS:
+        connector = self._get_connector_definition(model.app_id)
+        if not connector.get_destination_streams():
             raise ValueError(f"Credential {model.id} is not a destination-style app")
+        if model.app_id not in GOOGLE_STYLE_APPS:
+            auth = self._materialize_auth_for_edit_v2(model)
+            config = dict(model.config or {})
+            merged_auth = {**auth}
+            for key in ("folder_id", "folder_name", "drive_id", "drive_name"):
+                if key in config:
+                    merged_auth.setdefault(key, config[key])
+            if target:
+                for key in ("folder_id", "folder_name", "drive_id", "drive_name"):
+                    if target.get(key) not in (None, ""):
+                        merged_auth[key] = target[key]
+            merged_auth["auth_mode"] = model.auth_mode
+            return {
+                "credential_id": str(model.id),
+                "type": canonical_connector_key(model.app_id),
+                "name": model.app_name,
+                "auth": merged_auth,
+            }
+
         auth = dict(model.auth or {})
         config = dict(model.config or {})
         merged_auth = {**auth}
@@ -611,7 +651,7 @@ class AppCredentialService:
         merged_auth["auth_method"] = "oauth" if model.auth_mode == "google_oauth" else model.auth_mode
         return {
             "credential_id": str(model.id),
-            "type": model.app_id,
+            "type": canonical_connector_key(model.app_id),
             "name": model.app_name,
             "auth": merged_auth,
         }

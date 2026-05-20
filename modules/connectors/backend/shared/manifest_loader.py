@@ -1,8 +1,12 @@
 """Load declarative manifest YAML files and turn them into ConnectorDefinitions.
 
-Each app may provide a ``manifest.yaml`` next to its Python package, e.g.::
+Each app may provide a ``definition/manifest.yaml`` inside its Python package,
+e.g.::
 
-    modules/connectors/apps/workflow/manifest.yaml
+    modules/connectors/apps/workflow/definition/manifest.yaml
+
+The older root-level ``manifest.yaml`` path is still supported during
+migration.
 
 When present, :func:`load_manifest` parses it into a :class:`ConnectorManifest`
 and :func:`connector_definition_from_manifest` synthesizes the compatible
@@ -20,6 +24,7 @@ from typing import Dict, Optional
 
 import yaml
 
+from modules.connectors.apps._packages import APPS_ROOT, get_app_package, iter_app_packages
 from modules.connectors.backend.shared.airbyte_manifest import (
     convert_airbyte_manifest,
     is_airbyte_manifest,
@@ -40,11 +45,15 @@ from modules.connectors.backend.shared.manifest import (
 logger = logging.getLogger(__name__)
 
 
-_APPS_ROOT = Path(__file__).resolve().parent.parent.parent / 'apps'
+_APPS_ROOT = APPS_ROOT
 
 
 def _manifest_path(connector_key: str) -> Path:
-    return _APPS_ROOT / connector_key / 'manifest.yaml'
+    package = get_app_package(connector_key, _APPS_ROOT)
+    for candidate in package.manifest_candidates:
+        if candidate.exists():
+            return candidate
+    return package.manifest_candidates[0]
 
 
 def load_manifest(connector_key: str) -> Optional[ConnectorManifest]:
@@ -73,10 +82,8 @@ def discover_manifests() -> Dict[str, ConnectorManifest]:
     manifests: Dict[str, ConnectorManifest] = {}
     if not _APPS_ROOT.exists():
         return manifests
-    for child in _APPS_ROOT.iterdir():
-        if not child.is_dir():
-            continue
-        manifest = load_manifest(child.name)
+    for package in iter_app_packages(_APPS_ROOT):
+        manifest = load_manifest(package.connector_key)
         if manifest is not None:
             manifests[manifest.connector_key] = manifest
     return manifests
@@ -96,20 +103,47 @@ def _field_descriptor_from_manifest(field) -> FieldDescriptor:
     )
 
 
-def _schema_fields_from_jsonschema(schema: dict) -> tuple[FieldDescriptor, ...]:
-    props = schema.get('properties') if isinstance(schema, dict) else None
-    if not isinstance(props, dict):
-        return ()
-    out: list[FieldDescriptor] = []
+def _primary_json_type(prop: Any) -> str:
+    """Return the first non-null JSON type from a JSON Schema property."""
+    if not isinstance(prop, dict):
+        return 'string'
+    json_type = prop.get('type')
+    if isinstance(json_type, list):
+        non_null = [t for t in json_type if t != 'null'] or ['string']
+        return str(non_null[0])
+    if json_type:
+        return str(json_type)
+    # ``anyOf`` (e.g. cover field) → fall back to string.
+    if isinstance(prop.get('anyOf'), list):
+        return 'string'
+    return 'string'
+
+
+def _flatten_jsonschema(
+    props: dict,
+    *,
+    parent_path: str = '',
+    depth: int = 0,
+    out: list[FieldDescriptor] | None = None,
+) -> list[FieldDescriptor]:
+    """Recursively flatten a JSON Schema ``properties`` block into FieldDescriptors.
+
+    Mirrors Airbyte's Fields drawer: each top-level field gets an entry, and
+    ``type: object`` fields drill down into ``properties`` using dotted paths
+    (``account_export.hid``). ``type: array`` fields are surfaced as a single
+    descriptor — the consumer treats them as JSON columns. Depth is capped to
+    avoid pathological self-referencing schemas.
+    """
+    if out is None:
+        out = []
+    if depth > 4 or not isinstance(props, dict):
+        return out
+
     for name, prop in props.items():
-        json_type = prop.get('type') if isinstance(prop, dict) else None
-        if isinstance(json_type, list):
-            non_null = [t for t in json_type if t != 'null'] or ['string']
-            field_type = str(non_null[0])
-        else:
-            field_type = str(json_type or 'string')
+        path = f"{parent_path}.{name}" if parent_path else str(name)
+        field_type = _primary_json_type(prop)
         out.append(FieldDescriptor(
-            name=str(name),
+            name=path,
             field_type=field_type,
             required=False,
             description='',
@@ -117,10 +151,31 @@ def _schema_fields_from_jsonschema(schema: dict) -> tuple[FieldDescriptor, ...]:
             storage='runtime',
             input_kind='text',
         ))
-    return tuple(out)
+        # Drill into nested objects so the wizard can show ``account_export.hid``
+        # as its own row. Arrays of objects are intentionally NOT expanded —
+        # they're handled as JSON-serialized columns at write time.
+        if field_type == 'object' and isinstance(prop.get('properties'), dict):
+            _flatten_jsonschema(
+                prop['properties'],
+                parent_path=path,
+                depth=depth + 1,
+                out=out,
+            )
+    return out
 
 
-def _stream_definition_from_manifest(stream: ManifestStream) -> StreamDefinition:
+def _schema_fields_from_jsonschema(schema: dict) -> tuple[FieldDescriptor, ...]:
+    props = schema.get('properties') if isinstance(schema, dict) else None
+    if not isinstance(props, dict):
+        return ()
+    return tuple(_flatten_jsonschema(props))
+
+
+def _stream_definition_from_manifest(
+    stream: ManifestStream,
+    *,
+    supported_modules: tuple[str, ...],
+) -> StreamDefinition:
     config_fields = tuple(_field_descriptor_from_manifest(f) for f in stream.config_fields)
     # If the stream has a parent, the partition field is effectively a required config.
     if stream.parent_stream:
@@ -137,10 +192,21 @@ def _stream_definition_from_manifest(stream: ManifestStream) -> StreamDefinition
         if not any(f.name == parent_field.name for f in config_fields):
             config_fields = (parent_field,) + config_fields
 
+    # Sync modes follow the declared cursor support: a manifest that ships
+    # incremental → both full_refresh and incremental are available; otherwise
+    # only full_refresh. This drives which entries the per-stream sync_mode
+    # dropdown enables in the wizard.
+    sync_modes: tuple[str, ...] = (
+        ('full_refresh', 'incremental') if stream.incremental else ('full_refresh',)
+    )
+    cursor_field = stream.incremental.cursor_field if stream.incremental else None
+
     return StreamDefinition(
         stream_key=stream.name,
         display_name=stream.display_name or stream.name.title(),
         capabilities=tuple(stream.capabilities) or ('read',),
+        sync_modes=sync_modes,
+        cursor_field=cursor_field,
         primary_key=stream.primary_key,
         parent_stream=stream.parent_stream.name if stream.parent_stream else None,
         read_operation=None,
@@ -148,7 +214,7 @@ def _stream_definition_from_manifest(stream: ManifestStream) -> StreamDefinition
         schema_fields=_schema_fields_from_jsonschema(stream.schema_),
         config_fields=config_fields,
         write_config=None,
-        supported_modules=('pipeline',),
+        supported_modules=supported_modules,
     )
 
 
@@ -171,7 +237,11 @@ def _auth_spec_from_manifest(auth: ManifestAuth) -> AuthSpec:
 
 
 def connector_definition_from_manifest(manifest: ConnectorManifest) -> ConnectorDefinition:
-    streams = tuple(_stream_definition_from_manifest(s) for s in manifest.streams)
+    supported_modules = tuple(manifest.supported_modules)
+    streams = tuple(
+        _stream_definition_from_manifest(s, supported_modules=supported_modules)
+        for s in manifest.streams
+    )
     return ConnectorDefinition(
         connector_key=manifest.connector_key,
         display_name=manifest.display_name,
@@ -179,7 +249,7 @@ def connector_definition_from_manifest(manifest: ConnectorManifest) -> Connector
         auth_spec=_auth_spec_from_manifest(manifest.auth),
         streams=streams,
         operations=(),
-        supported_modules=tuple(manifest.supported_modules),
+        supported_modules=supported_modules,
         base_url_template=manifest.base_url,
         icon=manifest.icon,
         color=manifest.color,

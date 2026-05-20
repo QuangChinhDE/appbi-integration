@@ -5,6 +5,8 @@ from typing import Any
 
 from packages.database.src.models import AppCredential
 
+from modules.connectors.apps._packages import canonical_connector_key
+
 from .catalog import get_connector
 from .contracts import ConnectorDefinition, StreamDefinition
 
@@ -180,7 +182,7 @@ class ConnectorBindingValidationService:
         if credential is None:
             raise ValueError('Credential not found')
         connector = cls.get_connector_or_raise(connector_key)
-        if credential.app_id != connector.connector_key:
+        if canonical_connector_key(credential.app_id) != connector.connector_key:
             raise ValueError(
                 f"Credential '{credential.name}' is for '{credential.app_id}', not '{connector.connector_key}'"
             )

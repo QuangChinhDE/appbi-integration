@@ -42,10 +42,10 @@ const StepNameAndApp = ({ wizard }) => {
     requiresWorkflowSelection,
     requiresWeworkSelection,
   } = wizard
-  const isRequestSelected = selectedApp === 'request'
-  const isServiceSelected = selectedApp === 'service'
-  const isWorkflowSelected = selectedApp === 'workflow'
-  const isWeworkSelected = selectedApp === 'wework'
+  const isRequestSelected = selectedApp === 'base_request'
+  const isServiceSelected = selectedApp === 'base_service'
+  const isWorkflowSelected = selectedApp === 'base_workflow'
+  const isWeworkSelected = selectedApp === 'base_wework'
   const requiresDomain = Boolean(connectionConfig?.requiresDomain)
   const currentTokenValue = isRequestSelected ? accessTokenV2 : accessToken
   const appliedSource = savedSourceConnections.find(source => String(source.id) === String(sourceConnectionId)) || null

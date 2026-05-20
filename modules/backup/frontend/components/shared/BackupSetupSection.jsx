@@ -144,7 +144,7 @@ const BackupSetupSection = ({ wizard }) => {
       <SearchablePickerCard
         icon={<Link2 className="h-5 w-5" />}
         title="Pick a saved destination"
-        description="Search by destination name, Google account, folder, or drive. Focusing the search box will sync the latest saved destination profiles automatically."
+        description="Search by destination name, account, folder, or drive. Focusing the search box will sync the latest saved destination profiles automatically."
         searchValue={destinationSearch}
         onSearchChange={setDestinationSearch}
         onSearchFocus={handleDestinationSearchFocus}
@@ -169,7 +169,7 @@ const BackupSetupSection = ({ wizard }) => {
             {savedDestinationProfilesError || backupAppsPermissionConflict
               ? (savedDestinationProfilesError || backupAppsPermissionMessage)
               : visibleDestinationProfiles.length === 0
-              ? 'No saved Google Drive destination profiles yet. Create one in the Apps module, then come back here to reuse it.'
+              ? 'No saved storage destination profiles yet. Create Google Drive or OneDrive in the Apps module, then come back here to reuse it.'
               : 'No saved destination matches your search. Try another keyword.'}
           </div>
         )}
@@ -220,7 +220,7 @@ const BackupSetupSection = ({ wizard }) => {
             <Alert
               type="warning"
               message="Select a saved destination profile"
-              description="Create or edit reusable Google destinations in the Apps module, then pick one here for this backup flow."
+              description="Create or edit reusable Google Drive or OneDrive destinations in the Apps module, then pick one here for this backup flow."
             />
           ) : (
             <div className="rounded-xl border border-[rgb(var(--border-line))] bg-surface-1 p-5 space-y-4">
@@ -234,8 +234,8 @@ const BackupSetupSection = ({ wizard }) => {
                     {appliedProfile?.connection_label || googleAuth?.display_name || googleAuth?.email || 'Managed from the Apps module'}
                   </div>
                   <div className="mt-2 flex flex-wrap gap-1.5">
-                    <Tag color={googleAuthMethod === 'service_account' ? 'purple' : 'blue'}>
-                      {googleAuthMethod === 'service_account' ? 'Service account' : 'Sign in'}
+                    <Tag color={storageDestination === 'onedrive' ? 'blue' : googleAuthMethod === 'service_account' ? 'purple' : 'blue'}>
+                      {storageDestination === 'onedrive' ? 'Access token' : googleAuthMethod === 'service_account' ? 'Service account' : 'Sign in'}
                     </Tag>
                     {folderSummary && <Tag color={folderSummary.color}>{folderSummary.tag}</Tag>}
                     {folderSummary && <Tag color="default">{folderSummary.driveName}</Tag>}
@@ -250,10 +250,11 @@ const BackupSetupSection = ({ wizard }) => {
                 </div>
                 <div className="rounded-xl bg-surface-2 px-3 py-3 text-small text-text-secondary">
                   <div className="text-micro font-emphasis uppercase tracking-[0.14em] text-text-quaternary">Folder</div>
-                  <div className="mt-1 leading-6">{googleAuth?.folder_name || appliedProfile?.folder_name || 'Drive root / default folder'}</div>
+                  <div className="mt-1 leading-6">{googleAuth?.folder_name || appliedProfile?.folder_name || 'Root / default folder'}</div>
                 </div>
               </div>
 
+              {storageDestination === 'gdrive' ? (
               <div className="flex flex-col gap-2 rounded-xl border border-dashed border-brand/20 bg-brand/10 px-3 py-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="text-small font-emphasis text-brand">Override folder path for this flow</div>
@@ -271,6 +272,13 @@ const BackupSetupSection = ({ wizard }) => {
                   Choose folder
                 </Button>
               </div>
+              ) : (
+              <Alert
+                type="info"
+                message="OneDrive target comes from the saved profile"
+                description="Set the OneDrive folder item ID on the Apps credential. The Google folder picker is intentionally hidden for OneDrive."
+              />
+              )}
             </div>
           )}
           {folderSummary && (

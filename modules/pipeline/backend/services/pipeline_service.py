@@ -482,8 +482,44 @@ class PipelineService:
 
         return payload
 
-    @staticmethod
+    # Airbyte-style sync modes. Each value pairs a read strategy with a write
+    # strategy; the destination writer only sees the resolved write_mode.
+    SYNC_MODES = {
+        'full_refresh_overwrite': 'replace',
+        'full_refresh_append': 'append',
+        'incremental_append': 'append',
+        'incremental_dedup': 'upsert',
+    }
+
+    @classmethod
+    def _resolve_sync_mode(cls, item: Mapping[str, Any]) -> tuple[str, str]:
+        """Pick a canonical (sync_mode, write_mode) pair from a binding payload.
+
+        Accepts either the new ``sync_mode`` field (Airbyte-style) or the legacy
+        ``write_mode`` field on its own. Returns the resolved (sync_mode,
+        write_mode) tuple so downstream code can rely on both being present.
+        """
+        sync_mode = str(item.get('sync_mode') or '').strip().lower()
+        if sync_mode:
+            if sync_mode not in cls.SYNC_MODES:
+                raise ValueError(
+                    f"Invalid sync_mode '{sync_mode}'. Must be one of: "
+                    + ', '.join(sorted(cls.SYNC_MODES))
+                )
+            return sync_mode, cls.SYNC_MODES[sync_mode]
+
+        # Back-fill sync_mode from legacy write_mode for pipelines created
+        # before the Airbyte-style picker landed.
+        legacy_write = str(item.get('write_mode') or 'append').strip().lower()
+        if legacy_write == 'replace':
+            return 'full_refresh_overwrite', 'replace'
+        if legacy_write == 'upsert':
+            return 'incremental_dedup', 'upsert'
+        return 'full_refresh_append', 'append'
+
+    @classmethod
     def _normalize_bindings(
+        cls,
         bindings: Any,
         *,
         source_connector_key: str,
@@ -529,12 +565,13 @@ class PipelineService:
                 pipeline_destination_only=True,
             )
 
-            write_mode = str(item.get('write_mode') or 'append').strip().lower()
-            if write_mode not in {'append', 'replace', 'upsert'}:
-                raise ValueError(f"Binding #{index + 1}: write_mode must be append, replace, or upsert")
+            sync_mode, write_mode = cls._resolve_sync_mode(item)
+
+            # Validate write_mode against destination capabilities.
             if dest_stream.write_config and write_mode not in dest_stream.write_config.supported_modes:
                 raise ValueError(
-                    f"Destination stream '{dest_stream_key}' does not support write mode '{write_mode}'"
+                    f"Destination stream '{dest_stream_key}' does not support write mode '{write_mode}' "
+                    f"(required for sync_mode='{sync_mode}'). Supported: {list(dest_stream.write_config.supported_modes)}"
                 )
 
             # Resource-kind destinations only make sense with append semantics —
@@ -546,8 +583,37 @@ class PipelineService:
                 and write_mode != 'append'
             ):
                 raise ValueError(
-                    f"Destination stream '{dest_stream_key}' is a resource target and only supports write_mode='append'"
+                    f"Destination stream '{dest_stream_key}' is a resource target and only supports "
+                    f"full_refresh_append or incremental_append sync modes"
                 )
+
+            # Incremental sync modes need a cursor_field. Prefer the binding
+            # override; fall back to the stream's declared cursor_field.
+            cursor_field = item.get('cursor_field') or source_stream.cursor_field
+            if sync_mode.startswith('incremental_') and not cursor_field:
+                raise ValueError(
+                    f"Binding #{index + 1} uses sync_mode='{sync_mode}' but no cursor_field is "
+                    f"available. Either set cursor_field on the binding or pick a stream that "
+                    f"declares one."
+                )
+
+            # Dedup needs primary_key(s) to identify duplicates. Prefer override.
+            primary_key = item.get('primary_key')
+            if primary_key is not None and not isinstance(primary_key, list):
+                raise ValueError(f"Binding #{index + 1}: primary_key must be a list of field names")
+            if not primary_key and source_stream.primary_key:
+                primary_key = [source_stream.primary_key]
+            if sync_mode == 'incremental_dedup' and not primary_key:
+                raise ValueError(
+                    f"Binding #{index + 1} uses sync_mode='incremental_dedup' but no primary_key "
+                    f"is set. Either set primary_key on the binding or pick a stream that declares one."
+                )
+
+            # selected_fields: list of top-level keys or dotted paths to keep
+            # in each record. None / [] = pass through every field.
+            selected_fields = item.get('selected_fields')
+            if selected_fields is not None and not isinstance(selected_fields, list):
+                raise ValueError(f"Binding #{index + 1}: selected_fields must be a list of field paths")
 
             field_mapping = item.get('field_mapping') or {}
             if not isinstance(field_mapping, Mapping):
@@ -558,7 +624,11 @@ class PipelineService:
                 'source_config': source_config,
                 'dest_stream_key': dest_stream_key,
                 'dest_config': dest_config,
+                'sync_mode': sync_mode,
                 'write_mode': write_mode,
+                'cursor_field': cursor_field or None,
+                'primary_key': list(primary_key) if primary_key else None,
+                'selected_fields': list(selected_fields) if selected_fields else None,
                 'field_mapping': dict(field_mapping),
             })
 
@@ -598,27 +668,71 @@ class PipelineService:
                     dest_stream_key = str(binding.get('dest_stream_key') or '')
                     source_config = dict(binding.get('source_config') or {})
                     dest_config = dict(binding.get('dest_config') or {})
-                    write_mode = str(binding.get('write_mode') or 'append')
+                    # Resolve sync_mode + write_mode together so legacy
+                    # bindings (write_mode only) and new bindings (sync_mode)
+                    # both work without the executor branching.
+                    sync_mode, write_mode = PipelineService._resolve_sync_mode(binding)
+                    cursor_field = binding.get('cursor_field')
+                    primary_key = binding.get('primary_key') or []
+                    selected_fields = binding.get('selected_fields')
                     field_mapping = dict(binding.get('field_mapping') or {})
 
                     run.logs = service._append_log(
                         run.logs,
-                        f"[RUNNING] Binding {index + 1}/{len(pipeline.bindings or [])}: {source_stream_key} → {dest_stream_key}",
+                        f"[RUNNING] Binding {index + 1}/{len(pipeline.bindings or [])}: "
+                        f"{source_stream_key} → {dest_stream_key} ({sync_mode})",
                     )
                     await db.commit()
+
+                    # Incremental syncs read the prior checkpoint and pass it
+                    # to the connector via the `cursor` argument so declarative
+                    # connectors can inject it into the request (e.g. updated_from).
+                    cursor_state: dict[str, Any] | None = None
+                    if sync_mode.startswith('incremental_') and cursor_field:
+                        cursor_state = await service._read_cursor_state(
+                            pipeline_id=pipeline.id,
+                            binding_index=index,
+                        )
 
                     source_records = await source_connector.read_stream(
                         source_stream_key,
                         config=source_config,
+                        cursor=cursor_state,
                     )
+
+                    # Field selection (AirByte Fields drawer toggles) — drop
+                    # any keys the user disabled before they hit the destination.
+                    if selected_fields:
+                        source_records = [
+                            service._filter_record_fields(rec, selected_fields)
+                            for rec in source_records
+                        ]
+
                     mapped_records = service._apply_field_mapping(source_records, field_mapping)
 
+                    # Dedup (Append + Deduped) maps to write_mode='upsert' with
+                    # the first primary_key as the merge_key (BigQuery accepts
+                    # one merge_key today).
                     write_config = {**dest_config, 'write_mode': write_mode}
+                    if sync_mode == 'incremental_dedup' and primary_key:
+                        write_config.setdefault('merge_key', primary_key[0])
                     write_result = await dest_connector.write_stream(
                         dest_stream_key,
                         mapped_records,
                         config=write_config,
                     )
+
+                    # After a successful write, persist the maximum observed
+                    # cursor value so the next run picks up where we left off.
+                    if sync_mode.startswith('incremental_') and cursor_field:
+                        new_cursor = service._extract_max_cursor_value(source_records, cursor_field)
+                        if new_cursor is not None:
+                            await service._write_cursor_state(
+                                pipeline_id=pipeline.id,
+                                binding_index=index,
+                                cursor_field=cursor_field,
+                                cursor_value=new_cursor,
+                            )
 
                     read_count = len(source_records)
                     written_count = service._extract_written_count(write_result, fallback=len(mapped_records))
@@ -630,6 +744,7 @@ class PipelineService:
                     binding_results.append({
                         'source_stream_key': source_stream_key,
                         'dest_stream_key': dest_stream_key,
+                        'sync_mode': sync_mode,
                         'records_read': read_count,
                         'records_written': written_count,
                         'errors': errors_count,
@@ -787,6 +902,138 @@ class PipelineService:
         if credential_id in (None, ''):
             return None
         return await self.db.get(AppCredential, UUID(str(credential_id)))
+
+    # ── Field selection helpers ───────────────────────────────────────────
+
+    @staticmethod
+    def _filter_record_fields(record: Any, selected_fields: list[str]) -> dict[str, Any]:
+        """Keep only the keys listed in selected_fields (top-level or dotted path).
+
+        Mirrors AirByte's Fields drawer toggle behavior: a field path like
+        ``account_export.hid`` keeps that nested value alone; ``account_export``
+        alone keeps the entire nested object. When nested paths and their
+        parent both appear, the parent wins (broader selection takes precedence).
+        """
+        if not isinstance(record, Mapping):
+            return {}
+        if not selected_fields:
+            return dict(record)
+
+        # Group selectors by top-level key; ``None`` value means "keep entire
+        # top-level value", otherwise list of nested sub-paths to keep.
+        roots: dict[str, list[str] | None] = {}
+        for path in selected_fields:
+            text = str(path or '').strip()
+            if not text:
+                continue
+            head, _, rest = text.partition('.')
+            if rest == '':
+                roots[head] = None  # whole key wins over any sub-path
+            else:
+                existing = roots.get(head, [])
+                if existing is None:
+                    continue  # parent already selected in full
+                existing.append(rest)
+                roots[head] = existing
+
+        result: dict[str, Any] = {}
+        for head, sub_paths in roots.items():
+            if head not in record:
+                continue
+            value = record[head]
+            if sub_paths is None:
+                result[head] = value
+            elif isinstance(value, Mapping):
+                result[head] = PipelineService._filter_record_fields(dict(value), sub_paths)
+            else:
+                # Sub-path requested but value isn't a mapping — drop it.
+                continue
+        return result
+
+    # ── Incremental cursor state ──────────────────────────────────────────
+
+    async def _read_cursor_state(
+        self,
+        *,
+        pipeline_id: UUID,
+        binding_index: int,
+    ) -> dict[str, Any] | None:
+        """Return ``{cursor_field: cursor_value}`` from the last successful run, or None."""
+        from packages.database.src.models import PipelineCursorState
+        result = await self.db.execute(
+            select(PipelineCursorState).where(
+                and_(
+                    PipelineCursorState.pipeline_id == pipeline_id,
+                    PipelineCursorState.binding_index == binding_index,
+                )
+            )
+        )
+        row = result.scalar_one_or_none()
+        if row is None or not row.cursor_value:
+            return None
+        return {row.cursor_field: row.cursor_value}
+
+    async def _write_cursor_state(
+        self,
+        *,
+        pipeline_id: UUID,
+        binding_index: int,
+        cursor_field: str,
+        cursor_value: Any,
+    ) -> None:
+        """Upsert the cursor checkpoint for one binding."""
+        from packages.database.src.models import PipelineCursorState
+        existing = await self.db.execute(
+            select(PipelineCursorState).where(
+                and_(
+                    PipelineCursorState.pipeline_id == pipeline_id,
+                    PipelineCursorState.binding_index == binding_index,
+                )
+            )
+        )
+        row = existing.scalar_one_or_none()
+        if row is None:
+            self.db.add(PipelineCursorState(
+                pipeline_id=pipeline_id,
+                binding_index=binding_index,
+                cursor_field=cursor_field,
+                cursor_value=str(cursor_value),
+            ))
+        else:
+            row.cursor_field = cursor_field
+            row.cursor_value = str(cursor_value)
+            row.updated_at = datetime.now(timezone.utc)
+        await self.db.commit()
+
+    @staticmethod
+    def _extract_max_cursor_value(
+        records: list[dict[str, Any]],
+        cursor_field: str,
+    ) -> Any | None:
+        """Pick the largest value of ``cursor_field`` across a batch of records.
+
+        Used to advance the per-binding cursor after a successful sync. Strings
+        are compared lexicographically (correct for ISO-8601 dates and zero-
+        padded numeric strings); numbers are compared numerically.
+        """
+        best: Any = None
+        for record in records:
+            if not isinstance(record, Mapping):
+                continue
+            value = record.get(cursor_field)
+            if value in (None, ''):
+                continue
+            if best is None:
+                best = value
+                continue
+            try:
+                if value > best:
+                    best = value
+            except TypeError:
+                # Mixed-type comparison — fall back to string.
+                if str(value) > str(best):
+                    best = value
+        return best
 
     @staticmethod
     def _apply_field_mapping(records: list[dict[str, Any]], field_mapping: Mapping[str, Any]) -> list[dict[str, Any]]:

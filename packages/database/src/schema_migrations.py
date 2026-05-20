@@ -934,6 +934,34 @@ async def _ensure_data_pipeline_bindings_schema(db: AsyncSession) -> bool:
     return changed
 
 
+async def _ensure_pipeline_cursor_states_table(db: AsyncSession) -> bool:
+    """Create pipeline_cursor_states table for Airbyte-style incremental checkpoints.
+
+    Idempotent: returns False if the table already exists. New deployments will
+    have it created by ``create_all()``; this function backfills for existing
+    deployments that boot before the model is auto-created.
+    """
+    if await _table_exists(db, 'pipeline_cursor_states'):
+        return False
+
+    await db.execute(text("""
+        CREATE TABLE pipeline_cursor_states (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            pipeline_id UUID NOT NULL REFERENCES data_pipelines(id) ON DELETE CASCADE,
+            binding_index INTEGER NOT NULL,
+            cursor_field VARCHAR(255) NOT NULL,
+            cursor_value TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT uq_pipeline_cursor_states_slot UNIQUE (pipeline_id, binding_index)
+        )
+    """))
+    await db.execute(text(
+        "CREATE INDEX ix_pipeline_cursor_states_pipeline_id ON pipeline_cursor_states(pipeline_id)"
+    ))
+    logger.info('Created pipeline_cursor_states table')
+    return True
+
+
 async def run_startup_schema_migrations(db: AsyncSession) -> None:
     """Upgrade legacy database structures to the current credential-based schema.
 
@@ -969,6 +997,8 @@ async def run_startup_schema_migrations(db: AsyncSession) -> None:
     if await _ensure_data_pipeline_tables(db):
         changed = True
     if await _ensure_data_pipeline_bindings_schema(db):
+        changed = True
+    if await _ensure_pipeline_cursor_states_table(db):
         changed = True
 
     if changed:

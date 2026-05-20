@@ -145,9 +145,9 @@ export default function useWizardState() {
   // ── Derived ───────────────────────────────────────────────────────────
   const currentApp = selectedApp ? APPS[selectedApp] : null
   const isRequestApp = currentApp?.isSpecial
-  const isServiceApp = currentApp?.id === 'service'
-  const isWorkflowApp = currentApp?.id === 'workflow'
-  const isWeworkApp = currentApp?.id === 'wework'
+  const isServiceApp = currentApp?.id === 'base_service'
+  const isWorkflowApp = currentApp?.id === 'base_workflow'
+  const isWeworkApp = currentApp?.id === 'base_wework'
   const connectionConfig = selectedApp ? APP_CONNECTION_CONFIG[selectedApp] : null
 
   const buildPlatformServiceAccountState = useCallback((overrides = {}) => {
@@ -547,7 +547,7 @@ export default function useWizardState() {
       setSourceConnectionId(nextSource.credential_id)
       setDomain(nextSource.domain || '')
 
-      if (nextAppId === 'request') {
+      if (nextAppId === 'base_request') {
         setAccessTokenV2(nextSource.access_token || '')
         setAccessToken('')
       } else {
@@ -640,7 +640,23 @@ export default function useWizardState() {
       setSharedFolderQuery('')
       setSharedFolderReference('')
 
-      if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
+      if (nextDestination.type === 'onedrive') {
+        setGoogleAuthMethod('access_token')
+        setGoogleAuth({
+          auth_mode: 'access_token',
+          auth_method: 'access_token',
+          account_email: auth.account_email || '',
+          email: auth.account_email || '',
+          display_name: auth.account_email || data.app_name || 'OneDrive',
+          folder_id: auth.folder_id || null,
+          folder_name: auth.folder_name || null,
+          drive_id: auth.drive_id || null,
+          drive_name: auth.drive_name || null,
+        })
+        setServiceAccountAnalysis(null)
+        setServiceAccountFileName('')
+        setServiceAccountError('')
+      } else if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
         setGoogleAuthMethod('service_account')
         setGoogleAuth({
           auth_mode: 'service_account',
@@ -738,6 +754,16 @@ export default function useWizardState() {
         drive_name: effectiveServiceAccount?.drive_name || null,
       }
     }
+    if (storageDestination === 'onedrive') {
+      return {
+        auth_mode: 'access_token',
+        auth_method: 'access_token',
+        folder_id: googleAuthState?.folder_id || null,
+        folder_name: googleAuthState?.folder_name || null,
+        drive_id: googleAuthState?.drive_id || null,
+        drive_name: googleAuthState?.drive_name || null,
+      }
+    }
     const connectionId = googleAuthState?.google_oauth_connection_id || googleAuthState?.connection_id || null
     const connectionEmail = googleAuthState?.google_oauth_email || googleAuthState?.email || null
     return {
@@ -754,7 +780,7 @@ export default function useWizardState() {
       drive_id: googleAuthState?.drive_id || null,
       drive_name: googleAuthState?.drive_name || null,
     }
-  }, [googleAuth, resolvedGoogleAuthMethod, serviceAccountAnalysis, serviceAccountFileName, platformServiceAccount, buildPlatformServiceAccountState])
+  }, [googleAuth, resolvedGoogleAuthMethod, serviceAccountAnalysis, serviceAccountFileName, platformServiceAccount, buildPlatformServiceAccountState, storageDestination])
 
   const hasReadyServiceAccountAuth = useCallback((
     googleAuthState = googleAuth,
@@ -778,8 +804,8 @@ export default function useWizardState() {
     sourceAppId = selectedApp,
     destinationType = storageDestination,
   ) => {
-    if (destinationType && destinationType !== 'gdrive') {
-      return 'Google Sheets is no longer supported as a Backup destination. Choose a Google Drive destination from the Apps module.'
+    if (destinationType && !ACTIVE_BACKUP_DESTINATION_IDS.includes(destinationType)) {
+      return 'This destination is not supported by Backup. Choose Google Drive or OneDrive from the Apps module.'
     }
     return null
   }, [selectedApp, storageDestination])
@@ -1186,7 +1212,7 @@ export default function useWizardState() {
       if (src.source_connection_id) setSourceConnectionId(src.source_connection_id)
       if (dest.destination_profile_id) setDestinationProfileId(dest.destination_profile_id)
 
-      if (src.app === 'request') {
+      if (src.app === 'base_request') {
         if (src.domain) setDomain(src.domain)
         if (src.access_token) setAccessTokenV2(src.access_token)
         if (Array.isArray(struct.objects)) setSelectedObjects(struct.objects)
@@ -1198,7 +1224,20 @@ export default function useWizardState() {
         if (f.backup_type) setBackupType(f.backup_type)
         if (dest.type) setStorageDestination(dest.type)
         const auth = dest.auth || {}
-        if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
+        if (dest.type === 'onedrive') {
+          setGoogleAuthMethod('access_token')
+          setGoogleAuth({
+            auth_mode: 'access_token',
+            auth_method: 'access_token',
+            account_email: auth.account_email || '',
+            email: auth.account_email || '',
+            display_name: auth.account_email || dest.name || 'OneDrive',
+            folder_id: auth.folder_id || null,
+            folder_name: auth.folder_name || (auth.folder_id ? 'Saved folder' : null),
+            drive_id: auth.drive_id || null,
+            drive_name: auth.drive_name || null,
+          })
+        } else if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
           setGoogleAuthMethod('service_account')
           setGoogleAuth({
             auth_mode: 'service_account',
@@ -1239,7 +1278,7 @@ export default function useWizardState() {
           })
         }
       } else {
-        if ((src.app === 'service' || src.app === 'workflow' || src.app === 'wework') && src.domain) setDomain(src.domain)
+        if ((src.app === 'base_service' || src.app === 'base_workflow' || src.app === 'base_wework') && src.domain) setDomain(src.domain)
         if (f.backup_type) setBackupType(f.backup_type)
         if (dest.type) setStorageDestination(dest.type)
         if (src.access_token) setAccessToken(src.access_token)
@@ -1254,7 +1293,20 @@ export default function useWizardState() {
           setDraftSelectedWorkflowIds(struct.workflow_ids)
         }
         const auth = dest.auth || {}
-        if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
+        if (dest.type === 'onedrive') {
+          setGoogleAuthMethod('access_token')
+          setGoogleAuth({
+            auth_mode: 'access_token',
+            auth_method: 'access_token',
+            account_email: auth.account_email || '',
+            email: auth.account_email || '',
+            display_name: auth.account_email || dest.name || 'OneDrive',
+            folder_id: auth.folder_id || null,
+            folder_name: auth.folder_name || (auth.folder_id ? 'Saved folder' : null),
+            drive_id: auth.drive_id || null,
+            drive_name: auth.drive_name || null,
+          })
+        } else if (auth.auth_mode === 'service_account' || auth.auth_method === 'service_account' || auth.service_account_json_encrypted || auth.uses_platform_service_account) {
           setGoogleAuthMethod('service_account')
           setGoogleAuth({
             auth_mode: 'service_account',
@@ -1296,8 +1348,8 @@ export default function useWizardState() {
           })
         }
 
-        if (src.app === 'service' && src.domain && src.access_token) setServiceSourceSetupSaved(true)
-        if (src.app === 'service' && f.backup_type && dest.type && (dest.auth?.connection_id || dest.auth?.service_account_json_encrypted || dest.auth?.service_account_email)) {
+        if (src.app === 'base_service' && src.domain && src.access_token) setServiceSourceSetupSaved(true)
+        if (src.app === 'base_service' && f.backup_type && dest.type && (dest.auth?.connection_id || dest.auth?.service_account_json_encrypted || dest.auth?.service_account_email)) {
           setServiceBackupSetupSaved(true)
         }
       }

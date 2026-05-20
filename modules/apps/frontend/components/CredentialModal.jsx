@@ -17,7 +17,7 @@ const ROLE_META = {
   destination: {
     label: 'Destination',
     tone: 'brand',
-    summary: 'Used when Backup writes files to Google destinations.',
+    summary: 'Used when Backup writes files to storage destinations.',
   },
 }
 
@@ -205,7 +205,7 @@ function PickerStep({
             <StepTile
               step="01"
               title="Choose app"
-              description="Request, Service, Workflow, WeWork, Drive, or Sheets."
+              description="Base apps, Google Drive, OneDrive, Sheets, or BigQuery."
             />
             <StepTile
               step="02"
@@ -275,7 +275,7 @@ function PickerStep({
           />
           <AppPickerSection
             label="Destination apps"
-            description="Credentials that Backup uses to write files to Google destinations."
+            description="Credentials that Backup uses to write files to storage destinations."
             apps={destinationApps}
             onPick={onPick}
           />

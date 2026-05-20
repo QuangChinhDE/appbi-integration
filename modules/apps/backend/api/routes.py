@@ -22,6 +22,7 @@ from modules.apps.shared.types import (
     AppCredentialListItem,
     AppCredentialUpdate,
 )
+from modules.connectors.apps._packages import canonical_connector_key
 from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from packages.auth.src import (
     apply_resource_scope,
@@ -59,7 +60,7 @@ async def get_apps_overview(
     result = await db.execute(stmt)
     credentials = result.scalars().all()
 
-    counts_by_app = dict(Counter(item.app_id for item in credentials if item.app_id))
+    counts_by_app = dict(Counter(canonical_connector_key(item.app_id) for item in credentials if item.app_id))
     return AppsOverviewResponse(
         credential_count=len(credentials),
         app_count=len(counts_by_app),

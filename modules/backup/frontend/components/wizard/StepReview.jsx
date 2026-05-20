@@ -36,7 +36,7 @@ function buildGenericTreeLines(googleAuth, currentApp) {
  * ═══════════════════════════════════════════════════════════════════════ */
 
 function renderServiceArchiveNotice(appId, destinationType) {
-  if (appId !== 'service' || destinationType !== 'gdrive') return null
+  if (appId !== 'base_service' || destinationType !== 'gdrive') return null
   return (
     <Alert
       type="info"

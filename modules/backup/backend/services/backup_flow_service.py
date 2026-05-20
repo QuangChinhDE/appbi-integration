@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from modules.apps.backend.services.app_credential_service import AppCredentialService
+from modules.connectors.apps._packages import canonical_connector_key
 from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
 from modules.apps.shared.types import GOOGLE_STYLE_APPS, SOURCE_STYLE_APPS
 from modules.backup.shared.types import (
@@ -205,8 +206,8 @@ class BackupFlowService:
             preview = {"domain": config.get("domain")}
         else:
             preview = {
-                "email": auth.get("email"),
-                "display_name": auth.get("display_name"),
+                "email": auth.get("email") or auth.get("account_email"),
+                "display_name": auth.get("display_name") or auth.get("account_email"),
                 "folder_name": config.get("folder_name"),
                 "drive_name": config.get("drive_name"),
                 "uses_platform_service_account": bool(config.get("uses_platform_service_account")),
@@ -216,7 +217,7 @@ class BackupFlowService:
             id=credential.id,
             owner_email=owner_email,
             user_permission=user_permission,
-            app_id=credential.app_id,
+            app_id=canonical_connector_key(credential.app_id),
             app_name=credential.app_name,
             auth_mode=credential.auth_mode,
             name=credential.name,
@@ -255,7 +256,7 @@ class BackupFlowService:
         credential: Optional[AppCredential],
         exc: ValueError,
     ) -> str:
-        connector_key = credential.app_id if credential else role
+        connector_key = canonical_connector_key(credential.app_id) if credential else role
         raw_message = str(exc)
 
         if connector_key == 'gsheets' and role == 'destination':
@@ -390,6 +391,7 @@ class BackupFlowService:
         }
         dest_map = {
             'gdrive': 'GDrive',
+            'onedrive': 'OneDrive',
             'gsheets': 'GSheets',
         }
         type_short = type_map.get(backup_type, backup_type)
@@ -439,7 +441,7 @@ class BackupFlowService:
         flow_name = self.generate_flow_name(
             app_name=source.app_name,
             backup_type=save_data.backup_type,
-            destination_type=destination.app_id,
+            destination_type=canonical_connector_key(destination.app_id),
         )
 
         flow.name = save_data.name.strip() if save_data.name and save_data.name.strip() else flow_name
@@ -512,7 +514,7 @@ class BackupFlowService:
         flow_name = self.generate_flow_name(
             app_name=source.app_name,
             backup_type=flow_data.backup_type,
-            destination_type=destination.app_id,
+            destination_type=canonical_connector_key(destination.app_id),
         )
 
         new_flow = BackupFlow(
@@ -596,11 +598,11 @@ class BackupFlowService:
                 user_permission=permission_lookup.get(str(flow.id), 'none'),
                 is_draft=flow.is_draft,
                 is_published=flow.is_published,
-                app=source.app_id if source else None,
+                app=canonical_connector_key(source.app_id) if source else None,
                 app_name=source.app_name if source else None,
                 source_name=source.name if source else None,
                 backup_type=flow.backup_type,
-                destination_type=destination.app_id if destination else None,
+                destination_type=canonical_connector_key(destination.app_id) if destination else None,
                 destination_name=destination.app_name if destination else None,
                 destination_profile_name=destination.name if destination else None,
                 status=flow.status,
@@ -775,11 +777,12 @@ class BackupFlowService:
 
         from modules.backup.backend.extractors.runner_registry import get_backup_runner
 
-        runner = get_backup_runner(source.app_id)
+        source_app_id = canonical_connector_key(source.app_id)
+        runner = get_backup_runner(source_app_id)
 
         execution_details: Dict[str, Any] = {
-            'app': source.app_id,
-            'mode': f'{source.app_id}_backup',
+            'app': source_app_id,
+            'mode': f'{source_app_id}_backup',
         }
 
         if retry_failed_only:
@@ -872,7 +875,7 @@ class BackupFlowService:
             recent_runs = []
 
         configured_apps = len({
-            source_map[flow.source_credential_id].app_id
+            canonical_connector_key(source_map[flow.source_credential_id].app_id)
             for flow in published_flows
             if flow.source_credential_id and flow.source_credential_id in source_map
         })
@@ -886,7 +889,7 @@ class BackupFlowService:
                 run_id=run.id,
                 flow_id=run.flow_id,
                 flow_name=flow.name if flow else None,
-                app=source.app_id if source else None,
+                app=canonical_connector_key(source.app_id) if source else None,
                 app_name=source.app_name if source else None,
                 status=run.status,
                 started_at=run.started_at,

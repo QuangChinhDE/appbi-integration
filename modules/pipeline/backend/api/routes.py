@@ -89,11 +89,31 @@ crud_router = APIRouter()
 
 
 class PipelineBinding(BaseModel):
+    """One configured stream transfer inside a pipeline (Airbyte-style).
+
+    sync_mode is the canonical user-facing setting (4 combinations from the UI):
+
+      - full_refresh_overwrite : clear table, write all records
+      - full_refresh_append    : append every record on each run
+      - incremental_append     : only records newer than last cursor; append
+      - incremental_dedup      : incremental + dedup by primary_key (upsert)
+
+    write_mode is the legacy/destination-facing knob and is auto-derived from
+    sync_mode by the service layer. If a caller only supplies write_mode (older
+    clients), sync_mode is back-filled accordingly.
+    """
     source_stream_key: str
     source_config: dict[str, Any] = Field(default_factory=dict)
     dest_stream_key: str
     dest_config: dict[str, Any] = Field(default_factory=dict)
+    sync_mode: str | None = None
     write_mode: str = 'append'
+    cursor_field: str | None = None
+    primary_key: list[str] | None = None
+    # When None or empty list → pass through every key from the source record.
+    # When a list of names is given, only those keys (top-level or dotted path
+    # for nested objects) survive the read step. Order does not matter.
+    selected_fields: list[str] | None = None
     field_mapping: dict[str, Any] = Field(default_factory=dict)
 
 

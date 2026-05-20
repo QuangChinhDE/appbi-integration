@@ -1,7 +1,7 @@
 import React from 'react'
 import {
   Inbox, FolderKanban, Building2, Headphones,
-  FileSpreadsheet, Folder, Database,
+  Cloud, FileSpreadsheet, Folder, Database,
 } from 'lucide-react'
 
 const formatRunProgress = (completed, total, label) => `${Number(completed || 0)}/${Number(total || 0)} ${label}`
@@ -9,8 +9,8 @@ const formatRunCount = (count, label) => `${Number(count || 0)} ${label}`
 
 // ── App definitions ─────────────────────────────────────────────────────────
 export const APPS = {
-  request: {
-    id: 'request',
+  base_request: {
+    id: 'base_request',
     name: 'Request',
     icon: <Inbox className="w-5 h-5" />,
     color: '#ea580c',
@@ -25,8 +25,8 @@ export const APPS = {
       formatRunCount(details.total_requests, 'requests'),
     ].join(' · '),
   },
-  workflow: {
-    id: 'workflow',
+  base_workflow: {
+    id: 'base_workflow',
     name: 'Workflow',
     icon: <FolderKanban className="w-5 h-5" />,
     color: '#7c3aed',
@@ -41,8 +41,8 @@ export const APPS = {
       formatRunProgress(details.completed_jobs, details.total_jobs, 'jobs'),
     ].join(' · '),
   },
-  wework: {
-    id: 'wework',
+  base_wework: {
+    id: 'base_wework',
     name: 'WeWork',
     icon: <Building2 className="w-5 h-5" />,
     color: '#2563eb',
@@ -57,8 +57,8 @@ export const APPS = {
       formatRunProgress(details.completed_tasks, details.total_tasks, 'tasks'),
     ].join(' · '),
   },
-  service: {
-    id: 'service',
+  base_service: {
+    id: 'base_service',
     name: 'Service',
     icon: <Headphones className="w-5 h-5" />,
     color: '#059669',
@@ -76,20 +76,20 @@ export const APPS = {
   },
 }
 
-export const ACTIVE_BACKUP_SOURCE_APP_IDS = ['request', 'workflow', 'wework', 'service']
+export const ACTIVE_BACKUP_SOURCE_APP_IDS = ['base_request', 'base_workflow', 'base_wework']
 export const SELECTABLE_BACKUP_APPS = ACTIVE_BACKUP_SOURCE_APP_IDS.map((appId) => APPS[appId]).filter(Boolean)
 
 // ── App meta for list/detail views (compact) ────────────────────────────────
 export const APP_META = {
-  request:  { color: '#ea580c', icon: <Inbox className="w-4 h-4" /> },
-  workflow: { color: '#7c3aed', icon: <FolderKanban className="w-4 h-4" /> },
-  wework:   { color: '#2563eb', icon: <Building2 className="w-4 h-4" /> },
-  service:  { color: '#059669', icon: <Headphones className="w-4 h-4" /> },
+  base_request:  { color: '#ea580c', icon: <Inbox className="w-4 h-4" /> },
+  base_workflow: { color: '#7c3aed', icon: <FolderKanban className="w-4 h-4" /> },
+  base_wework:   { color: '#2563eb', icon: <Building2 className="w-4 h-4" /> },
+  base_service:  { color: '#059669', icon: <Headphones className="w-4 h-4" /> },
 }
 
 // ── Connection config per app ───────────────────────────────────────────────
 export const APP_CONNECTION_CONFIG = {
-  request: {
+  base_request: {
     stepTitle: 'Request Connection',
     stepDescription: 'Provide the Request domain and Base Account token used for backup access.',
     requiresDomain: true,
@@ -100,7 +100,7 @@ export const APP_CONNECTION_CONFIG = {
     tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
     tokenHelp: 'Get this value from Request → Settings → API Keys. Use the Base Account access_token_v2 token.',
   },
-  workflow: {
+  base_workflow: {
     stepTitle: 'Workflow Connection',
     stepDescription: 'Provide the Workflow domain and API token used for backup access.',
     requiresDomain: true,
@@ -111,7 +111,7 @@ export const APP_CONNECTION_CONFIG = {
     tokenPlaceholder: 'Paste your Workflow access token here…',
     tokenHelp: 'Get this value from Workflow → Settings → API Keys.',
   },
-  wework: {
+  base_wework: {
     stepTitle: 'WeWork Connection',
     stepDescription: 'Provide the WeWork domain and Base Account token used for backup access.',
     requiresDomain: true,
@@ -122,7 +122,7 @@ export const APP_CONNECTION_CONFIG = {
     tokenPlaceholder: 'Paste your Base Account access_token_v2 here…',
     tokenHelp: 'Get this value from WeWork → Settings → API Keys. Use the Base Account access_token_v2 token.',
   },
-  service: {
+  base_service: {
     stepTitle: 'Connection Information',
     stepDescription: 'Provide the Service domain and Base Account token used for backup access.',
     requiresDomain: true,
@@ -137,19 +137,19 @@ export const APP_CONNECTION_CONFIG = {
 
 // ── Mock custom fields (demo) ───────────────────────────────────────────────
 export const MOCK_FIELDS = {
-  workflow: [
+  base_workflow: [
     { id: 'wf1', object: 'workflow', name: 'Priority Level', type: 'select', desc: 'Workflow priority classification' },
     { id: 'wf2', object: 'workflow', name: 'Approval Matrix', type: 'input-table', desc: 'Approval routing table' },
     { id: 'wf3', object: 'job', name: 'Estimated Hours', type: 'number', desc: 'Time estimation for job' },
     { id: 'wf4', object: 'job', name: 'Skills Required', type: 'select-master', desc: 'Required skills list' },
   ],
-  wework: [
+  base_wework: [
     { id: 'ww1', object: 'department', name: 'Budget', type: 'number', desc: 'Department budget allocation' },
     { id: 'ww2', object: 'project', name: 'Milestones', type: 'input-table', desc: 'Project milestone tracking' },
     { id: 'ww3', object: 'project', name: 'Status', type: 'select', desc: 'Project status' },
     { id: 'ww4', object: 'task', name: 'Priority', type: 'select', desc: 'Task priority level' },
   ],
-  service: [
+  base_service: [
     { id: 'sv1', object: 'service', name: 'SLA Hours', type: 'number', desc: 'Service level agreement time' },
     { id: 'sv2', object: 'ticket', name: 'Resolution Steps', type: 'input-table', desc: 'Resolution procedure steps' },
     { id: 'sv3', object: 'ticket', name: 'Severity', type: 'select', desc: 'Ticket severity level' },
@@ -228,17 +228,25 @@ export const DESTINATION_OPTIONS = [
     icon: <Folder className="w-5 h-5" />,
     color: '#1a73e8',
   },
+  {
+    id: 'onedrive',
+    title: 'OneDrive',
+    desc: 'Save to Microsoft OneDrive via Microsoft Graph',
+    icon: <Cloud className="w-5 h-5" />,
+    color: '#2563eb',
+  },
 ]
 
-export const ACTIVE_BACKUP_DESTINATION_IDS = ['gdrive']
+export const ACTIVE_BACKUP_DESTINATION_IDS = ['gdrive', 'onedrive']
 
 export const BACKUP_DESTINATION_LABELS = {
   gdrive: 'Google Drive',
+  onedrive: 'OneDrive',
   gsheets: 'Google Sheets (legacy unsupported)',
 }
 
 export const getBackupDestinationLabel = (destinationType) => {
-  if (!destinationType) return 'Google Drive'
+  if (!destinationType) return 'Storage destination'
   return BACKUP_DESTINATION_LABELS[destinationType] || destinationType
 }
 

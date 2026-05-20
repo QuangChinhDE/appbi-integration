@@ -34,6 +34,7 @@ from modules.connectors.backend.shared.manifest import (
     ManifestAuth,
     ManifestAuthField,
     ManifestCheck,
+    ManifestIncremental,
     ManifestPagination,
     ManifestParentStream,
     ManifestRequest,
@@ -231,6 +232,53 @@ def _build_request(requester: Mapping[str, Any], base_url: str) -> ManifestReque
     )
 
 
+def _build_incremental(raw: Any) -> Optional[ManifestIncremental]:
+    """Translate Airbyte's ``incremental_sync: DatetimeBasedCursor`` block.
+
+    We support the slice-less subset: a single cursor field, an inject point
+    (body / params / header), and a wire-format (epoch seconds / epoch ms /
+    ISO 8601). Airbyte features we intentionally skip on the first pass:
+    sliced datetime windows (``step`` + ``cursor_granularity``), datetime
+    range end_datetime, and lookback windows. They're not load-bearing for
+    the Base APIs we currently support — ``step: P1000Y`` collapses to one
+    slice anyway.
+    """
+    if not isinstance(raw, Mapping):
+        return None
+    if str(raw.get('type') or '') != 'DatetimeBasedCursor':
+        return None
+
+    cursor_field = str(raw.get('cursor_field') or '').strip()
+    if not cursor_field:
+        return None
+
+    start_time_option = raw.get('start_time_option') or {}
+    if not isinstance(start_time_option, Mapping):
+        return None
+    start_param = str(start_time_option.get('field_name') or '').strip()
+    inject_into = _inject_target(start_time_option.get('inject_into'))
+    if not start_param:
+        # No wire field declared → no point in surfacing the cursor.
+        return None
+
+    datetime_format = str(raw.get('datetime_format') or '').strip()
+    formats = raw.get('cursor_datetime_formats') or [datetime_format]
+    candidate = str(formats[0] if formats else datetime_format).strip()
+    if candidate == '%s':
+        fmt = 'epoch_seconds'
+    elif candidate == '%s%f' or candidate.lower() == '%epochms':
+        fmt = 'epoch_ms'
+    else:
+        fmt = 'iso8601'
+
+    return ManifestIncremental(
+        cursor_field=cursor_field,
+        start_param=start_param,
+        inject_into=inject_into,
+        format=fmt,
+    )
+
+
 def _build_stream(raw: Mapping[str, Any], base_url: str) -> Optional[ManifestStream]:
     retriever = raw.get('retriever') or {}
     if not isinstance(retriever, Mapping):
@@ -249,6 +297,8 @@ def _build_stream(raw: Mapping[str, Any], base_url: str) -> Optional[ManifestStr
 
     partition_router = retriever.get('partition_router')
     parent = _build_parent_stream(partition_router)
+
+    incremental = _build_incremental(raw.get('incremental_sync'))
 
     request = _build_request(requester, base_url=base_url)
 
@@ -276,6 +326,7 @@ def _build_stream(raw: Mapping[str, Any], base_url: str) -> Optional[ManifestStr
         record_selector=selector,
         pagination=pagination,
         parent_stream=parent,
+        incremental=incremental,
         schema=schema,
     )
 

@@ -32,32 +32,41 @@ Produces the hierarchical folder structure:
                     └── 3. Tệp đính kèm/
                         ├── Thông tin files.xlsx
                         ├── Thông tin result files.xlsx
-                        └── Thông tin review files.xlsx
+                        ├── Thông tin review files.xlsx
+                        └── [downloaded attachment files]
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime
 from typing import Any
 
+from modules.backup.backend.extractors._attachments import (
+    ATTACHMENT_HYPERLINK_COLUMNS,
+    MAX_PARALLEL_ATTACHMENT_DOWNLOADS,
+    build_attachment_dedupe_key,
+    build_attachment_http_client,
+    build_attachment_record,
+    derive_attachment_base_urls,
+    download_attachment_records,
+)
 from modules.backup.backend.extractors.destination_writers import (
     BackupDestinationWriter,
     build_backup_destination_writer,
 )
-from modules.backup.backend.extractors._gdrive import build_cached_gdrive_token_provider
+from modules.backup.backend.extractors.destination_tokens import (
+    build_backup_destination_token_provider,
+)
 from modules.backup.backend.extractors._helpers import sanitize_name, truncate_name
-from modules.connectors.apps.wework.common.auth import WeworkCredentials
-from modules.connectors.apps.wework.common.client import (
+from modules.connectors.apps.base_wework.common.auth import WeworkCredentials
+from modules.connectors.apps.base_wework.common.client import (
     WeworkManagementClient,
     merge_task_collections,
 )
 from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
-from modules.credentials.backend.services.google_auth_service import (
-    GoogleAuthService,
-    validate_service_account_drive_destination,
-)
 from packages.database.src import async_session
 from packages.database.src.models import BackupFlow, BackupFlowRun
 
@@ -144,18 +153,11 @@ def _extract_custom_tables(detail: dict[str, Any]) -> dict[str, list[dict[str, A
 
 
 def _extract_file_rows(payload: Any) -> list[dict[str, Any]]:
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, ...]] = set()
     rows: list[dict[str, Any]] = []
     for item in _record_list(payload):
-        row = {
-            'file_id': item.get('id') or item.get('file_id') or item.get('hid') or '',
-            'file_name': item.get('name') or item.get('file_name') or item.get('filename') or item.get('title') or '',
-            'file_url': item.get('url') or item.get('link') or item.get('download_url') or item.get('web_url') or '',
-            'file_size': item.get('size') or item.get('filesize') or '',
-            'uploaded_by': item.get('username') or item.get('uploaded_by') or item.get('creator_name') or item.get('created_by') or '',
-            'mime_type': item.get('mime_type') or item.get('type') or '',
-        }
-        dedupe_key = (str(row['file_id']), str(row['file_name']), str(row['file_url']))
+        row = build_attachment_record(item)
+        dedupe_key = build_attachment_dedupe_key(row)
         if dedupe_key in seen:
             continue
         seen.add(dedupe_key)
@@ -197,6 +199,9 @@ async def _backup_task_detail(
     base_path: str,
     writer: BackupDestinationWriter,
     uploaded_files: list[dict[str, Any]],
+    attachment_http_client,
+    attachment_download_sem: asyncio.Semaphore,
+    attachment_base_urls: list[str],
 ) -> dict[str, Any]:
     task_id = _pick(task, _TASK_ID_FIELDS)
     task_name = _pick(task, _NAME_FIELDS)
@@ -243,6 +248,7 @@ async def _backup_task_detail(
     file_groups = _extract_task_file_groups(detail)
     if any(file_groups.values()):
         attachments_folder_id = await writer.create_folder('3. Tệp đính kèm', task_folder_id)
+        used_attachment_names: set[str] = set()
         attachment_specs = (
             ('files', 'Thông tin files.xlsx'),
             ('result_files', 'Thông tin result files.xlsx'),
@@ -252,7 +258,34 @@ async def _backup_task_detail(
             records = file_groups.get(group_key) or []
             if not records:
                 continue
-            fid, _ = await writer.upload_excel(attachments_folder_id, filename, records)
+            downloaded_attachments, failed_attachment_count = await download_attachment_records(
+                writer=writer,
+                folder_id=attachments_folder_id,
+                records=records,
+                http_client=attachment_http_client,
+                download_sem=attachment_download_sem,
+                base_urls=attachment_base_urls,
+                used_names=used_attachment_names,
+            )
+            for uploaded_attachment in downloaded_attachments:
+                uploaded_files.append({
+                    'path': f'{task_path}/3. Tệp đính kèm/{uploaded_attachment["filename"]}',
+                    'file_id': uploaded_attachment['file_id'],
+                    'size_bytes': uploaded_attachment['size_bytes'],
+                })
+            if failed_attachment_count:
+                logger.warning(
+                    'Failed to download %s %s attachment(s) for task %s',
+                    failed_attachment_count,
+                    group_key,
+                    task_id,
+                )
+            fid, _ = await writer.upload_excel(
+                attachments_folder_id,
+                filename,
+                records,
+                hyperlink_columns=ATTACHMENT_HYPERLINK_COLUMNS,
+            )
             uploaded_files.append({
                 'path': f'{task_path}/3. Tệp đính kèm/{filename}',
                 'file_id': fid,
@@ -275,6 +308,7 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
             return
 
         client: WeworkManagementClient | None = None
+        attachment_http_client = None
         try:
             runtime_service = ConnectorRuntimeService(db)
             source_binding = await runtime_service.get_binding_for_credential_id(
@@ -296,17 +330,12 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
             await db.commit()
 
             destination_auth = {**destination_binding.auth, **destination_binding.config}
-            validate_service_account_drive_destination(destination_auth)
-
-            google_auth_service = GoogleAuthService(db)
-
-            async def load_gdrive_token(force_refresh: bool = False):
-                return await google_auth_service.get_destination_access_token_details(
-                    destination_auth,
-                    force_refresh=force_refresh,
-                )
-
-            get_token = build_cached_gdrive_token_provider(load_gdrive_token)
+            dest_type = destination_binding.credential.app_id
+            get_token = await build_backup_destination_token_provider(
+                db,
+                dest_type,
+                destination_auth,
+            )
             root_folder_id = (
                 destination_auth.get('folder_id')
                 or destination_auth.get('drive_id')
@@ -314,7 +343,7 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
             )
             drive_id = destination_auth.get('drive_id')
             writer: BackupDestinationWriter = build_backup_destination_writer(
-                destination_type=destination_binding.credential.app_id,
+                destination_type=dest_type,
                 get_token=get_token,
                 root_folder_id=root_folder_id,
                 drive_id=drive_id,
@@ -327,6 +356,9 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
             access_token = source_binding.auth.get('access_token') or source_binding.config.get('access_token') or ''
             credentials = WeworkCredentials(domain=domain, access_token=access_token)
             client = WeworkManagementClient(credentials)
+            attachment_http_client = build_attachment_http_client()
+            attachment_download_sem = asyncio.Semaphore(MAX_PARALLEL_ATTACHMENT_DOWNLOADS)
+            attachment_base_urls = derive_attachment_base_urls(client.credentials.base_url)
 
             structure = dict(flow.structure or {})
             selected_objects = structure.get('objects') or ['department', 'project', 'task']
@@ -560,6 +592,9 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
                                 f'{project_path}/3. Tasks',
                                 writer,
                                 uploaded_files,
+                                attachment_http_client,
+                                attachment_download_sem,
+                                attachment_base_urls,
                             )
                             if task_entry.get('task_id'):
                                 task_folder_links[str(task_entry['task_id'])] = str(task_entry.get('folder_link') or '')
@@ -629,7 +664,7 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
                 'flow_id': str(flow.id),
                 'flow_name': flow.name,
                 'backup_type': backup_type,
-                'connector': 'wework',
+                'connector': 'base_wework',
                 'destination_type': writer.destination_type,
                 'selected_objects': selected_objects,
                 'department_count': len(department_entries),
@@ -678,3 +713,5 @@ async def run_wework_backup(flow_id: str, run_id: str) -> None:
         finally:
             if client is not None:
                 await client.aclose()
+            if attachment_http_client is not None:
+                await attachment_http_client.aclose()

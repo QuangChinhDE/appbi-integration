@@ -32,10 +32,10 @@ const BACKUP_TYPE_TONE = {
 }
 
 const APP_ICONS = {
-  request: <Inbox className="h-4 w-4" />,
-  workflow: <FolderKanban className="h-4 w-4" />,
-  wework: <Building2 className="h-4 w-4" />,
-  service: <Headphones className="h-4 w-4" />,
+  base_request: <Inbox className="h-4 w-4" />,
+  base_workflow: <FolderKanban className="h-4 w-4" />,
+  base_wework: <Building2 className="h-4 w-4" />,
+  base_service: <Headphones className="h-4 w-4" />,
 }
 
 

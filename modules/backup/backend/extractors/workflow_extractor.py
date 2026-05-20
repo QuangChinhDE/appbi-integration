@@ -51,19 +51,17 @@ from modules.backup.backend.extractors._helpers import (
     truncate_name,
     ts_to_str,
 )
-from modules.backup.backend.extractors._gdrive import build_cached_gdrive_token_provider
 from modules.backup.backend.extractors.destination_writers import (
     BackupDestinationWriter,
     build_backup_destination_writer,
 )
-from modules.connectors.apps.workflow.common.auth import WorkflowCredentials
-from modules.connectors.apps.workflow.common.client import WorkflowManagementClient
+from modules.backup.backend.extractors.destination_tokens import (
+    build_backup_destination_token_provider,
+)
+from modules.connectors.apps.base_workflow.common.auth import WorkflowCredentials
+from modules.connectors.apps.base_workflow.common.client import WorkflowManagementClient
 from modules.connectors.backend.shared.runtime import ConnectorRuntimeService
 from modules.connectors.backend.shared.validation import ConnectorBindingValidationService
-from modules.credentials.backend.services.google_auth_service import (
-    GoogleAuthService,
-    validate_service_account_drive_destination,
-)
 from packages.database.src import async_session
 from packages.database.src.models import BackupFlow, BackupFlowRun
 
@@ -678,16 +676,12 @@ async def run_workflow_backup(flow_id: str, run_id: str) -> None:
             await db.commit()
 
             destination_auth = {**destination_binding.auth, **destination_binding.config}
-            validate_service_account_drive_destination(destination_auth)
-
-            google_auth_service = GoogleAuthService(db)
-
-            async def load_gdrive_token(force_refresh: bool = False):
-                return await google_auth_service.get_destination_access_token_details(
-                    destination_auth, force_refresh=force_refresh,
-                )
-
-            get_token = build_cached_gdrive_token_provider(load_gdrive_token)
+            dest_type = destination_binding.credential.app_id
+            get_token = await build_backup_destination_token_provider(
+                db,
+                dest_type,
+                destination_auth,
+            )
 
             root_folder_id = (
                 destination_auth.get('folder_id')
@@ -695,7 +689,6 @@ async def run_workflow_backup(flow_id: str, run_id: str) -> None:
                 or 'root'
             )
             drive_id = destination_auth.get('drive_id')
-            dest_type = destination_binding.credential.app_id
             writer: BackupDestinationWriter = build_backup_destination_writer(
                 destination_type=dest_type,
                 get_token=get_token,
@@ -1465,7 +1458,7 @@ async def run_workflow_backup(flow_id: str, run_id: str) -> None:
                 'flow_id': str(flow.id),
                 'flow_name': flow.name,
                 'backup_type': backup_type,
-                'connector': 'workflow',
+                'connector': 'base_workflow',
                 'destination_type': writer.destination_type,
                 'retry_failed_only': retry_failed_only,
                 'retry_source_run_id': retry_source_run_id,
@@ -1517,7 +1510,7 @@ async def run_workflow_backup(flow_id: str, run_id: str) -> None:
 
             run.execution_details = {
                 **requested_execution_details,
-                'app': 'workflow',
+                'app': 'base_workflow',
                 'mode': 'workflow_retry_failed_only' if retry_failed_only else 'workflow_backup',
                 'backup_type': backup_type,
                 'destination_writer': writer.destination_type,

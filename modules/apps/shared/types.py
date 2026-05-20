@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
+from modules.connectors.apps._packages import canonical_connector_key
 from modules.connectors.backend.shared.catalog import (
     get_google_style_app_ids,
     get_source_style_app_ids,
@@ -43,7 +44,7 @@ class _DerivedSet(frozenset):
         return instance
 
     def __contains__(self, item: object) -> bool:  # type: ignore[override]
-        return item in self._loader()
+        return canonical_connector_key(str(item)) in self._loader()
 
     def __iter__(self):  # type: ignore[override]
         return iter(self._loader())
@@ -64,13 +65,13 @@ class _DerivedMap(dict):
         return self._loader()
 
     def __contains__(self, key: object) -> bool:  # type: ignore[override]
-        return key in self._snapshot()
+        return canonical_connector_key(str(key)) in self._snapshot()
 
     def __getitem__(self, key: str) -> str:  # type: ignore[override]
-        return self._snapshot()[key]
+        return self._snapshot()[canonical_connector_key(key)]
 
     def get(self, key, default=None):  # type: ignore[override]
-        return self._snapshot().get(key, default)
+        return self._snapshot().get(canonical_connector_key(str(key)), default)
 
     def keys(self):  # type: ignore[override]
         return self._snapshot().keys()
@@ -104,7 +105,7 @@ class AppCredentialCreate(BaseModel):
 
     @field_validator("app_id")
     def validate_app_id(cls, value: str) -> str:
-        normalized = str(value or "").strip().lower()
+        normalized = canonical_connector_key(value)
         supported = _supported_apps()
         if normalized not in supported:
             raise ValueError("app_id must be one of: " + ", ".join(sorted(supported)))

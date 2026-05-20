@@ -279,7 +279,11 @@ class DeclarativeRestConnector(BaseConnector):
         cursor: Mapping[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         stream = self._find_stream(stream_key)
-        return await self._read_stream_records(stream, config=dict(config or {}))
+        return await self._read_stream_records(
+            stream,
+            config=dict(config or {}),
+            cursor=dict(cursor or {}) if cursor else None,
+        )
 
     async def close(self) -> None:
         if self._client is not None:
@@ -319,12 +323,16 @@ class DeclarativeRestConnector(BaseConnector):
         *,
         config: Mapping[str, Any],
         limit_pages: Optional[int] = None,
+        cursor: Optional[Mapping[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         # Merge per-read config on top of stored binding config for template resolution.
         merged_config = {**self._config, **dict(config or {})}
 
         if stream.parent_stream:
             parent = self._find_stream(stream.parent_stream.name)
+            # Parent streams are read non-incrementally — the cursor is for the
+            # child stream that the user explicitly picked. Re-fetching the
+            # parent list each run is cheap compared to syncing every job ever.
             parent_records = await self._read_stream_records(parent, config=merged_config)
             records: list[dict[str, Any]] = []
             for parent_record in parent_records:
@@ -337,11 +345,18 @@ class DeclarativeRestConnector(BaseConnector):
                     config=merged_config,
                     parent=parent_context,
                     limit_pages=limit_pages,
+                    cursor=cursor,
                 )
                 records.extend(child_records)
             return records
 
-        return await self._execute_stream(stream, config=merged_config, parent=None, limit_pages=limit_pages)
+        return await self._execute_stream(
+            stream,
+            config=merged_config,
+            parent=None,
+            limit_pages=limit_pages,
+            cursor=cursor,
+        )
 
     async def _execute_stream(
         self,
@@ -350,6 +365,7 @@ class DeclarativeRestConnector(BaseConnector):
         config: Mapping[str, Any],
         parent: Optional[Mapping[str, Any]],
         limit_pages: Optional[int],
+        cursor: Optional[Mapping[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         context = self._base_context(extras={
             'config': config,
@@ -365,6 +381,7 @@ class DeclarativeRestConnector(BaseConnector):
             page_context = {**context, 'page': {'index': page, 'token': cursor_token or ''}}
             url, method, headers, body, params = self._render_request(stream.request, page_context)
             self._apply_pagination(stream.pagination, page=page, cursor_token=cursor_token, body=body, params=params)
+            self._apply_incremental(stream, cursor=cursor, body=body, params=params)
             payload = await self._send_request(method, url, headers=headers, body=body, params=params, body_format=stream.request.body_format)
 
             batch = _extract_records(payload, stream.record_selector)
@@ -387,6 +404,26 @@ class DeclarativeRestConnector(BaseConnector):
                 continue
             break
         return records
+
+    def _apply_incremental(
+        self,
+        stream: ManifestStream,
+        *,
+        cursor: Optional[Mapping[str, Any]],
+        body: dict[str, Any],
+        params: dict[str, Any],
+    ) -> None:
+        """Inject the incremental start value into the request, if both the
+        manifest declares an incremental cursor and the caller passed prior state.
+        """
+        incr = stream.incremental
+        if incr is None or not cursor:
+            return
+        start_value = cursor.get(incr.cursor_field)
+        if start_value in (None, ''):
+            return
+        target = body if incr.inject_into == 'body' else params
+        target[incr.start_param] = start_value
 
     def _render_request(
         self,

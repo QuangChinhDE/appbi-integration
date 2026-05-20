@@ -3,7 +3,7 @@ from __future__ import annotations
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from modules.connectors.apps.service.common.manifest import SERVICE_CONNECTOR_MANIFEST
+from modules.connectors.apps.base_service.common.manifest import SERVICE_CONNECTOR_MANIFEST
 from packages.auth.src.resource_permissions import apply_resource_scope
 from packages.database.src.models import AppCredential, ResourceType, User
 
