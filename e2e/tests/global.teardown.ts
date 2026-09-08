@@ -158,10 +158,27 @@ async function visibleWorkflowsAcrossRunTenants(
   }[];
 
   for (const tenant of rows) {
-    // Only this run's, and only while they are still reachable: a suspended
-    // tenant refuses every request, which is itself a form of contained.
-    if (tenant.status !== 'ACTIVE') continue;
     if (Date.parse(tenant.created_at) < Date.parse(startedAt)) continue;
+
+    // A tenant the run already archived is still emptied.
+    //
+    // Skipping them was the hole: several specs archive their own tenant in
+    // `afterAll`, which runs before this, so their workflows sat inside a
+    // suspended workspace and the teardown reported the run clean. Nine of
+    // them accumulated that way. "Unreachable" is not "removed" -- a review
+    // counting rows in the database finds them, and they are real customer-
+    // shaped data sitting in a deployment somebody is about to demo.
+    //
+    // Reinstated, emptied, put back. A suspended tenant refuses every request
+    // including the platform admin's, so there is no way to clean one in
+    // place.
+    const wasSuspended = tenant.status !== 'ACTIVE';
+    if (wasSuspended) {
+      const reinstated = await page.request.put(
+        `/api/v1/platform/workspaces/${tenant.id}/status`,
+        { data: { status: 'ACTIVE' } });
+      if (!reinstated.ok()) continue;
+    }
 
     const switched = await page.request.post(
       `/api/v1/auth/switch-workspace/${tenant.id}`);
@@ -182,6 +199,15 @@ async function visibleWorkflowsAcrossRunTenants(
     // actually leaves the deployment clean.
     for (const row of await visibleWorkflows(page)) {
       stubborn.push({ ...row, tenant: tenant.name });
+    }
+
+    if (wasSuspended) {
+      // Back to where the spec left it. The main loop suspends whatever is
+      // still ACTIVE; this one was not, and putting it back here keeps the
+      // two from arguing about it.
+      await page.request.put(
+        `/api/v1/platform/workspaces/${tenant.id}/status`,
+        { data: { status: 'SUSPENDED' } }).catch(() => {});
     }
   }
   return found;
