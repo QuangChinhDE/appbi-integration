@@ -1,0 +1,14 @@
+Next.js serves this directory at the site root, and `frontend/Dockerfile`
+copies it into the runtime image with `COPY --from=build /app/public ./public`.
+
+The product has no static assets today -- the favicon is `src/app/icon.svg`,
+which Next handles -- so the directory would otherwise be empty, and Git does
+not track empty directories. That made the frontend image buildable only from
+cache: a build from a fresh clone failed with
+
+    failed to calculate checksum of ref ...: "/app/public": not found
+
+which is a build that has been broken for as long as nobody tried it. Found by
+building a release candidate from a clean clone.
+
+This file exists so the directory does.
