@@ -47,3 +47,7 @@ test-results/
 
 # Editor/agent workspace metadata.
 .serena/
+
+# Image tarballs from scripts/release_images.py. Hundreds of megabytes, and
+# reproducible from the tagged commit.
+dist/images/
