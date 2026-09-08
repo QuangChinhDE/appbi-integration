@@ -1,0 +1,23 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+SQLAlchemy==2.0.36
+asyncpg==0.30.0
+alembic==1.14.0
+PyJWT==2.10.1
+passlib[bcrypt]==1.7.4
+bcrypt==4.0.1
+cryptography==44.0.0
+httpx==0.28.1
+croniter==6.0.0
+# The IANA timezone database, shipped as a package.
+#
+# `zoneinfo` falls back to the operating system's copy, which Windows does not
+# have and a slim container image often does not either -- so ZoneInfo("UTC")
+# raises and every scheduled workflow fails to validate. Carrying the database
+# makes schedule arithmetic behave the same on every host.
+tzdata==2026.2
+email-validator==2.2.0
+PyYAML==6.0.2
+python-multipart==0.0.20

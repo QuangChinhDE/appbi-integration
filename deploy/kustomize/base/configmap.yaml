@@ -1,0 +1,62 @@
+# Non-secret configuration. Everything with a value worth stealing lives in
+# the `appbi-workflow` Secret, which is deliberately not in this repository --
+# it comes from the cluster's secret manager.
+#
+# The split is by sensitivity, not by convenience: a reader of this repository
+# can see exactly how the deployment is configured, and can learn nothing that
+# helps them into it.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: appbi-workflow-config
+  namespace: appbi-workflow
+data:
+  APP_ENV: "production"
+  LOG_LEVEL: "INFO"
+  LOG_FORMAT: "json"
+
+  ENGINE_TYPE: "N8N_CORE"
+  # Cluster-internal. The Service below resolves only inside the namespace, and
+  # the NetworkPolicy denies everything except api and worker.
+  ENGINE_BASE_URL: "http://appbi-workflow-engine:8099"
+  ENGINE_TIMEOUT_SECONDS: "30"
+  ENGINE_VALIDATE_TIMEOUT_SECONDS: "30"
+  ENGINE_DISPATCH_TIMEOUT_SECONDS: "15"
+  # False: the product is designed to stay readable during an engine outage
+  # (SRS 9.6), and refusing to boot would turn that into a control-plane
+  # outage.
+  STARTUP_REQUIRE_ENGINE: "false"
+
+  SESSION_COOKIE_SECURE: "true"
+  SESSION_TTL_SECONDS: "43200"
+  LOGIN_MAX_ATTEMPTS: "8"
+  LOGIN_LOCKOUT_SECONDS: "300"
+  # Counted in Postgres, so this is the real limit however many API pods are
+  # running.
+  LOGIN_RATE_LIMIT_PER_MINUTE: "30"
+  WEBHOOK_RATE_LIMIT_PER_MINUTE: "120"
+  WEBHOOK_MAX_BODY_BYTES: "524288"
+
+  ALLOW_DERIVED_ENCRYPTION_KEY: "false"
+
+  EXECUTION_MAX_RUNTIME_SECONDS: "1200"
+  EXECUTION_STALE_AFTER_SECONDS: "120"
+  MAX_CONCURRENT_EXECUTIONS_PER_WORKFLOW: "1"
+  MAX_CONCURRENT_EXECUTIONS_PER_WORKSPACE: "10"
+  EXECUTION_PREVIEW_RETENTION_DAYS: "14"
+
+  # Must stay false: true would let any tenant's HTTP Request step reach the
+  # database, the engine's internal port and every other service here.
+  EGRESS_ALLOW_PRIVATE_NETWORKS: "false"
+  EGRESS_BLOCKED_HOSTS: "169.254.169.254,metadata.google.internal,metadata.azure.com"
+  EGRESS_MAX_REDIRECTS: "5"
+  EGRESS_MAX_RESPONSE_BYTES: "8388608"
+  EGRESS_REQUEST_TIMEOUT_SECONDS: "60"
+
+  ENGINE_HOST: "0.0.0.0"
+  ENGINE_PORT: "8099"
+  ENGINE_LOG_LEVEL: "warn"
+  ENGINE_MAX_CONCURRENT: "20"
+  ENGINE_MAX_EXECUTION_SECONDS: "1800"
+
+  API_PROXY_TARGET: "http://appbi-workflow-api:8000"

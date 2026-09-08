@@ -1,0 +1,52 @@
+# Base manifests for the AppBI Workflow Automation platform.
+#
+#   kubectl apply -k deploy/kustomize/overlays/production
+#
+# Deliberately not a Helm chart. A chart's value is templating for many
+# consumers; this is one product deployed by the team that builds it, and
+# Kustomize keeps the manifests readable as YAML -- a `kubectl apply -k` diff
+# shows what will change, which is what matters at 3am.
+#
+# The base is not applyable on its own: it carries no image tags, no hostname
+# and no secrets. That is on purpose. An overlay has to supply them, so there
+# is no way to deploy "the defaults" and discover later that the defaults were
+# a placeholder.
+#
+# The shape here *is* the architecture:
+#
+#   * `engine` has a headless-free ClusterIP service and no Ingress path. It is
+#     not reachable from outside the cluster (guardrail 15), and the
+#     NetworkPolicy says so a second time.
+#   * `migrate` is a Job with a pre-install/pre-upgrade hook ordering: api and
+#     worker will not start against a schema that has not been migrated.
+#   * `worker` has one replica and no PDB minimum above zero, because two
+#     workers are safe (the claim query is `FOR UPDATE SKIP LOCKED`) but
+#     draining to zero briefly is also safe -- the queue waits.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - api-deployment.yaml
+  - api-service.yaml
+  - worker-deployment.yaml
+  - engine-deployment.yaml
+  - engine-service.yaml
+  - frontend-deployment.yaml
+  - frontend-service.yaml
+  - migrate-job.yaml
+  - ingress.yaml
+  - networkpolicy.yaml
+  - poddisruptionbudget.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: appbi-workflow
+
+images:
+  # Overlays must pin these. `newTag: latest` here would be a rollback with
+  # nothing to name, which `scripts/doctor.py` refuses for the same reason.
+  - name: appbi-workflow-api
+  - name: appbi-workflow-engine
+  - name: appbi-workflow-frontend

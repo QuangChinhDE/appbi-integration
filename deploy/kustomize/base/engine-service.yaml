@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: appbi-workflow-engine
+  namespace: appbi-workflow
+  labels:
+    app.kubernetes.io/name: engine
+  annotations:
+    # For the next person who reads this file looking for a way in.
+    appbi.vn/note: >-
+      Internal only (guardrail 15). There is deliberately no Ingress rule for
+      this service. Exposing it would hand a caller the ability to run a
+      compiled graph with none of the product's authorization in front of it.
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: engine
+  ports:
+    - name: internal
+      port: 8099
+      targetPort: internal

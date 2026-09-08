@@ -1,0 +1,186 @@
+# Development / staging stack (SRS 30.1).
+#
+# Five services and one network. The shape is the architecture: the browser can
+# reach `api` and nothing else, and `engine` has no published port at all —
+# guardrail 15 is enforced by the compose file, not by a convention.
+#
+#   docker compose up -d --build --wait
+#
+# The `migrate` service runs `alembic upgrade head` and the bootstrap before
+# `api` and `worker` start, so `up` on an empty volume produces a working
+# deployment with no manual step. It is the same code path production uses --
+# `scripts/install.py` -- rather than a development shortcut that diverges from
+# it.
+#
+# Production differs in ways this file deliberately does not pretend to cover:
+# managed Postgres, a real secret manager, TLS at the edge, and more than one
+# engine worker (SRS 30.2). See `deploy/production.yaml.example` for a
+# single-host production shape, and `deploy/kustomize/` for Kubernetes.
+
+name: appbi-workflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: appbi
+      POSTGRES_PASSWORD: appbi
+      POSTGRES_DB: appbi_workflow
+    ports:
+      # 5433, not 5432: a developer's machine usually already has one Postgres.
+      # Overridable because "already has one" extends to the whole port range.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appbi -d appbi_workflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+  engine:
+    build:
+      context: ./workflow-engine
+      dockerfile: Dockerfile
+    environment:
+      ENGINE_HOST: 0.0.0.0        # inside the compose network only; no ports below
+      ENGINE_PORT: "8099"
+      ENGINE_INTERNAL_TOKEN: ${ENGINE_INTERNAL_TOKEN:-dev-engine-token}
+      ENGINE_LOG_LEVEL: ${ENGINE_LOG_LEVEL:-info}
+      ENGINE_MAX_CONCURRENT: ${ENGINE_MAX_CONCURRENT:-20}
+      EGRESS_ALLOW_PRIVATE_NETWORKS: ${EGRESS_ALLOW_PRIVATE_NETWORKS:-false}
+    # Deliberately no `ports:`. The engine is internal (guardrail 15); exposing
+    # it would hand anyone a way to run a compiled graph with no RBAC in front.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const http = require('http');
+          const request = http.request(
+            { host: '127.0.0.1', port: 8099, path: '/internal/healthz',
+              headers: { 'X-Engine-Token': process.env.ENGINE_INTERNAL_TOKEN } },
+            (response) => process.exit(response.statusCode === 200 ? 0 : 1),
+          );
+          request.on('error', () => process.exit(1));
+          request.end();
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    restart: unless-stopped
+
+  # One-shot. Runs to completion before `api` and `worker` are allowed to
+  # start, which is what makes `docker compose up` on an empty volume produce a
+  # working deployment instead of an API crash-looping against an empty schema.
+  #
+  # `restart: "no"` and a `service_completed_successfully` dependency: a
+  # migration that fails must stop the deploy, not retry forever while the
+  # rest of the stack comes up around it.
+  migrate:
+    # One image for all three: they are the same codebase with different
+    # entrypoints. Three `build:` blocks over one Dockerfile produced three
+    # separately-tagged images, so `docker compose build api` left the
+    # migration running the previous build -- exactly the drift a shared image
+    # exists to prevent.
+    image: &product-image appbi-workflow-api
+    build: &product-build
+      context: ./backend
+      dockerfile: Dockerfile
+      additional_contexts:
+        # `install.py` and `doctor.py` are repository tooling, not application
+        # code, so they live in `scripts/` -- outside the backend build
+        # context. A named context lets the image have them without either
+        # duplicating them or widening the context to the whole repository.
+        repo-scripts: ./scripts
+    command: >
+      python /opt/install/install.py --skip-doctor
+    environment: &product-env
+      APP_ENV: ${APP_ENV:-development}
+      DATABASE_URL: postgresql+asyncpg://appbi:appbi@postgres:5432/appbi_workflow
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me-please-32-chars-min}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      ALLOW_DERIVED_ENCRYPTION_KEY: ${ALLOW_DERIVED_ENCRYPTION_KEY:-true}
+      ENGINE_TYPE: N8N_CORE
+      ENGINE_BASE_URL: http://engine:8099
+      ENGINE_INTERNAL_TOKEN: ${ENGINE_INTERNAL_TOKEN:-dev-engine-token}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8000}
+      EGRESS_ALLOW_PRIVATE_NETWORKS: ${EGRESS_ALLOW_PRIVATE_NETWORKS:-false}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@appbi.vn}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      BOOTSTRAP_TIMEZONE: ${BOOTSTRAP_TIMEZONE:-Asia/Bangkok}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: *product-image
+    build: *product-build
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000 --proxy-headers
+    environment: *product-env
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+    depends_on:
+      migrate:
+        # The schema has to exist before the process that queries it starts.
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      engine:
+        # `started`, not `healthy`: the product must boot and be readable while
+        # the engine is down (SRS 9.6), and coupling startup to engine health
+        # would make an engine problem an outage.
+        condition: service_started
+    restart: unless-stopped
+
+  worker:
+    image: *product-image
+    build: *product-build
+    command: python -m app.worker
+    environment: *product-env
+    # The worker shares the API's image and would otherwise inherit its HTTP
+    # health check, which it can never pass -- it serves nothing. A permanently
+    # unhealthy container teaches people to ignore health status, so this checks
+    # what is actually true of a worker: the process is alive. Whether it is
+    # keeping up is a queue-lag question, and /monitoring answers that.
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'app.worker' > /dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      migrate:
+        # The schema has to exist before the process that queries it starts.
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      engine:
+        condition: service_started
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked in at build time by Next: the browser calls the API through the
+        # same origin in production, so this only matters for local runs.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:-http://localhost:8000}
+    environment:
+      API_PROXY_TARGET: http://api:8000
+      NODE_ENV: production
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-3000}:3000"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

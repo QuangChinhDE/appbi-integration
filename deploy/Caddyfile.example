@@ -1,0 +1,66 @@
+# TLS termination for the single-host production shape.
+#
+#   cp deploy/Caddyfile.example deploy/Caddyfile
+#   # replace the hostname and the email, then:
+#   docker compose -f deploy/production.yaml --env-file .env.production up -d
+#
+# Caddy obtains and renews the certificate itself. That is the reason it is
+# here rather than nginx: on a single host there is usually nobody watching
+# certificate expiry, and an expired certificate is an outage that a cron job
+# somebody deleted was supposed to prevent.
+
+{
+	# Where Let's Encrypt sends expiry warnings. Not optional: it is the last
+	# warning before an outage.
+	email ops@example.com
+}
+
+automation.example.com {
+	encode zstd gzip
+
+	# Everything goes to the frontend, which proxies /api/v1 and /hooks to the
+	# API from its own server side. One origin for the browser, which is why
+	# there is no CORS configuration anywhere in this product and why the
+	# session cookie can be SameSite=Lax.
+	reverse_proxy frontend:3000 {
+		# The API records the client address in every audit row. Without these
+		# it would record the proxy's.
+		header_up X-Real-IP {remote_host}
+		header_up X-Forwarded-For {remote_host}
+		header_up X-Forwarded-Proto {scheme}
+	}
+
+	header {
+		# HSTS. Long, and including subdomains: the webhook URLs handed to
+		# third parties are on this origin, and a downgrade would expose the
+		# payloads they sign.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+		# The product serves no third-party scripts and no inline event
+		# handlers. `unsafe-inline` for styles only, which Next's runtime
+		# needs for its critical CSS.
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+		-Server
+	}
+
+	# The webhook gateway is the one anonymous surface. The product enforces a
+	# per-key limit in Postgres (shared across replicas); this is a per-IP
+	# cap in front of it, so a flood never reaches the application at all.
+	@hooks path /hooks/*
+	rate_limit @hooks {
+		zone hooks {
+			key {remote_host}
+			events 300
+			window 1m
+		}
+	}
+
+	log {
+		output stdout
+		format json
+		# The webhook path can carry a signature in a header; the default log
+		# format does not include headers, and this keeps it that way.
+	}
+}

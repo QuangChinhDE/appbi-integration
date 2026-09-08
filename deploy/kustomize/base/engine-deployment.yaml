@@ -1,0 +1,122 @@
+# The n8n runtime. Internal, and treated as untrusted.
+#
+# It executes graphs, which means it makes outbound HTTP on a tenant's behalf.
+# The egress guard inside it is the first control; the NetworkPolicy is the
+# second, and the absence of any Ingress rule is the third. Guardrail 15 is
+# stated three times because losing it once is the whole product's blast
+# radius.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appbi-workflow-engine
+  namespace: appbi-workflow
+  labels:
+    app.kubernetes.io/name: engine
+    app.kubernetes.io/component: runtime
+spec:
+  # One. Not a capacity judgement -- a correctness one.
+  #
+  # The engine holds an execution's state in process memory: `active`,
+  # `results` and `idempotency` are three Maps in `execution-manager.ts`. The
+  # product API starts a run with `POST /internal/executions`, gets a `ref`
+  # back, and then polls `GET /internal/executions/{ref}` and cancels by the
+  # same ref. Behind one Service, a second replica load-balances those follow-up
+  # requests to a pod that has never heard of the ref, and the run is reported
+  # lost while it is in fact still running somewhere.
+  #
+  # Two ways to earn more than one, neither of them free:
+  #
+  #  * route by ref -- the API addresses a named instance rather than a
+  #    Service, which is what `workspace.engine_instance` already exists for;
+  #  * move execution state out of the process, which is a different product
+  #    (ADR-010 covers why the state is where it is).
+  #
+  # Until one of those, this stays at 1 and `test_deployment_manifests.py`
+  # asserts it. A rolling update therefore has a gap where no engine is
+  # ready, so `maxUnavailable: 0` cannot be honoured with one replica -- a
+  # surge pod comes up first and the old one goes after it.
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: engine
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: engine
+        app.kubernetes.io/component: runtime
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: engine
+      containers:
+        - name: engine
+          image: appbi-workflow-engine
+          ports:
+            - name: internal
+              containerPort: 8099
+          envFrom:
+            - configMapRef:
+                name: appbi-workflow-config
+            - secretRef:
+                name: appbi-workflow
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            # The heaviest component: it runs the graphs. Memory is Guaranteed
+            # because an OOM here loses in-flight executions, and the
+            # reconciler then has to mark them ENGINE_INTERRUPTED (ADR-010).
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 1Gi
+          startupProbe:
+            # n8n's node registry load is the slow part of a cold start.
+            httpGet:
+              path: /internal/healthz
+              port: internal
+              httpHeaders:
+                - name: X-Engine-Token
+                  value: $(ENGINE_INTERNAL_TOKEN)
+            failureThreshold: 40
+            periodSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /internal/healthz
+              port: internal
+              httpHeaders:
+                - name: X-Engine-Token
+                  value: $(ENGINE_INTERNAL_TOKEN)
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+      # An execution can legitimately run for twenty minutes
+      # (EXECUTION_MAX_RUNTIME_SECONDS). This is not that long on purpose: a
+      # deploy should not be held for twenty minutes, and an interrupted run is
+      # a state the product models and reports.
+      terminationGracePeriodSeconds: 120
+      volumes:
+        - name: tmp
+          emptyDir: {}

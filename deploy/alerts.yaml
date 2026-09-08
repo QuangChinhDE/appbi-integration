@@ -1,0 +1,229 @@
+# Prometheus alerting rules.
+#
+#   scrape_configs:
+#     - job_name: appbi-workflow
+#       metrics_path: /metrics
+#       static_configs: [{targets: ['appbi-workflow-api:8000']}]
+#   rule_files: [alerts.yaml]
+#
+# Every rule here fires on a metric `/metrics` actually exports. That is not a
+# given: a rules file referencing a metric nobody publishes is silence that
+# looks like health, and it is the most common way a monitoring setup fails.
+# `backend/tests/test_alert_rules.py` checks each expression's metric names
+# against the exporter, so the two cannot drift.
+#
+# What is deliberately *not* alerted on:
+#
+#   * a failed workflow. A tenant's HTTP endpoint returning 500 is their
+#     problem and the product already tells them (SRS 19). Paging an operator
+#     for it trains them to ignore the pager.
+#   * queue depth. Deep-but-moving is fine; the age of the oldest queued item
+#     is the number that distinguishes busy from wedged.
+#   * CPU or memory. The container platform owns those, and duplicating them
+#     here means two systems disagreeing during an incident.
+
+groups:
+  - name: appbi-workflow-availability
+    interval: 30s
+    rules:
+      # ── the control plane ────────────────────────────────────────────────
+      - alert: AppbiApiDown
+        # `up` comes from the scrape itself, so this fires even when the
+        # process is too broken to export anything.
+        expr: up{job="appbi-workflow"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "The product API is not answering scrapes"
+          description: >-
+            No API replica has answered /metrics for two minutes. Nobody can
+            sign in, open a workflow or receive a webhook.
+          runbook: docs/runbooks/README.md#api-unavailable
+
+      # ── the worker, which nothing else would reveal ──────────────────────
+      - alert: AppbiWorkerStopped
+        # The worker writes its own heartbeat once a minute. A stale one means
+        # the worker is not running -- and with the API perfectly healthy, no
+        # other signal here would show it. Queued executions would simply never
+        # start.
+        #
+        # This used to read `appbi_engine_probe_age_seconds`, which the *API*
+        # also refreshes every time a browser polls engine status. So the field
+        # stayed fresh while the worker was dead and this alert could not fire
+        # as long as one person had a tab open. A separate heartbeat is the
+        # fix; the general lesson is that a liveness signal must be written by
+        # the thing whose liveness it reports.
+        expr: appbi_worker_beat_age_seconds > 300
+        for: 2m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "The worker has not run its housekeeping loop for five minutes"
+          description: >-
+            The worker heartbeat is {{ $value | humanizeDuration }} old. The
+            worker writes it every minute, so it is either not running or
+            wedged. Nothing is being dispatched and no schedule is firing,
+            while the API looks healthy.
+          runbook: docs/runbooks/README.md#worker-stopped
+
+      - alert: AppbiWorkerProbeMissing
+        # -1 is the exporter saying "there is no probe at all", which is a
+        # different fault from a stale one: the worker has never run.
+        expr: appbi_engine_probe_age_seconds == -1
+        for: 10m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "The engine has never been probed"
+          description: >-
+            No engine probe has ever been recorded. On a deployment older than
+            a few minutes this means the worker has not started since the
+            database was created.
+          runbook: docs/runbooks/README.md#worker-stopped
+
+      # ── the execution engine ─────────────────────────────────────────────
+      - alert: AppbiEngineUnhealthy
+        expr: appbi_engine_healthy == 0
+        for: 5m
+        labels:
+          severity: critical
+          component: engine
+        annotations:
+          summary: "The execution engine is unhealthy"
+          description: >-
+            The engine's last probe was not healthy. The product stays readable
+            during an engine outage by design (SRS 9.6), but nothing will run:
+            draft runs, published runs, webhooks and schedules are all queued
+            or failing.
+          runbook: docs/runbooks/README.md#engine-outage
+
+  - name: appbi-workflow-throughput
+    interval: 30s
+    rules:
+      - alert: AppbiQueueNotMoving
+        # The head of the queue, not its depth. A deep queue that is moving is
+        # a busy deployment; a queue whose oldest item has been waiting five
+        # minutes is a stuck one, whatever the depth.
+        expr: appbi_execution_queue_lag_seconds > 300
+        for: 5m
+        labels:
+          severity: critical
+          component: worker
+        annotations:
+          summary: "Executions have been queued for over five minutes"
+          description: >-
+            The oldest queued execution is {{ $value | humanizeDuration }} old.
+            Either the worker is not dispatching, or the workspace concurrency
+            ceiling is holding everything behind a long-running run.
+          runbook: docs/runbooks/README.md#queue-not-moving
+
+      - alert: AppbiQueueSlow
+        expr: appbi_execution_queue_lag_seconds > 60
+        for: 10m
+        labels:
+          severity: warning
+          component: worker
+        annotations:
+          summary: "Executions are waiting over a minute to start"
+          description: >-
+            Sustained queue lag. Not yet an outage, but a scheduled workflow
+            that runs every minute is now overlapping itself.
+          runbook: docs/runbooks/README.md#queue-not-moving
+
+      - alert: AppbiSchedulesOverdue
+        # The product raises its own in-app alert for these (SRS 19.1). This is
+        # the same fact for an external monitor -- which is what notices when
+        # the product's own alerting is the thing that is down.
+        expr: appbi_schedules_overdue > 0
+        for: 10m
+        labels:
+          severity: warning
+          component: scheduler
+        annotations:
+          summary: "{{ $value }} schedule(s) are more than five minutes late"
+          description: >-
+            Enabled schedules whose next run time has passed. A schedule that
+            fires late and pretends otherwise is worse than one that reports
+            itself late, so this is surfaced rather than absorbed.
+          runbook: docs/runbooks/README.md#schedules-late
+
+      - alert: AppbiExecutionsInterrupted
+        # Invisible in a plain success/failure rate: an interrupted run is
+        # neither. Nonzero means the engine is losing executions -- restarts,
+        # OOM kills, a node draining (ADR-010).
+        expr: increase(appbi_executions_interrupted_1h[30m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: engine
+        annotations:
+          summary: "The reconciler is giving up on executions"
+          description: >-
+            {{ $value }} run(s) were marked ENGINE_INTERRUPTED in the last half
+            hour. The engine is losing in-flight work, usually because its pods
+            are restarting or being OOM-killed.
+          runbook: docs/runbooks/README.md#engine-interrupted-runs
+
+      - alert: AppbiFailureRateHigh
+        # A ratio, not a count: ten failures out of ten thousand runs is
+        # normal, ten out of twelve is an incident. Guarded against a
+        # zero denominator so a quiet deployment does not alert.
+        expr: >-
+          (appbi_executions_failed_1h
+            / clamp_min(appbi_executions_failed_1h + appbi_executions_succeeded_1h, 1))
+          > 0.5
+          and (appbi_executions_failed_1h + appbi_executions_succeeded_1h) > 20
+        for: 15m
+        labels:
+          severity: warning
+          component: product
+        annotations:
+          summary: "More than half of all runs are failing"
+          description: >-
+            Individual workflow failures are a tenant's own business and are
+            not alerted on. This threshold is about the deployment: over half
+            of everything failing points at the engine, an expired credential
+            shared across workflows, or an egress policy change.
+          runbook: docs/runbooks/README.md#widespread-failures
+
+  - name: appbi-workflow-release
+    interval: 5m
+    rules:
+      - alert: AppbiMixedBuildVersions
+        # Two different `version` labels means a rolling update is stuck
+        # half-done, or two deployments are pointing at one database. The
+        # second is much worse and looks identical from a dashboard.
+        expr: count(count by (version) (appbi_workflow_build_info)) > 1
+        for: 15m
+        labels:
+          severity: warning
+          component: release
+        annotations:
+          summary: "More than one product version is running"
+          description: >-
+            {{ $value }} distinct versions are reporting. A rolling update
+            takes a minute or two; fifteen means it is stuck, or a second
+            deployment is sharing this database.
+          runbook: docs/runbooks/README.md#mixed-versions
+
+      - alert: AppbiRunningInDevelopmentMode
+        # A production deployment whose APP_ENV is not production has none of
+        # the strict startup checks active: it will boot with a development
+        # secret and a plaintext webhook base.
+        expr: appbi_workflow_build_info{environment!="production"} == 1
+        for: 15m
+        labels:
+          severity: critical
+          component: release
+        annotations:
+          summary: "A deployment is reporting a non-production environment"
+          description: >-
+            environment={{ $labels.environment }}. None of the checks in
+            app/core/readiness.py are enforced in this mode, so the deployment
+            may be running with a published JWT secret and an http webhook
+            base.
+          runbook: docs/runbooks/README.md#wrong-environment

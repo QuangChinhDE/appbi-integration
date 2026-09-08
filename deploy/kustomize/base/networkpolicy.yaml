@@ -1,0 +1,168 @@
+# Default deny, then the four flows this product actually needs.
+#
+# The engine's policy is the one that matters. It accepts from `api` and
+# `worker` and from nothing else, so guardrail 15 survives somebody adding an
+# Ingress rule by mistake -- and it is the only component whose *egress* is
+# deliberately wide, because running a tenant's HTTP Request step is its job.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny
+  namespace: appbi-workflow
+spec:
+  podSelector: {}
+  policyTypes: [Ingress, Egress]
+  # No rules: nothing in, nothing out, until a policy below allows it.
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns
+  namespace: appbi-workflow
+spec:
+  # Everything needs to resolve names. Split out so the policies below are
+  # about the product's own flows rather than repeating this.
+  podSelector: {}
+  policyTypes: [Egress]
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: engine-internal-only
+  namespace: appbi-workflow
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: engine
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # api and worker. Not the frontend, not the ingress controller, not another
+    # namespace.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      ports:
+        - protocol: TCP
+          port: 8099
+  egress:
+    # Outbound HTTP is the engine's purpose: an HTTP Request step calls a
+    # tenant's own API. What it must *not* reach is anything inside this
+    # cluster or on the node's link-local range, so the private ranges are
+    # excluded here as well as by the egress guard in the process (SRS 32.2).
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              - 169.254.0.0/16
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-and-worker
+  namespace: appbi-workflow
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [api, worker, migrate]
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The API is reached by the frontend's server-side proxy, and by nothing
+    # else. The worker and the migration Job serve nothing.
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+      ports:
+        - protocol: TCP
+          port: 8000
+    # ...and by whatever scrapes /metrics.
+    #
+    # Without this the alert rules in `deploy/alerts.yaml` are decoration: the
+    # policy is default-deny, so Prometheus cannot reach the endpoint the
+    # alerts are written against and every one of them evaluates on no data.
+    # A monitoring rule that cannot be scraped is worse than no rule, because
+    # its silence reads as health.
+    #
+    # Selected by namespace label rather than by pod name, so this does not
+    # assume where the monitoring stack runs or what its pods are called.
+    # Set `monitoring: "true"` on the namespace that scrapes this one; the
+    # overlay is the place to change the label if your cluster uses another.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              monitoring: "true"
+      ports:
+        - protocol: TCP
+          port: 8000
+  egress:
+    # The engine.
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: engine
+      ports:
+        - protocol: TCP
+          port: 8099
+    # The managed database. An ipBlock rather than a selector because it is
+    # outside the cluster; the overlay narrows this to the instance's address.
+    - ports:
+        - protocol: TCP
+          port: 5432
+      to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend
+  namespace: appbi-workflow
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes: [Ingress, Egress]
+  ingress:
+    # The ingress controller. Its namespace label is the cluster's, so the
+    # overlay is the right place to correct it if it differs.
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api
+      ports:
+        - protocol: TCP
+          port: 8000

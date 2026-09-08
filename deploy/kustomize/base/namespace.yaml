@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: appbi-workflow
+  labels:
+    app.kubernetes.io/name: appbi-workflow
+    # Enforced, not audit-only: the pods here need no elevated capability, so
+    # anything that suddenly does is a change worth failing on.
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/enforce-version: latest

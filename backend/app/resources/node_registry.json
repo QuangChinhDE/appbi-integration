@@ -1,0 +1,1277 @@
+{
+  "$comment": [
+    "Product-owned node catalogue (SRS 11). Seeded into `node_definitions` at",
+    "boot so the palette and Node Library render from the product database even",
+    "when the engine is down.",
+    "",
+    "`config_schema.fields` is the form the FE renders (SRS 54) -- it is NOT an",
+    "n8n node description. `engine_binding` is backend-only and must never",
+    "appear in a non-admin response (guardrail 9).",
+    "",
+    "Adding a node here is not enough to ship it: the engine's compiler has to",
+    "know the mapping, the golden tests have to cover it, and certification has",
+    "to move to SUPPORTED."
+  ],
+  "product_schema_version": 1,
+  "nodes": [
+    {
+      "node_key": "manual_trigger",
+      "display_name": "Manual Trigger",
+      "category": "TRIGGER",
+      "description": "Bắt đầu workflow khi bạn bấm Run. Dùng để thử nghiệm.",
+      "icon": "mouse-pointer-click",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "test_payload",
+            "label": "Dữ liệu thử",
+            "type": "json",
+            "required": false,
+            "advanced": true,
+            "default": {},
+            "description": "JSON được dùng làm dữ liệu đầu vào khi chạy thử."
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Out"
+          }
+        ],
+        "supports_expression": false,
+        "credential_types": [],
+        "is_trigger": true
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "appbi.start",
+        "engine_type_version": 1,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/manual-trigger"
+    },
+    {
+      "node_key": "webhook_trigger",
+      "display_name": "Webhook Trigger",
+      "category": "TRIGGER",
+      "description": "Bắt đầu workflow khi có request gọi tới URL webhook của workflow.",
+      "icon": "webhook",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "method",
+            "label": "HTTP method",
+            "type": "enum",
+            "required": true,
+            "default": "POST",
+            "options": [
+              {
+                "value": "POST",
+                "label": "POST"
+              },
+              {
+                "value": "GET",
+                "label": "GET"
+              },
+              {
+                "value": "PUT",
+                "label": "PUT"
+              },
+              {
+                "value": "PATCH",
+                "label": "PATCH"
+              },
+              {
+                "value": "DELETE",
+                "label": "DELETE"
+              }
+            ]
+          },
+          {
+            "key": "auth_mode",
+            "label": "Xác thực",
+            "type": "enum",
+            "required": true,
+            "default": "HEADER_SIGNATURE",
+            "options": [
+              {
+                "value": "NONE",
+                "label": "Không (công khai)"
+              },
+              {
+                "value": "BASIC",
+                "label": "HTTP Basic"
+              },
+              {
+                "value": "HEADER_SIGNATURE",
+                "label": "Ký HMAC theo header"
+              }
+            ],
+            "description": "URL webhook luôn chứa khóa ngẫu nhiên; xác thực là lớp bảo vệ thứ hai."
+          },
+          {
+            "key": "allowed_content_type",
+            "label": "Content-Type cho phép",
+            "type": "enum",
+            "advanced": true,
+            "default": "application/json",
+            "options": [
+              {
+                "value": "application/json",
+                "label": "application/json"
+              },
+              {
+                "value": "*",
+                "label": "Bất kỳ"
+              }
+            ]
+          },
+          {
+            "key": "max_body_bytes",
+            "label": "Kích thước body tối đa (bytes)",
+            "type": "number",
+            "advanced": true,
+            "default": 262144,
+            "min": 1024,
+            "max": 524288
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Out"
+          }
+        ],
+        "supports_expression": false,
+        "credential_types": [],
+        "is_trigger": true,
+        "trigger_type": "WEBHOOK"
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "appbi.start",
+        "engine_type_version": 1,
+        "adapter_version": "1",
+        "$comment": "Deliberately NOT n8n-nodes-base.webhook: the public endpoint is the product's (ADR-005). The engine only receives the payload the gateway accepted."
+      },
+      "security_profile": {
+        "network": "INBOUND_PUBLIC",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/webhook-trigger"
+    },
+    {
+      "node_key": "schedule_trigger",
+      "display_name": "Schedule Trigger",
+      "category": "TRIGGER",
+      "description": "Chạy workflow theo lịch: theo chu kỳ, hằng ngày hoặc theo biểu thức cron.",
+      "icon": "clock",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "schedule_type",
+            "label": "Kiểu lịch",
+            "type": "enum",
+            "required": true,
+            "default": "INTERVAL",
+            "options": [
+              {
+                "value": "INTERVAL",
+                "label": "Theo chu kỳ"
+              },
+              {
+                "value": "DAILY",
+                "label": "Hằng ngày"
+              },
+              {
+                "value": "CRON",
+                "label": "Cron"
+              }
+            ]
+          },
+          {
+            "key": "interval_seconds",
+            "label": "Chu kỳ (giây)",
+            "type": "number",
+            "default": 3600,
+            "min": 60,
+            "max": 2592000,
+            "condition": {
+              "field": "schedule_type",
+              "equals": "INTERVAL"
+            }
+          },
+          {
+            "key": "time_of_day",
+            "label": "Giờ chạy",
+            "type": "time",
+            "default": "02:00",
+            "condition": {
+              "field": "schedule_type",
+              "equals": "DAILY"
+            }
+          },
+          {
+            "key": "cron_expression",
+            "label": "Biểu thức cron",
+            "type": "string",
+            "placeholder": "0 2 * * *",
+            "condition": {
+              "field": "schedule_type",
+              "equals": "CRON"
+            }
+          },
+          {
+            "key": "timezone",
+            "label": "Múi giờ",
+            "type": "timezone",
+            "default": "Asia/Bangkok",
+            "description": "Lịch được tính theo múi giờ này, không theo múi giờ của trình duyệt."
+          },
+          {
+            "key": "overlap_policy",
+            "label": "Khi lần chạy trước chưa xong",
+            "type": "enum",
+            "advanced": true,
+            "default": "SKIP_IF_RUNNING",
+            "options": [
+              {
+                "value": "SKIP_IF_RUNNING",
+                "label": "Bỏ qua lần này"
+              },
+              {
+                "value": "ALLOW",
+                "label": "Vẫn chạy song song"
+              }
+            ]
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Out"
+          }
+        ],
+        "supports_expression": false,
+        "credential_types": [],
+        "is_trigger": true,
+        "trigger_type": "SCHEDULE"
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "appbi.start",
+        "engine_type_version": 1,
+        "adapter_version": "1",
+        "$comment": "The product scheduler fires this (ADR-004); n8n's cron node is never registered."
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/schedule-trigger"
+    },
+    {
+      "node_key": "http_request",
+      "display_name": "HTTP Request",
+      "category": "ACTION",
+      "description": "Gọi một HTTP API và đưa phản hồi vào workflow.",
+      "icon": "globe",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "method",
+            "label": "Method",
+            "type": "enum",
+            "required": true,
+            "default": "GET",
+            "options": [
+              {
+                "value": "GET",
+                "label": "GET"
+              },
+              {
+                "value": "POST",
+                "label": "POST"
+              },
+              {
+                "value": "PUT",
+                "label": "PUT"
+              },
+              {
+                "value": "PATCH",
+                "label": "PATCH"
+              },
+              {
+                "value": "DELETE",
+                "label": "DELETE"
+              },
+              {
+                "value": "HEAD",
+                "label": "HEAD"
+              }
+            ]
+          },
+          {
+            "key": "url",
+            "label": "URL",
+            "type": "string",
+            "required": true,
+            "expression_supported": true,
+            "placeholder": "https://api.example.com/customers/{{ $json.id }}"
+          },
+          {
+            "key": "credential_id",
+            "label": "Thông tin xác thực",
+            "type": "credential",
+            "required": false,
+            "credential_types": [
+              "HTTP_BASIC",
+              "BEARER",
+              "HEADER_API_KEY",
+              "QUERY_API_KEY"
+            ],
+            "description": "Để trống nếu API công khai."
+          },
+          {
+            "key": "query_parameters",
+            "label": "Query parameters",
+            "type": "collection",
+            "item_fields": [
+              {
+                "key": "name",
+                "label": "Tên",
+                "type": "string",
+                "required": true
+              },
+              {
+                "key": "value",
+                "label": "Giá trị",
+                "type": "string",
+                "expression_supported": true
+              }
+            ]
+          },
+          {
+            "key": "headers",
+            "label": "Headers",
+            "type": "collection",
+            "item_fields": [
+              {
+                "key": "name",
+                "label": "Tên",
+                "type": "string",
+                "required": true
+              },
+              {
+                "key": "value",
+                "label": "Giá trị",
+                "type": "string",
+                "expression_supported": true
+              }
+            ],
+            "description": "Không đặt header xác thực ở đây; dùng mục Thông tin xác thực."
+          },
+          {
+            "key": "body_mode",
+            "label": "Body",
+            "type": "enum",
+            "default": "NONE",
+            "options": [
+              {
+                "value": "NONE",
+                "label": "Không gửi body"
+              },
+              {
+                "value": "JSON",
+                "label": "JSON"
+              },
+              {
+                "value": "FORM",
+                "label": "Form URL-encoded"
+              }
+            ]
+          },
+          {
+            "key": "json_body",
+            "label": "JSON body",
+            "type": "json",
+            "expression_supported": true,
+            "condition": {
+              "field": "body_mode",
+              "equals": "JSON"
+            }
+          },
+          {
+            "key": "form_body",
+            "label": "Form fields",
+            "type": "collection",
+            "condition": {
+              "field": "body_mode",
+              "equals": "FORM"
+            },
+            "item_fields": [
+              {
+                "key": "name",
+                "label": "Tên",
+                "type": "string",
+                "required": true
+              },
+              {
+                "key": "value",
+                "label": "Giá trị",
+                "type": "string",
+                "expression_supported": true
+              }
+            ]
+          },
+          {
+            "key": "response_format",
+            "label": "Định dạng phản hồi",
+            "type": "enum",
+            "advanced": true,
+            "default": "AUTO",
+            "options": [
+              {
+                "value": "AUTO",
+                "label": "Tự nhận"
+              },
+              {
+                "value": "JSON",
+                "label": "JSON"
+              },
+              {
+                "value": "TEXT",
+                "label": "Text"
+              }
+            ]
+          },
+          {
+            "key": "timeout_ms",
+            "label": "Timeout (ms)",
+            "type": "number",
+            "advanced": true,
+            "default": 30000,
+            "min": 1000,
+            "max": 300000
+          },
+          {
+            "key": "continue_on_error",
+            "label": "Tiếp tục khi lỗi",
+            "type": "boolean",
+            "advanced": true,
+            "default": false,
+            "description": "Nếu bật, lỗi HTTP đi vào dữ liệu đầu ra thay vì dừng workflow."
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [
+          {
+            "key": "main",
+            "label": "In"
+          }
+        ],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Out"
+          }
+        ],
+        "supports_expression": true,
+        "credential_types": [
+          "HTTP_BASIC",
+          "BEARER",
+          "HEADER_API_KEY",
+          "QUERY_API_KEY"
+        ]
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "n8n-nodes-base.httpRequest",
+        "engine_type_version": 4.1,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "EXTERNAL",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": true,
+        "egress_policy": "ENFORCED"
+      },
+      "docs_ref": "/docs/nodes/http-request"
+    },
+    {
+      "node_key": "edit_fields",
+      "display_name": "Edit Fields",
+      "category": "DATA",
+      "description": "Đặt, đổi tên hoặc tính lại các field trước khi chuyển sang bước sau.",
+      "icon": "pencil-ruler",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "assignments",
+            "label": "Field cần đặt",
+            "type": "collection",
+            "required": true,
+            "item_fields": [
+              {
+                "key": "name",
+                "label": "Tên field",
+                "type": "string",
+                "required": true
+              },
+              {
+                "key": "type",
+                "label": "Kiểu",
+                "type": "enum",
+                "default": "string",
+                "options": [
+                  {
+                    "value": "string",
+                    "label": "Text"
+                  },
+                  {
+                    "value": "number",
+                    "label": "Number"
+                  },
+                  {
+                    "value": "boolean",
+                    "label": "Boolean"
+                  },
+                  {
+                    "value": "object",
+                    "label": "Object"
+                  },
+                  {
+                    "value": "array",
+                    "label": "Array"
+                  }
+                ]
+              },
+              {
+                "key": "value",
+                "label": "Giá trị",
+                "type": "string",
+                "expression_supported": true
+              }
+            ]
+          },
+          {
+            "key": "keep_only_set",
+            "label": "Chỉ giữ các field ở trên",
+            "type": "boolean",
+            "default": false,
+            "description": "Nếu tắt, các field khác của item được giữ nguyên."
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [
+          {
+            "key": "main",
+            "label": "In"
+          }
+        ],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Out"
+          }
+        ],
+        "supports_expression": true,
+        "credential_types": []
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "n8n-nodes-base.set",
+        "engine_type_version": 3.2,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/edit-fields"
+    },
+    {
+      "node_key": "if",
+      "display_name": "IF",
+      "category": "LOGIC",
+      "description": "Chia luồng thành hai nhánh True/False theo điều kiện.",
+      "icon": "git-branch",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "combinator",
+            "label": "Kết hợp điều kiện",
+            "type": "enum",
+            "default": "and",
+            "options": [
+              {
+                "value": "and",
+                "label": "Tất cả điều kiện (AND)"
+              },
+              {
+                "value": "or",
+                "label": "Bất kỳ điều kiện (OR)"
+              }
+            ]
+          },
+          {
+            "key": "conditions",
+            "label": "Điều kiện",
+            "type": "collection",
+            "required": true,
+            "item_fields": [
+              {
+                "key": "left",
+                "label": "Giá trị",
+                "type": "string",
+                "expression_supported": true,
+                "required": true,
+                "placeholder": "{{ $json.status }}"
+              },
+              {
+                "key": "operator",
+                "label": "Phép so sánh",
+                "type": "enum",
+                "required": true,
+                "default": "equals",
+                "options": [
+                  {
+                    "value": "equals",
+                    "label": "bằng"
+                  },
+                  {
+                    "value": "not_equals",
+                    "label": "khác"
+                  },
+                  {
+                    "value": "contains",
+                    "label": "chứa"
+                  },
+                  {
+                    "value": "not_contains",
+                    "label": "không chứa"
+                  },
+                  {
+                    "value": "starts_with",
+                    "label": "bắt đầu bằng"
+                  },
+                  {
+                    "value": "ends_with",
+                    "label": "kết thúc bằng"
+                  },
+                  {
+                    "value": "gt",
+                    "label": "lớn hơn"
+                  },
+                  {
+                    "value": "gte",
+                    "label": "lớn hơn hoặc bằng"
+                  },
+                  {
+                    "value": "lt",
+                    "label": "nhỏ hơn"
+                  },
+                  {
+                    "value": "lte",
+                    "label": "nhỏ hơn hoặc bằng"
+                  },
+                  {
+                    "value": "is_empty",
+                    "label": "rỗng"
+                  },
+                  {
+                    "value": "is_not_empty",
+                    "label": "không rỗng"
+                  },
+                  {
+                    "value": "is_true",
+                    "label": "đúng"
+                  },
+                  {
+                    "value": "is_false",
+                    "label": "sai"
+                  }
+                ]
+              },
+              {
+                "key": "value_type",
+                "label": "Kiểu dữ liệu",
+                "type": "enum",
+                "default": "string",
+                "options": [
+                  {
+                    "value": "string",
+                    "label": "Text"
+                  },
+                  {
+                    "value": "number",
+                    "label": "Number"
+                  },
+                  {
+                    "value": "boolean",
+                    "label": "Boolean"
+                  }
+                ]
+              },
+              {
+                "key": "right",
+                "label": "So với",
+                "type": "string",
+                "expression_supported": true
+              }
+            ]
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [
+          {
+            "key": "main",
+            "label": "In"
+          }
+        ],
+        "output_ports": [
+          {
+            "key": "true",
+            "label": "True"
+          },
+          {
+            "key": "false",
+            "label": "False"
+          }
+        ],
+        "supports_expression": true,
+        "credential_types": []
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "n8n-nodes-base.if",
+        "engine_type_version": 1,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/if"
+    },
+    {
+      "node_key": "filter",
+      "display_name": "Filter",
+      "category": "LOGIC",
+      "description": "Chỉ cho những item thỏa điều kiện đi tiếp. Các item còn lại dừng ở đây — dùng khi bạn muốn loại bớt dữ liệu mà không cần chia nhánh.",
+      "icon": "filter",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "combinator",
+            "label": "Kết hợp điều kiện",
+            "type": "enum",
+            "default": "and",
+            "options": [
+              {
+                "value": "and",
+                "label": "Tất cả điều kiện (AND)"
+              },
+              {
+                "value": "or",
+                "label": "Bất kỳ điều kiện (OR)"
+              }
+            ]
+          },
+          {
+            "key": "conditions",
+            "label": "Điều kiện",
+            "type": "collection",
+            "required": true,
+            "item_fields": [
+              {
+                "key": "left",
+                "label": "Giá trị",
+                "type": "string",
+                "expression_supported": true,
+                "required": true,
+                "placeholder": "{{ $json.status }}"
+              },
+              {
+                "key": "operator",
+                "label": "Phép so sánh",
+                "type": "enum",
+                "required": true,
+                "default": "equals",
+                "options": [
+                  {
+                    "value": "equals",
+                    "label": "bằng"
+                  },
+                  {
+                    "value": "not_equals",
+                    "label": "khác"
+                  },
+                  {
+                    "value": "contains",
+                    "label": "chứa"
+                  },
+                  {
+                    "value": "not_contains",
+                    "label": "không chứa"
+                  },
+                  {
+                    "value": "starts_with",
+                    "label": "bắt đầu bằng"
+                  },
+                  {
+                    "value": "ends_with",
+                    "label": "kết thúc bằng"
+                  },
+                  {
+                    "value": "gt",
+                    "label": "lớn hơn"
+                  },
+                  {
+                    "value": "gte",
+                    "label": "lớn hơn hoặc bằng"
+                  },
+                  {
+                    "value": "lt",
+                    "label": "nhỏ hơn"
+                  },
+                  {
+                    "value": "lte",
+                    "label": "nhỏ hơn hoặc bằng"
+                  },
+                  {
+                    "value": "is_empty",
+                    "label": "rỗng"
+                  },
+                  {
+                    "value": "is_not_empty",
+                    "label": "không rỗng"
+                  },
+                  {
+                    "value": "is_true",
+                    "label": "đúng"
+                  },
+                  {
+                    "value": "is_false",
+                    "label": "sai"
+                  }
+                ]
+              },
+              {
+                "key": "value_type",
+                "label": "Kiểu dữ liệu",
+                "type": "enum",
+                "default": "string",
+                "options": [
+                  {
+                    "value": "string",
+                    "label": "Text"
+                  },
+                  {
+                    "value": "number",
+                    "label": "Number"
+                  },
+                  {
+                    "value": "boolean",
+                    "label": "Boolean"
+                  }
+                ]
+              },
+              {
+                "key": "right",
+                "label": "So với",
+                "type": "string",
+                "expression_supported": true
+              }
+            ]
+          }
+        ]
+      },
+      "capability": {
+        "is_trigger": false,
+        "input_ports": [
+          {
+            "key": "main",
+            "label": "Vào"
+          }
+        ],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Ra"
+          }
+        ]
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "n8n-nodes-base.filter",
+        "engine_type_version": 1,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/if"
+    },
+    {
+      "node_key": "switch",
+      "display_name": "Switch",
+      "category": "LOGIC",
+      "description": "Chia luồng thành nhiều nhánh có nhãn theo từng luật.",
+      "icon": "split",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "value",
+            "label": "Giá trị cần xét",
+            "type": "string",
+            "required": true,
+            "expression_supported": true,
+            "placeholder": "{{ $json.type }}"
+          },
+          {
+            "key": "rules",
+            "label": "Nhánh",
+            "type": "collection",
+            "required": true,
+            "min_items": 1,
+            "max_items": 8,
+            "item_fields": [
+              {
+                "key": "output_key",
+                "label": "Tên nhánh",
+                "type": "string",
+                "required": true,
+                "placeholder": "vip"
+              },
+              {
+                "key": "operator",
+                "label": "Phép so sánh",
+                "type": "enum",
+                "default": "equals",
+                "options": [
+                  {
+                    "value": "equals",
+                    "label": "bằng"
+                  },
+                  {
+                    "value": "not_equals",
+                    "label": "khác"
+                  },
+                  {
+                    "value": "contains",
+                    "label": "chứa"
+                  },
+                  {
+                    "value": "gt",
+                    "label": "lớn hơn"
+                  },
+                  {
+                    "value": "lt",
+                    "label": "nhỏ hơn"
+                  }
+                ]
+              },
+              {
+                "key": "value_type",
+                "label": "Kiểu dữ liệu",
+                "type": "enum",
+                "default": "string",
+                "options": [
+                  {
+                    "value": "string",
+                    "label": "Text"
+                  },
+                  {
+                    "value": "number",
+                    "label": "Number"
+                  },
+                  {
+                    "value": "boolean",
+                    "label": "Boolean"
+                  }
+                ]
+              },
+              {
+                "key": "compare_to",
+                "label": "So với",
+                "type": "string",
+                "expression_supported": true
+              }
+            ]
+          },
+          {
+            "key": "fallback",
+            "label": "Khi không khớp luật nào",
+            "type": "enum",
+            "default": "NONE",
+            "options": [
+              {
+                "value": "NONE",
+                "label": "Dừng nhánh đó"
+              },
+              {
+                "value": "EXTRA_OUTPUT",
+                "label": "Đi vào nhánh Other"
+              }
+            ]
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [
+          {
+            "key": "main",
+            "label": "In"
+          }
+        ],
+        "output_ports": [],
+        "$comment_ports": "Ports are derived from `config.rules[].output_key`, plus `other` when fallback is EXTRA_OUTPUT. The FE reads `output_ports_from` rather than a fixed list.",
+        "output_ports_from": "rules",
+        "supports_expression": true,
+        "credential_types": []
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "n8n-nodes-base.switch",
+        "engine_type_version": 2,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/switch"
+    },
+    {
+      "node_key": "merge",
+      "display_name": "Merge",
+      "category": "LOGIC",
+      "description": "Gộp dữ liệu từ hai nhánh trở lại thành một luồng.",
+      "icon": "git-merge",
+      "certification": "SUPPORTED",
+      "status": "ACTIVE",
+      "config_schema": {
+        "fields": [
+          {
+            "key": "mode",
+            "label": "Cách gộp",
+            "type": "enum",
+            "required": true,
+            "default": "APPEND",
+            "options": [
+              {
+                "value": "APPEND",
+                "label": "Nối tiếp (append)"
+              },
+              {
+                "value": "COMBINE_BY_POSITION",
+                "label": "Ghép theo vị trí"
+              },
+              {
+                "value": "COMBINE_BY_KEY",
+                "label": "Ghép theo field khóa"
+              }
+            ]
+          },
+          {
+            "key": "match_field",
+            "label": "Field khóa",
+            "type": "string",
+            "condition": {
+              "field": "mode",
+              "equals": "COMBINE_BY_KEY"
+            },
+            "placeholder": "id"
+          }
+        ]
+      },
+      "capability": {
+        "input_ports": [
+          {
+            "key": "input_1",
+            "label": "Input 1"
+          },
+          {
+            "key": "input_2",
+            "label": "Input 2"
+          }
+        ],
+        "output_ports": [
+          {
+            "key": "main",
+            "label": "Out"
+          }
+        ],
+        "supports_expression": false,
+        "credential_types": []
+      },
+      "engine_binding": {
+        "engine": "N8N",
+        "engine_node_type": "n8n-nodes-base.merge",
+        "engine_type_version": 2.1,
+        "adapter_version": "1"
+      },
+      "security_profile": {
+        "network": "NONE",
+        "code_execution": false,
+        "file_access": false,
+        "external_side_effects": false
+      },
+      "docs_ref": "/docs/nodes/merge"
+    }
+  ],
+  "credential_types": [
+    {
+      "key": "HTTP_BASIC",
+      "display_name": "HTTP Basic",
+      "secret_fields": [
+        "username",
+        "password"
+      ],
+      "public_fields": [
+        "username"
+      ],
+      "config_schema": {
+        "fields": [
+          {
+            "key": "username",
+            "label": "Username",
+            "type": "string",
+            "required": true
+          },
+          {
+            "key": "password",
+            "label": "Password",
+            "type": "secret",
+            "required": true
+          }
+        ]
+      },
+      "certification": "SUPPORTED"
+    },
+    {
+      "key": "BEARER",
+      "display_name": "Bearer Token",
+      "secret_fields": [
+        "token"
+      ],
+      "public_fields": [],
+      "config_schema": {
+        "fields": [
+          {
+            "key": "token",
+            "label": "Token",
+            "type": "secret",
+            "required": true
+          }
+        ]
+      },
+      "certification": "SUPPORTED"
+    },
+    {
+      "key": "HEADER_API_KEY",
+      "display_name": "API Key trong header",
+      "secret_fields": [
+        "value"
+      ],
+      "public_fields": [
+        "header_name"
+      ],
+      "config_schema": {
+        "fields": [
+          {
+            "key": "header_name",
+            "label": "Tên header",
+            "type": "string",
+            "required": true,
+            "default": "X-API-Key"
+          },
+          {
+            "key": "value",
+            "label": "Giá trị",
+            "type": "secret",
+            "required": true
+          }
+        ]
+      },
+      "certification": "SUPPORTED"
+    },
+    {
+      "key": "QUERY_API_KEY",
+      "display_name": "API Key trong query",
+      "secret_fields": [
+        "value"
+      ],
+      "public_fields": [
+        "param_name"
+      ],
+      "config_schema": {
+        "fields": [
+          {
+            "key": "param_name",
+            "label": "Tên tham số",
+            "type": "string",
+            "required": true,
+            "default": "api_key"
+          },
+          {
+            "key": "value",
+            "label": "Giá trị",
+            "type": "secret",
+            "required": true
+          }
+        ]
+      },
+      "certification": "SUPPORTED"
+    }
+  ]
+}

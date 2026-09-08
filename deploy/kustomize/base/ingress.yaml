@@ -1,0 +1,45 @@
+# The only way in.
+#
+# One host, two paths, and no rule for the engine. The frontend serves the
+# application and proxies `/api/v1` and `/hooks` to the API from its own
+# server side, so the browser only ever talks to one origin -- which is why
+# the session cookie can be SameSite and why there is no CORS configuration
+# anywhere in this product.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: appbi-workflow
+  namespace: appbi-workflow
+  annotations:
+    # TLS is not optional. The webhook URLs this deployment hands to third
+    # parties are built from PUBLIC_BASE_URL, and those requests carry an HMAC
+    # over the body; http would publish the payload.
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: letsencrypt-production
+    # The product caps webhook bodies at 512KB and refuses larger ones with a
+    # product error. The ingress cap is a little higher so the *product's*
+    # message is what the caller sees, rather than an nginx 413.
+    nginx.ingress.kubernetes.io/proxy-body-size: "1m"
+    # A run is dispatched asynchronously and the request returns immediately,
+    # so these are generous only for the slowest read: an execution detail with
+    # a large payload preview.
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - automation.example.com
+      secretName: appbi-workflow-tls
+  rules:
+    - host: automation.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: appbi-workflow-frontend
+                port:
+                  name: http

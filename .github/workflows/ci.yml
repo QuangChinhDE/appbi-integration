@@ -1,0 +1,487 @@
+# CI gates (SRS 63).
+#
+# Four jobs, split by what breaks them:
+#
+#   backend     pure-logic tests, plus a migration that has to apply, roll back
+#               and re-apply on a real Postgres
+#   engine      the contract suite against the real pinned n8n runtime, and the
+#               compatibility gate that catches a pin moving
+#   frontend    typecheck and build
+#   e2e         the whole stack in containers, driven through a browser. It is
+#               the only job that can catch a defect which exists solely in the
+#               deployed shape of the thing -- a build-time-baked proxy target,
+#               a container that cannot reach its API -- because it is the only
+#               job that runs the images rather than the sources.
+#   clean-install
+#               `docker compose up` on an empty volume, then the API smoke
+#               suite. The question a first deploy is asked and nobody
+#               rehearses.
+#   deployment  the production configuration gate, the rendered Kubernetes
+#               manifests and the alert rules -- all checked without a cluster.
+#   guardrails  the architectural rules that are cheap to check and expensive to
+#               discover later
+#
+# The engine job installs with `npm ci`, never `npm install`: the lockfile is
+# the pin ADR-013 depends on.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: appbi
+          POSTGRES_PASSWORD: appbi
+          POSTGRES_DB: appbi_workflow
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U appbi"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://appbi:appbi@localhost:5432/appbi_workflow
+      SECRET_ENCRYPTION_KEY: dGVzdC1vbmx5LWtleS1mb3ItY2ktMzItYnl0ZXMtb2s=
+      JWT_SECRET: ci-only-secret-at-least-32-characters-long
+      ENGINE_INTERNAL_TOKEN: ci-engine-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements*.txt
+
+      - name: Install
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint
+        working-directory: backend
+        run: ruff check app tests
+
+      - name: Unit tests
+        working-directory: backend
+        run: pytest
+
+      - name: Migration applies, rolls back and re-applies
+        working-directory: backend
+        run: |
+          alembic upgrade head
+          alembic downgrade base
+          alembic upgrade head
+
+      - name: Migration matches the models
+        working-directory: backend
+        # A model changed without a migration is what this catches, and it is
+        # the failure that otherwise shows up first in production.
+        run: alembic check
+
+      - name: Bootstrap is idempotent
+        working-directory: backend
+        run: |
+          python -m app.bootstrap --admin-email ci@example.com --admin-password "CiPassword12345"
+          python -m app.bootstrap --admin-email ci@example.com --admin-password "CiPassword12345"
+
+  engine:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20'
+          cache: npm
+          cache-dependency-path: workflow-engine/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install the pinned package set
+        working-directory: workflow-engine
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: workflow-engine
+        run: npm run typecheck
+
+      - name: Build
+        working-directory: workflow-engine
+        run: npm run build
+
+      - name: Contract suite against the real n8n runtime
+        working-directory: workflow-engine
+        run: npm test
+
+      - name: Compatibility gate
+        run: |
+          pip install pyyaml
+          python scripts/certify.py --check
+
+      - name: Dependency inventory (SBOM input)
+        working-directory: workflow-engine
+        # Not a gate: an inventory attached to the run, so a licence or advisory
+        # question about a release has something to answer from (ADR-015).
+        run: npm ls --all --json > ../engine-dependencies.json || true
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: engine-dependencies
+          path: engine-dependencies.json
+          if-no-files-found: warn
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        working-directory: frontend
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        working-directory: frontend
+        run: npm run typecheck
+
+      - name: Lint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Component tests
+        working-directory: frontend
+        run: npm test
+
+      - name: Build
+        working-directory: frontend
+        run: npm run build
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.20'
+          cache: npm
+          cache-dependency-path: e2e/package-lock.json
+
+      - name: Generate secrets and an admin password
+        run: python3 scripts/ci_env.py
+
+      - name: Start the stack
+        run: docker compose up -d --build --wait --wait-timeout 600
+
+      - name: Show what came up
+        if: always()
+        run: docker compose ps
+
+      - name: Install Playwright
+        working-directory: e2e
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Browser suite
+        working-directory: e2e
+        env:
+          # The frontend's port, not the API's: these tests drive the interface
+          # and reach the API only through it.
+          E2E_BASE_URL: http://127.0.0.1:3000
+        run: npx playwright test
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
+      - name: Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: e2e/playwright-report
+          retention-days: 7
+
+  # A first deploy, from nothing. Separate from `e2e` because it deletes the
+  # data volume: running it in the same job would mean the browser suite either
+  # runs before it (and is thrown away) or after it (and is the only thing
+  # exercising the fresh install).
+  clean-install:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Generate secrets and an admin password
+        run: python3 scripts/ci_env.py
+
+      - name: Up, from an empty volume
+        # No `bootstrap --schema`, no `alembic upgrade head` by hand. If this
+        # needs a step that is not in the compose file, a customer's first
+        # deploy needs it too -- and they do not have this job to tell them.
+        run: docker compose up -d --build --wait --wait-timeout 600
+
+      - name: The migration ran, and ran to completion
+        run: |
+          set -e
+          docker compose logs migrate > migrate.log
+          grep -q 'Running upgrade' migrate.log
+          grep -q 'No new upgrade operations detected' migrate.log
+          grep -q 'Install complete' migrate.log
+          echo "the schema was migrated and checked before the API started"
+
+      - name: No schema drift
+        run: |
+          pip install -q -r backend/requirements.txt
+          DATABASE_URL=postgresql+asyncpg://appbi:appbi@localhost:5433/appbi_workflow \
+            python scripts/schema_drift.py --json | tee drift-report.json
+          DATABASE_URL=postgresql+asyncpg://appbi:appbi@localhost:5433/appbi_workflow \
+            python scripts/schema_drift.py
+
+      - name: Publish the drift report
+        # The release gate requires this: "one migration head" is a claim,
+        # and a report from a database the migrations actually ran against is
+        # the evidence. A migration that applies and leaves the schema
+        # disagreeing with the models passes a head check and fails at runtime.
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-report
+          path: drift-report.json
+          retention-days: 7
+
+      - name: The API smoke suite passes on the fresh install
+        run: |
+          python scripts/smoke.py --base http://127.0.0.1:8000 \
+            --password 'SmokeTestPass123!' \
+            --new-password 'SmokeTestPass123!'
+
+      - name: A second up changes nothing
+        run: |
+          set -e
+          before=$(docker compose exec -T postgres psql -U appbi -d appbi_workflow \
+            --no-align --tuples-only -c 'SELECT count(*) FROM users')
+          docker compose up -d --wait --wait-timeout 600
+          after=$(docker compose exec -T postgres psql -U appbi -d appbi_workflow \
+            --no-align --tuples-only -c 'SELECT count(*) FROM users')
+          test "$before" = "$after"
+          docker compose logs migrate | grep -q 'bootstrap.admin_exists'
+          echo "the install is idempotent"
+
+      - name: Service logs on failure
+        if: failure()
+        run: docker compose logs --tail 200
+
+  # Everything about deploying, checked without a cluster.
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install
+        run: pip install -q pyyaml pytest pytest-asyncio
+
+      - name: The production template is refused until it is filled in
+        # The whole point of a template. A pass here means a placeholder has
+        # been given a value that boots.
+        run: |
+          if python scripts/doctor.py --env-file .env.production.example; then
+            echo "::error::the unedited production template passed the doctor"
+            exit 1
+          fi
+          echo "the template is correctly refused"
+
+      - name: The development configuration is refused as production
+        run: |
+          cp .env.example .env
+          if python scripts/doctor.py --env-file .env; then
+            echo "::error::the development configuration passed as production"
+            exit 1
+          fi
+          echo "development configuration is correctly refused"
+
+      - name: The Kubernetes manifests render
+        run: kubectl kustomize deploy/kustomize/overlays/production > /dev/null
+
+      - name: The manifests and the alert rules hold their guarantees
+        # No engine ingress, every image pinned, resource limits everywhere,
+        # a default-deny network policy, and every alert naming a metric the
+        # exporter actually publishes.
+        run: python -m pytest backend/tests/test_deployment_manifests.py
+                              backend/tests/test_alert_rules.py
+                              backend/tests/test_production_doctor.py -q
+
+      - name: The compose files are valid
+        run: |
+          set -e
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f deploy/compose.scale.yaml \
+            config --quiet
+          echo "compose files parse"
+
+      - name: A commercial release is blocked while the licence review is open
+        # The gate's whole purpose. `--delivery commercial` is the default, so
+        # a pipeline that forgets the flag gets the refusing behaviour rather
+        # than the permissive one.
+        run: |
+          set -e
+          if python scripts/release_gate.py --version 9.9.9 \
+               --out /tmp/release --allow-dirty > /tmp/gate.txt 2>&1; then
+            echo "::error::the release gate passed a commercial release with an"
+            echo "::error::unapproved licence review"
+            cat /tmp/gate.txt
+            exit 1
+          fi
+          grep -q 'commercial delivery' /tmp/gate.txt
+          echo "the licence gate refuses a commercial release, as it must"
+
+      - name: A release with no drift report is blocked
+        run: |
+          set -e
+          if python scripts/release_gate.py --version 9.9.9 \
+               --delivery internal --out /tmp/release --allow-dirty \
+               > /tmp/gate2.txt 2>&1; then
+            echo "::error::the release gate passed without schema evidence"
+            exit 1
+          fi
+          grep -q 'no --drift-report' /tmp/gate2.txt
+          echo "the schema gate requires evidence, not a claim"
+
+      - name: The production example is deployable as written
+        # `deploy/production.yaml.example` configures everything through
+        # mounted secret files. The gate that stands in front of it has to
+        # understand the same thing the application does, or it refuses a
+        # deployment that would in fact have started -- which is how a gate
+        # gets switched off.
+        run: |
+          set -e
+          mkdir -p /tmp/secrets
+          printf 'postgresql+asyncpg://u:p@db.example.com:5432/appbi?ssl=require' \
+            > /tmp/secrets/database_url
+          python -c "import secrets;print(secrets.token_urlsafe(48))" \
+            > /tmp/secrets/jwt
+          python -c "import base64,os;print(base64.urlsafe_b64encode(os.urandom(32)).decode())" \
+            > /tmp/secrets/kek
+          python -c "import secrets;print(secrets.token_urlsafe(32))" \
+            > /tmp/secrets/engine
+          cat > /tmp/env.production <<'ENVEOF'
+          APP_ENV=production
+          PRODUCT_VERSION=9.9.9
+          SESSION_COOKIE_SECURE=true
+          ALLOW_DERIVED_ENCRYPTION_KEY=false
+          ENGINE_BASE_URL=http://engine.svc.cluster.local:8099
+          PUBLIC_BASE_URL=https://automation.example.com
+          NEXT_PUBLIC_API_BASE=https://automation.example.com
+          EGRESS_ALLOW_PRIVATE_NETWORKS=false
+          EGRESS_ALLOWED_HOSTS=api.acme.com
+          IMAGE_REGISTRY=registry.example.com/appbi
+          IMAGE_TAG=v9.9.9
+          ONCALL_CONTACT=oncall@example.com
+          BACKUP_S3_BUCKET=appbi-backups
+          DATABASE_URL_FILE=/tmp/secrets/database_url
+          JWT_SECRET_FILE=/tmp/secrets/jwt
+          SECRET_ENCRYPTION_KEY_FILE=/tmp/secrets/kek
+          ENGINE_INTERNAL_TOKEN_FILE=/tmp/secrets/engine
+          ENVEOF
+          python scripts/doctor.py --env-file /tmp/env.production \
+            --warnings-as-errors
+          echo "a fully file-backed production configuration passes the gate"
+
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The engine is the only thing that imports n8n
+        # Guardrails 2 and 10. Matched on imports and declared dependencies,
+        # not on any mention of the word: the ADRs and the adapter docstrings
+        # name n8n deliberately, and a check that failed on prose would be
+        # switched off within a week.
+        run: |
+          set -e
+          if grep -rIn --exclude-dir=node_modules -E "(from|require\(|import) *['\"]n8n-" backend frontend; then
+            echo "::error::n8n imported outside workflow-engine (guardrail 10)"
+            exit 1
+          fi
+          if grep -rIn -E "n8n[-_]" backend/requirements.txt frontend/package.json; then
+            echo "::error::n8n declared as a dependency outside workflow-engine"
+            exit 1
+          fi
+          echo "engine boundary is intact"
+
+      - name: The product schema carries no engine identity
+        # Guardrail 5, checked against the schema rather than the source: the
+        # rule is about what the database stores, and the migrations are the
+        # only place that settles it.
+        run: |
+          set -e
+          if grep -rIn -E "n8n" backend/migrations/versions/; then
+            echo "::error::an engine identifier reached the product schema (guardrail 5)"
+            exit 1
+          fi
+          echo "no engine identity in the product schema"
+
+      - name: No enterprise-only source
+        # ADR-015: `.ee` paths are not used, and copying one would be a licence
+        # problem rather than a code problem.
+        run: |
+          set -e
+          if grep -rIln --exclude-dir=node_modules --include='*.ts' --include='*.py' -E "\.ee\." backend frontend workflow-engine/src; then
+            echo "::error::reference to .ee source found (ADR-015)"
+            exit 1
+          fi
+          echo "no enterprise-only source referenced"
+
+      - name: A validation dry run resolves credentials without carrying their values
+        # Three layers independently decided "no secrets on validate" by dropping
+        # the credential list entirely, and each time that made every workflow
+        # that authenticates to anything impossible to publish -- the compiler
+        # cannot resolve a reference that was never sent. The rule is: send the
+        # id and the type, send an empty payload. This checks the two places
+        # that are easy to "simplify" back into a bug.
+        run: |
+          set -e
+          if ! grep -q 'credential_type": item.credential_type' backend/app/engine/n8n_service_adapter.py; then
+            echo "::error::the adapter no longer describes credentials on the validation path"
+            exit 1
+          fi
+          if grep -qE "credentials: \\[\\]" workflow-engine/src/server.ts; then
+            echo "::error::the engine validate route drops the credential list again"
+            exit 1
+          fi
+          echo "validation sends credential descriptors, not values"
+
+      - name: The commercial licence gate is recorded
+        # Not a pass/fail on the value: the point is that a release cannot claim
+        # the review happened when compatibility.yaml still says otherwise
+        # (SRS 33.1). It fails only if the field is missing entirely.
+        run: |
+          set -e
+          gate=$(grep -E "^ *commercial_gate:" compatibility.yaml | head -1 | cut -d: -f2- | tr -d ' "')
+          if [ -z "$gate" ]; then
+            echo "::error::licensing.commercial_gate is missing from compatibility.yaml"
+            exit 1
+          fi
+          echo "commercial gate: $gate"
+          if [ "$gate" != "APPROVED" ]; then
+            echo "::warning::n8n commercial review is $gate -- not releasable as a commercial delivery (LIC-N8N-001)"
+          fi

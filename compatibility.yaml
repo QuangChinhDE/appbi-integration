@@ -1,0 +1,135 @@
+# Compatibility matrix (SRS section 31.2 / 62).
+#
+# This file is the release contract. Nothing here may say "latest": an engine
+# upgrade is a change to this file plus a green contract suite, never a
+# floating dependency that moves under a running deployment.
+#
+# Regenerate the `verified_at` stamps with: python scripts/certify.py
+
+product_version: "1.0.0"
+
+workflow_engine:
+  adapter_contract_version: "1"
+  compiler_version: "1"
+  engine_type: "N8N_CORE"
+  # The engine service is internal-only. The product never exposes this URL.
+  internal_api_contract: "1"
+
+n8n:
+  source: "n8n-io/n8n"
+  # Deliberately NOT the newest release. n8n-core 1.14.x is the last line whose
+  # embedding surface is small: typedi + n8n-workflow, no @n8n/backend-common,
+  # no @n8n/config, no @n8n/db. Every later line pulls the application's own
+  # service container into a process that only needs WorkflowExecute, which is
+  # cost with no execution-semantics benefit for the V1 node set.
+  # See docs/adr/index.md ADR-013.
+  release_line: "1.14"
+  packages:
+    n8n-workflow: "1.14.1"
+    n8n-core: "1.14.1"
+    n8n-nodes-base: "1.14.1"
+  # Node.js the engine image is built and certified on.
+  node_runtime: "22.20.0"
+
+# Verified against the installed packages, not against upstream docs: the 1.14.1
+# tree ships set at 3.2 (not 3.3), if at 1 (the filter-based v2 came later),
+# switch at 2 and merge at 2.1. `npm run certify` re-checks these and fails the
+# build when a pin names a version the runtime does not have.
+
+certified_nodes:
+  manual_trigger:
+    product_schema_version: 1
+    engine_type: "appbi.start"
+    engine_type_version: 1
+    certification: SUPPORTED
+  webhook_trigger:
+    product_schema_version: 1
+    engine_type: "appbi.start"
+    engine_type_version: 1
+    certification: SUPPORTED
+  schedule_trigger:
+    product_schema_version: 1
+    engine_type: "appbi.start"
+    engine_type_version: 1
+    certification: SUPPORTED
+  http_request:
+    product_schema_version: 1
+    engine_type: "n8n-nodes-base.httpRequest"
+    engine_type_version: 4.1
+    certification: SUPPORTED
+  edit_fields:
+    product_schema_version: 1
+    engine_type: "n8n-nodes-base.set"
+    engine_type_version: 3.2
+    certification: SUPPORTED
+  if:
+    product_schema_version: 1
+    engine_type: "n8n-nodes-base.if"
+    engine_type_version: 1
+    certification: SUPPORTED
+  filter:
+    product_schema_version: 1
+    engine_type: "n8n-nodes-base.filter"
+    engine_type_version: 1
+    certification: SUPPORTED
+  switch:
+    product_schema_version: 1
+    engine_type: "n8n-nodes-base.switch"
+    engine_type_version: 2
+    certification: SUPPORTED
+  merge:
+    product_schema_version: 1
+    engine_type: "n8n-nodes-base.merge"
+    engine_type_version: 2.1
+    certification: SUPPORTED
+
+credential_types:
+  # Product credential type -> what the compiler injects at runtime. The engine
+  # never reads a credential from an n8n database; there is none.
+  NONE: { certification: SUPPORTED }
+  HTTP_BASIC: { certification: SUPPORTED }
+  BEARER: { certification: SUPPORTED }
+  HEADER_API_KEY: { certification: SUPPORTED }
+  QUERY_API_KEY: { certification: SUPPORTED }
+  OAUTH2: { certification: BLOCKED }   # V1.1 -- needs the refresh flow first
+
+features:
+  # Every one of these is a deliberate "no" for V1, and each has an ADR.
+  wait_resume: false
+  code_node: false
+  community_nodes: false
+  sub_workflows: false
+  binary_data: false
+  n8n_webhook_server: false
+  n8n_scheduler: false
+  n8n_editor_ui: false
+  n8n_metadata_database: false
+
+licensing:
+  upstream_license: "Sustainable Use License"
+
+  # Enterprise-licensed source (`.ee.` in a filename, `.ee` in a dirname) is
+  # present in the installed n8n-core -- three files implementing the S3
+  # ObjectStore -- because it ships inside the package. What matters is whether
+  # the runtime loads it, and `ee_source_used: false` was quietly wrong: the
+  # `n8n-core` entry point statically re-exports the ObjectStore, so importing
+  # anything from the package root pulled Enterprise source into every engine
+  # process. The engine now deep-imports past the entry point.
+  #
+  # Stated as three claims, each one a fact somebody can check, rather than the
+  # single unverifiable claim it replaces:
+  ee_source_present_in_dependency: true    # not ours to change; it ships that way
+  ee_source_loaded_by_runtime: false       # tests/contract/no-enterprise-source
+  ee_feature_enabled: false                # no s3 binary mode, no EE feature flag
+
+  # LIC-N8N-001 (SRS 33.1), ADR-015.
+  #
+  # `internal` is the delivery this product is built for: the Sustainable Use
+  # License permits use and modification for the licensee's own internal
+  # business purposes, which covers many workspaces belonging to one
+  # organisation. It does not cover selling the service, hosting it for
+  # customers, OEM/embedding or redistribution -- and `commercial_gate` stays
+  # NOT_REVIEWED until a legal review says otherwise. `release_gate.py` fails
+  # `--delivery commercial` on that basis and passes `--delivery internal`.
+  delivery_scope: "internal"
+  commercial_gate: "NOT_REVIEWED"

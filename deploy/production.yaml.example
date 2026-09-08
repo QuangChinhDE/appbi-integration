@@ -1,0 +1,263 @@
+# Single-host production, with Docker Compose.
+#
+#   cp deploy/production.yaml.example deploy/production.yaml
+#   cp .env.production.example .env.production      # then fill it in
+#   python scripts/doctor.py --env-file .env.production
+#   docker compose -f deploy/production.yaml --env-file .env.production \
+#     up -d --wait
+#
+# For a deployment with more than one node, use `deploy/kustomize/` instead.
+# This file is for the case where Kubernetes is not justified: one host, one
+# tenant-facing product, a managed database elsewhere.
+#
+# How it differs from the development `docker-compose.yml`, and why:
+#
+#   * **no postgres service.** The database is managed, with its own backups
+#     and failover. A database whose lifecycle is tied to the application's is
+#     one that `docker compose down -v` deletes, and `scripts/doctor.py`
+#     refuses a `DATABASE_URL` pointing at a container in this file.
+#   * **no published ports except the reverse proxy's.** The API and the engine
+#     are reachable only on the internal network. In development the API
+#     publishes a port for convenience; here that would be a second, unguarded
+#     way in.
+#   * **image tags, not builds.** A production host runs what CI built and
+#     pushed. Building on the host means the running code is whatever the
+#     working tree held, which no release artefact can describe.
+#   * **secrets from files, not the environment.** `docker inspect` and
+#     `/proc/<pid>/environ` both show environment variables to anyone who can
+#     read them; a file can be root-owned and mode 0400.
+#
+# TLS is terminated by the `proxy` service. Point it at a real certificate --
+# `PUBLIC_BASE_URL` must be https, because webhook URLs built from it are
+# handed to third parties and their requests carry an HMAC over the body.
+
+name: appbi-workflow-production
+
+x-product-env: &product-env
+  APP_ENV: production
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_FORMAT: json
+  PRODUCT_VERSION: ${PRODUCT_VERSION:?set PRODUCT_VERSION}
+
+  # Read from files, so the value is not visible in `docker inspect`.
+  DATABASE_URL_FILE: /run/secrets/database_url
+  JWT_SECRET_FILE: /run/secrets/jwt_secret
+  SECRET_ENCRYPTION_KEY_FILE: /run/secrets/encryption_key
+  ENGINE_INTERNAL_TOKEN_FILE: /run/secrets/engine_token
+
+  ENGINE_TYPE: N8N_CORE
+  ENGINE_BASE_URL: http://engine:8099
+  STARTUP_REQUIRE_ENGINE: "false"
+
+  SESSION_COOKIE_SECURE: "true"
+  ALLOW_DERIVED_ENCRYPTION_KEY: "false"
+  PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}
+
+  LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-30}
+  WEBHOOK_RATE_LIMIT_PER_MINUTE: ${WEBHOOK_RATE_LIMIT_PER_MINUTE:-120}
+
+  MAX_CONCURRENT_EXECUTIONS_PER_WORKFLOW: "1"
+  MAX_CONCURRENT_EXECUTIONS_PER_WORKSPACE: ${MAX_CONCURRENT_EXECUTIONS_PER_WORKSPACE:-10}
+  EXECUTION_MAX_RUNTIME_SECONDS: ${EXECUTION_MAX_RUNTIME_SECONDS:-1200}
+  EXECUTION_PREVIEW_RETENTION_DAYS: ${EXECUTION_PREVIEW_RETENTION_DAYS:-14}
+
+  EGRESS_ALLOW_PRIVATE_NETWORKS: "false"
+  EGRESS_ALLOWED_HOSTS: ${EGRESS_ALLOWED_HOSTS:-}
+  EGRESS_BLOCKED_HOSTS: 169.254.169.254,metadata.google.internal,metadata.azure.com
+
+x-logging: &logging
+  driver: json-file
+  options:
+    # Bounded, because an unbounded log on a single host fills the disk and
+    # takes the database's volume with it.
+    max-size: "20m"
+    max-file: "5"
+
+secrets:
+  database_url:
+    file: ./secrets/database_url
+  jwt_secret:
+    file: ./secrets/jwt_secret
+  encryption_key:
+    file: ./secrets/encryption_key
+  engine_token:
+    file: ./secrets/engine_token
+
+networks:
+  # Internal: no route off the host. Only `proxy` sits on both.
+  internal:
+    internal: true
+  edge: {}
+
+services:
+  # ── schema, before anything queries it ───────────────────────────────────
+  migrate:
+    image: ${IMAGE_REGISTRY:?set IMAGE_REGISTRY}/appbi-workflow-api:${IMAGE_TAG:?set IMAGE_TAG}
+    # The doctor runs here, not skipped: a production migration should refuse
+    # to touch the schema of a deployment that is misconfigured.
+    command: python /opt/install/install.py
+    environment: *product-env
+    secrets: [database_url, jwt_secret, encryption_key, engine_token]
+    networks: [internal]
+    restart: "no"
+    logging: *logging
+
+  # Do not `--scale engine`. Its execution state is three in-process maps, and
+  # the API polls and cancels a run by a ref only the pod that started it
+  # knows; a second replica answers those from a pod that has never seen it and
+  # a running workflow is reported lost. Raise ENGINE_MAX_CONCURRENT, or give
+  # the workspace its own named engine instance, instead.
+  engine:
+    image: ${IMAGE_REGISTRY}/appbi-workflow-engine:${IMAGE_TAG}
+    environment:
+      ENGINE_HOST: 0.0.0.0
+      ENGINE_PORT: "8099"
+      ENGINE_INTERNAL_TOKEN_FILE: /run/secrets/engine_token
+      ENGINE_LOG_LEVEL: ${ENGINE_LOG_LEVEL:-warn}
+      ENGINE_MAX_CONCURRENT: ${ENGINE_MAX_CONCURRENT:-20}
+      ENGINE_MAX_EXECUTION_SECONDS: ${ENGINE_MAX_EXECUTION_SECONDS:-1800}
+      EGRESS_ALLOW_PRIVATE_NETWORKS: "false"
+    secrets: [engine_token]
+    # Deliberately no `ports:`, and only on the internal network. Guardrail 15
+    # is enforced by this file, not by a convention.
+    networks: [internal]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 1G
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          node -e "const t=require('fs').readFileSync('/run/secrets/engine_token','utf8').trim();
+          require('http').request({host:'127.0.0.1',port:8099,path:'/internal/healthz',
+          headers:{'X-Engine-Token':t}},r=>process.exit(r.statusCode===200?0:1))
+          .on('error',()=>process.exit(1)).end()"
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    restart: unless-stopped
+    logging: *logging
+
+  api:
+    image: ${IMAGE_REGISTRY}/appbi-workflow-api:${IMAGE_TAG}
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --proxy-headers --forwarded-allow-ips '*'
+    environment: *product-env
+    secrets: [database_url, jwt_secret, encryption_key, engine_token]
+    networks: [internal]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    deploy:
+      # Two replicas. The rate limit and idempotency are correct across
+      # replicas by design, and running two everywhere is what keeps them that
+      # way. No published port, so nothing collides.
+      replicas: 2
+      resources:
+        limits:
+          cpus: "2"
+          memory: 512M
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      engine:
+        # `started`, not `healthy`: the product must boot and stay readable
+        # while the engine is down (SRS 9.6).
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/readyz > /dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+    logging: *logging
+
+  worker:
+    image: ${IMAGE_REGISTRY}/appbi-workflow-api:${IMAGE_TAG}
+    command: python -m app.worker
+    environment: *product-env
+    secrets: [database_url, jwt_secret, encryption_key, engine_token]
+    networks: [internal]
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 384M
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      engine:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "pgrep -f 'app.worker' > /dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    # Long enough for an in-flight dispatch to finish and be recorded.
+    stop_grace_period: 60s
+    restart: unless-stopped
+    logging: *logging
+
+  frontend:
+    image: ${IMAGE_REGISTRY}/appbi-workflow-frontend:${IMAGE_TAG}
+    environment:
+      NODE_ENV: production
+      # Read per request by the route handlers. Not a Next `rewrites()`
+      # destination: with `output: 'standalone'` those are baked into the
+      # build, so this value would be frozen at image-build time.
+      API_PROXY_TARGET: http://api:8000
+    networks: [internal]
+    read_only: true
+    tmpfs: [/tmp, /app/.next/cache]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    deploy:
+      replicas: 2
+      resources:
+        limits:
+          cpus: "1"
+          memory: 256M
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+    logging: *logging
+
+  # ── the only thing published ─────────────────────────────────────────────
+  proxy:
+    image: caddy:2.8-alpine
+    # Caddy rather than nginx for one reason: it obtains and renews the
+    # certificate itself, and a single-host deployment usually has nobody
+    # watching certificate expiry.
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks: [edge, internal]
+    depends_on:
+      frontend:
+        condition: service_started
+    restart: unless-stopped
+    logging: *logging
+
+volumes:
+  caddy-data:
+  caddy-config:

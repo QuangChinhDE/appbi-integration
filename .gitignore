@@ -1,0 +1,49 @@
+# Local state
+.env
+.env.local
+.run/
+*.log
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+dist/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Build inventories produced by CI
+engine-dependencies.json
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Playwright run artefacts. The *snapshots* under
+# `e2e/tests/*-snapshots/` are baselines and must be committed; these are the
+# by-products of a run and change on every one.
+e2e/test-results/
+e2e/playwright-report/
+e2e/.auth/
+e2e/blob-report/
+
+# Release artefacts, written by scripts/release_gate.py per build.
+release/
+
+# Local mirror bundles, which are large and reproducible from the lockfile.
+dist/mirror/
+
+# Database dumps written by scripts/backup.py. Real data, and large.
+backups/
+
+# Playwright artefacts from a run started at the repository root.
+test-results/
+
+# Editor/agent workspace metadata.
+.serena/

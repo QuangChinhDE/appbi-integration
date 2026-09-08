@@ -1,0 +1,54 @@
+# What may be drained at once.
+#
+# `minAvailable: 1` for the API and the frontend, not a percentage: with two
+# replicas a percentage rounds in ways that surprise people during a node
+# drain, and the number that matters is "at least one is still answering".
+#
+# The engine is the exception and uses `maxUnavailable: 1`, because it runs a
+# single replica; the reason is with the budget itself.
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: appbi-workflow-api
+  namespace: appbi-workflow
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: appbi-workflow-frontend
+  namespace: appbi-workflow
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: appbi-workflow-engine
+  namespace: appbi-workflow
+spec:
+  # `maxUnavailable: 1`, not `minAvailable: 1`, because the engine runs a single
+  # replica (see engine-deployment.yaml for why its execution state cannot be
+  # load-balanced yet).
+  #
+  # `minAvailable: 1` against one replica is a budget that can never be met:
+  # every voluntary eviction is refused, so `kubectl drain` on the engine's node
+  # blocks forever and an operator ends up deleting the pod by hand -- which is
+  # the ungraceful outcome the budget was meant to prevent.
+  #
+  # So this permits the eviction instead of pretending it can be avoided. The
+  # in-flight runs are lost either way; what protects them is ADR-010's crash
+  # semantics -- the reconciler reports them ENGINE_INTERRUPTED rather than
+  # leaving them RUNNING forever -- not a budget that stops the drain.
+  maxUnavailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: engine

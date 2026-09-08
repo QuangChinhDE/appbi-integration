@@ -1,0 +1,77 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: appbi-workflow-worker
+  namespace: appbi-workflow
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: dispatch
+spec:
+  # More than one is safe -- the claim query is `FOR UPDATE SKIP LOCKED`, and
+  # the schedule tick takes the same lock (SRS 67) -- but one is enough until
+  # queue lag says otherwise, and /monitoring is where that shows.
+  replicas: 1
+  strategy:
+    # Recreate, not RollingUpdate. Two workers overlapping during a deploy is
+    # harmless but pointless, and Recreate makes "which build dispatched this
+    # run" answerable.
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: worker
+        app.kubernetes.io/component: dispatch
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: worker
+          image: appbi-workflow-api
+          command: ["python", "-m", "app.worker"]
+          envFrom:
+            - configMapRef:
+                name: appbi-workflow-config
+            - secretRef:
+                name: appbi-workflow
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            requests:
+              cpu: 100m
+              memory: 384Mi
+            limits:
+              cpu: "1"
+              memory: 384Mi
+          livenessProbe:
+            # The worker serves no HTTP, so there is nothing to GET. This
+            # checks what is actually true of a worker: the process is alive.
+            # Whether it is keeping up is a queue-lag question, and a liveness
+            # probe is the wrong place to ask it -- restarting a busy worker
+            # makes lag worse.
+            exec:
+              command: ["pgrep", "-f", "app.worker"]
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+      # Long enough for an in-flight dispatch to finish and for the reconciler
+      # to record where it got to. A worker killed mid-dispatch leaves an
+      # execution the reconciler has to interrupt, which is correct but is a
+      # worse outcome than waiting.
+      terminationGracePeriodSeconds: 60
+      volumes:
+        - name: tmp
+          emptyDir: {}

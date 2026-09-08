@@ -1,0 +1,26 @@
+# Overlay for running more than one API replica locally.
+#
+#   docker compose -f docker-compose.yml -f deploy/compose.scale.yaml \
+#     up -d --scale api=2 api
+#
+# The base compose file publishes the API on a fixed host port so a developer
+# can curl it. A fixed published port cannot be replicated -- the second
+# container fails with "port is already allocated" -- so scaling requires
+# dropping it, which is what this file does.
+#
+# Nothing is lost: with the port gone, the API is still reachable exactly the
+# way a browser reaches it, through the frontend's server-side proxy on
+# ${FRONTEND_HOST_PORT}. Compose's service DNS resolves `api` to every replica
+# and round-robins, so traffic through the frontend genuinely spreads.
+#
+# This is why the E2E suite's replica test drives the frontend rather than the
+# API directly, and it is also the shape production has: in Kubernetes the API
+# has a ClusterIP service and no host port at all, and the ingress is the only
+# way in.
+
+services:
+  api:
+    # Replaces the base file's `127.0.0.1:${API_HOST_PORT}:8000`. An empty list
+    # is how compose is told to publish nothing, rather than merging with what
+    # the base file declared.
+    ports: !override []

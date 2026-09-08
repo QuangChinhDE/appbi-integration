@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: appbi-workflow-api
+  namespace: appbi-workflow
+  labels:
+    app.kubernetes.io/name: api
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: api
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

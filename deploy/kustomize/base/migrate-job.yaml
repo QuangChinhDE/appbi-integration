@@ -1,0 +1,77 @@
+# The schema, brought to head before anything queries it.
+#
+# A Job rather than an init container on the API deployment: with two API
+# replicas, init containers would race to run the same migration. A Job runs
+# once, and `alembic upgrade head` taking the version-table lock makes even a
+# concurrent second attempt safe rather than merely unlikely.
+#
+# The name carries the image tag in the overlay (`nameSuffix`), so each release
+# gets its own Job object. A Job is immutable once created, and reusing one
+# name means the second deploy of the day silently does not run.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: appbi-workflow-migrate
+  namespace: appbi-workflow
+  labels:
+    app.kubernetes.io/name: migrate
+  annotations:
+    # For Argo CD / Helm-style tooling. Plain `kubectl apply -k` users run this
+    # first and wait: see `docs/runbooks/README.md`.
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  # Three attempts. A managed database mid-failover is a real reason for the
+  # first to fail; a bad migration is a reason for all three to, and then the
+  # deploy stops -- which is the correct outcome.
+  backoffLimit: 3
+  # Keep the object for a day so its logs are readable after a deploy.
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: migrate
+    spec:
+      restartPolicy: Never
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: migrate
+          image: appbi-workflow-api
+          # Baked into the image (see `backend/Dockerfile`), so this Job has
+          # no volume to mount and no ConfigMap to keep in step. The same
+          # script the compose stack and a developer's laptop run, so the
+          # ordering cannot drift between environments: wait for the database,
+          # `alembic upgrade head`, `alembic check`, then seed.
+          command: ["python", "/opt/install/install.py"]
+          envFrom:
+            - configMapRef:
+                name: appbi-workflow-config
+            - secretRef:
+                name: appbi-workflow
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+          resources:
+            # Memory request equal to limit, like every other container here.
+            # A migration OOM-killed halfway leaves the schema in a state the
+            # next deploy has to work out, and "it was Burstable and the node
+            # was busy" is a bad reason for that to happen.
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+      volumes:
+        - name: tmp
+          emptyDir: {}

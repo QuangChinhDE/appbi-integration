@@ -1,0 +1,128 @@
+# The production overlay.
+#
+#   kubectl apply -k deploy/kustomize/overlays/production
+#
+# Everything the base deliberately left out lives here: the image tags, the
+# hostname, and a reference to the Secret the cluster's secret manager
+# provides. This file is the one an operator edits per release, and it should
+# stay short enough to read in full before applying it.
+#
+# Before applying, check the configuration the same way CI does:
+#
+#   python scripts/doctor.py --env-file .env.production
+#
+# The doctor and this overlay overlap on purpose. The doctor catches a bad
+# value; the overlay is what makes the value take effect. Neither is a
+# substitute for the other.
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: appbi-workflow
+
+resources:
+  - ../../base
+
+# ── the release ────────────────────────────────────────────────────────────
+#
+# Pinned, and pinned to the same tag for all three: the API, the engine and
+# the frontend are one release. Mixing them is how a compiler version and a
+# node registry disagree at runtime, which `scripts/certify.py` exists to
+# prevent at build time and cannot prevent here.
+#
+# Replace `v0.0.0` with the release being deployed, or use a digest:
+#   newName: registry.example.com/appbi/api
+#   digest: sha256:...
+images:
+  - name: appbi-workflow-api
+    newName: registry.example.com/appbi/appbi-workflow-api
+    newTag: v0.0.0
+  - name: appbi-workflow-engine
+    newName: registry.example.com/appbi/appbi-workflow-engine
+    newTag: v0.0.0
+  - name: appbi-workflow-frontend
+    newName: registry.example.com/appbi/appbi-workflow-frontend
+    newTag: v0.0.0
+
+patches:
+  # ── the migration Job gets a new name per release ────────────────────────
+  #
+  # A Job is immutable once created. Without a per-release name the second
+  # deploy of a day finds the object already there and silently does not
+  # migrate, which is the worst possible way for a migration to be skipped.
+  #
+  # A patch on the Job alone, *not* a top-level `nameSuffix`. A global suffix
+  # renames the Services too, and the ConfigMap's `ENGINE_BASE_URL` is an
+  # opaque string that Kustomize does not rewrite -- so the API would look for
+  # `appbi-workflow-engine` while the Service was called
+  # `appbi-workflow-engine-v1-2-3`, and every dispatch would fail with a DNS
+  # error on a deployment that otherwise looked healthy.
+  #
+  # Keep this in step with `newTag` above.
+  - target:
+      kind: Job
+      name: appbi-workflow-migrate
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: appbi-workflow-migrate-v0-0-0
+
+  # Values the base cannot know. A patch rather than a `configMapGenerator`
+  # with `behavior: merge`, because merge only applies to a ConfigMap the base
+  # also *generated* -- and the base keeps its config as plain YAML so that a
+  # reader can see the whole deployment's configuration in one file.
+  - target:
+      kind: ConfigMap
+      name: appbi-workflow-config
+    patch: |-
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: appbi-workflow-config
+      data:
+        PUBLIC_BASE_URL: "https://automation.example.com"
+        NEXT_PUBLIC_API_BASE: "https://automation.example.com"
+        PRODUCT_VERSION: "v0.0.0"
+        # An exclusive allowlist: set it and workflows can reach nothing else.
+        # Strongly recommended for a tenant-facing deployment; empty means any
+        # public address is reachable.
+        EGRESS_ALLOWED_HOSTS: ""
+
+  # The hostname, in the one place it is not configuration.
+  - target:
+      kind: Ingress
+      name: appbi-workflow
+    patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts/0
+        value: automation.example.com
+      - op: replace
+        path: /spec/rules/0/host
+        value: automation.example.com
+
+  # Narrow the database egress from "anywhere on 5432" to the instance. The
+  # base leaves it open because it cannot know the address; leaving it open in
+  # production would let a compromised API pod reach any database it can route
+  # to.
+  - target:
+      kind: NetworkPolicy
+      name: api-and-worker
+    patch: |-
+      - op: replace
+        path: /spec/egress/1/to/0/ipBlock/cidr
+        value: 10.20.30.40/32
+
+# The Secret is not generated here and not in this repository. It is created by
+# the cluster's secret manager (External Secrets, Sealed Secrets, or the
+# provider's CSI driver) with these keys:
+#
+#   DATABASE_URL              postgresql+asyncpg://...?ssl=require
+#   JWT_SECRET                >= 48 chars
+#   SECRET_ENCRYPTION_KEY     32 bytes, urlsafe-base64
+#   ENGINE_INTERNAL_TOKEN     >= 32 chars
+#   BOOTSTRAP_ADMIN_EMAIL     first deploy only
+#   BOOTSTRAP_ADMIN_PASSWORD  first deploy only, then removed
+#
+# Losing SECRET_ENCRYPTION_KEY means losing every stored credential in the
+# deployment, so it belongs in a manager with its own backup and rotation --
+# not in a file next to the manifests that reference it.

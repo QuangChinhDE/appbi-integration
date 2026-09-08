@@ -1,0 +1,74 @@
+{
+  "compiler_version": "1",
+  "nodes": {
+    "edit_fields": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "29b2f9c338f83814e81d8a7aae4f7d40",
+      "engine_node_type": "n8n-nodes-base.set",
+      "engine_type_version": 3.2,
+      "product_schema_version": 1
+    },
+    "filter": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "bf623adc188f3b9404128e37b77ad7dd",
+      "engine_node_type": "n8n-nodes-base.filter",
+      "engine_type_version": 1,
+      "product_schema_version": 1
+    },
+    "http_request": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "e944902afd774a4cf36bf0abc1ea5c8b",
+      "engine_node_type": "n8n-nodes-base.httpRequest",
+      "engine_type_version": 4.1,
+      "product_schema_version": 1
+    },
+    "if": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "bf623adc188f3b9404128e37b77ad7dd",
+      "engine_node_type": "n8n-nodes-base.if",
+      "engine_type_version": 1,
+      "product_schema_version": 1
+    },
+    "manual_trigger": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "2c530e9fa8f592ef27b225cf9d05e55b",
+      "engine_node_type": "appbi.start",
+      "engine_type_version": 1,
+      "product_schema_version": 1
+    },
+    "merge": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "5fecaccbca47152c5d565e94cd18bdf2",
+      "engine_node_type": "n8n-nodes-base.merge",
+      "engine_type_version": 2.1,
+      "product_schema_version": 1
+    },
+    "schedule_trigger": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "decec4fb73764e4cdd0ae9bb300b715c",
+      "engine_node_type": "appbi.start",
+      "engine_type_version": 1,
+      "product_schema_version": 1
+    },
+    "switch": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "2a1c3d1995ccfd2e5b43af6dbf8820ea",
+      "engine_node_type": "n8n-nodes-base.switch",
+      "engine_type_version": 2,
+      "product_schema_version": 1
+    },
+    "webhook_trigger": {
+      "certification": "SUPPORTED",
+      "config_schema_hash": "1c22ed99a322de77fad7290bcb083579",
+      "engine_node_type": "appbi.start",
+      "engine_type_version": 1,
+      "product_schema_version": 1
+    }
+  },
+  "packages": {
+    "n8n-core": "1.14.1",
+    "n8n-nodes-base": "1.14.1",
+    "n8n-workflow": "1.14.1"
+  },
+  "product_version": "1.0.0"
+}
