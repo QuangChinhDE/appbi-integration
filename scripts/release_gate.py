@@ -139,6 +139,80 @@ def gate_pinned_runtime() -> tuple[bool, dict]:
     return not problems, {"pins": pins, "problems": problems}
 
 
+def provenance(args) -> dict:  # noqa: ANN001
+    """Commit, images, schema head, security documents, rollback target.
+
+    Everything here is read from files the build already produced -- the image
+    manifest from `release_images.py`, the SBOM and VEX from `sbom.py`, the
+    revision from the drift report. Nothing is typed in, because a field
+    somebody fills in by hand is a field that is right the first time and
+    stale afterwards.
+    """
+    out: dict = {
+        "commit": _git("rev-parse", "HEAD"),
+        "git_describe": _git("describe", "--tags", "--always"),
+        "n8n_version": "1.14.1",
+    }
+
+    # The images, by digest or by checksum.
+    manifest = ROOT / "dist" / "images" / f"images-v{args.version}.json"
+    if not manifest.exists():
+        manifest = ROOT / "dist" / "images" / f"images-{args.version}.json"
+    if manifest.exists():
+        data = json.loads(manifest.read_text(encoding="utf-8"))
+        out["images"] = [
+            {"repository": row["repository"], "tag": row["tag"],
+             "image_id": row["image_id"], "sha256": row["sha256"]}
+            for row in data.get("images", [])
+        ]
+    else:
+        out["images"] = None
+        out["images_note"] = (
+            "no image manifest found; run scripts/release_images.py or record "
+            "registry digests before deploying"
+        )
+
+    # The schema this build expects, from the drift report the gate already
+    # required -- so the two can never disagree.
+    if args.drift_report:
+        path = pathlib.Path(args.drift_report)
+        if not path.is_absolute():
+            path = ROOT / path
+        if path.exists():
+            drift = json.loads(path.read_text(encoding="utf-8"))
+            out["migration_revision"] = drift.get("head_revision")
+
+    # SBOM and VEX, by name and digest.
+    documents = {}
+    for kind in ("sbom", "vex"):
+        for candidate in sorted((ROOT / "release").glob(f"{kind}-*.cdx.json")):
+            documents[kind] = {
+                "file": candidate.name,
+                "sha256": hashlib.sha256(candidate.read_bytes()).hexdigest(),
+            }
+    out["security_documents"] = documents or None
+
+    # What to go back to: the tag before this one, which is what a rollback
+    # actually deploys.
+    tags = _git("tag", "--sort=-creatordate").splitlines()
+    previous = [tag for tag in tags if tag and tag != f"v{args.version}"]
+    out["rollback_to"] = previous[0] if previous else None
+    if out["rollback_to"] is None:
+        out["rollback_note"] = (
+            "first tagged release: there is nothing to roll back to, so a bad "
+            "deploy is recovered by restoring a backup"
+        )
+    return out
+
+
+def _git(*args: str) -> str:
+    try:
+        return subprocess.run(["git", *args], cwd=ROOT, capture_output=True,
+                              text=True, check=True).stdout.strip()
+    except Exception:  # noqa: BLE001
+        return "unknown"
+
+
 def gate_legal(delivery: str) -> tuple[bool, dict]:
     """The commercial licence review (ADR-015).
 
@@ -447,6 +521,14 @@ def main() -> int:
         "delivery": args.delivery,
         "released": not failures,
         "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        # What was built, from what, and what to go back to.
+        #
+        # A gate result says the build was allowed out. It does not say which
+        # images to deploy, which schema they expect, or what the previous
+        # good version was -- and those are the three things an incident at
+        # 3am needs. Collected here so the artefact answers "roll this back"
+        # without anybody reconstructing it from memory.
+        "provenance": provenance(args),
         "gates": {name: {"passed": ok, **detail}
                   for name, (ok, detail) in gates.items()},
     }
