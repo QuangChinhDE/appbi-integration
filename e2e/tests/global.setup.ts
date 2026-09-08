@@ -76,6 +76,41 @@ setup('sign in as the workspace owner', async ({ page }) => {
   await expect(page).toHaveURL(/\/overview/, { timeout: 30_000 });
   await expect(page.getByRole('link', { name: /Workflows/ })).toBeVisible();
 
+  // ── is this a deployment the suite may touch? ─────────────────────────
+  //
+  // The suite provisions tenants, scales the API to two replicas, tears the
+  // database down in `clean-install`, and leaves roughly ten workspaces behind
+  // per run. None of that is survivable on a deployment people are using, and
+  // the only thing that has ever stopped it pointing at one is whoever typed
+  // the URL.
+  //
+  // So: refuse when the target holds tenants this suite did not make, unless
+  // somebody says otherwise in writing. The check is on workspace *names*,
+  // because that is what distinguishes "a pilot with real customers in it"
+  // from "a throwaway stack" -- a count would refuse a clean install too.
+  const existing = await page.request.get('/api/v1/platform/workspaces');
+  if (existing.ok()) {
+    const body = await existing.json();
+    const rows = (body.items ?? body) as { name: string; status: string }[];
+    const foreign = rows.filter((row) => row.status === 'ACTIVE'
+      && row.name !== 'AppBI Automation'
+      && !/^(E2E |TenantA |TenantB |Quota |Escalation |Suspended )/.test(row.name));
+
+    if (foreign.length > 0 && process.env.E2E_TARGET_IS_DISPOSABLE !== '1') {
+      throw new Error(
+        `Refusing to run against ${process.env.E2E_BASE_URL ?? 'the target'}: `
+        + `it holds ${foreign.length} workspace(s) this suite did not create `
+        + `(${foreign.slice(0, 3).map((row) => row.name).join(', ')}`
+        + `${foreign.length > 3 ? ', …' : ''}).\n\n`
+        + 'This suite provisions tenants, scales the API, and on '
+        + '`--include-destructive` empties the database. Point it at a stack '
+        + 'of its own:\n\n'
+        + '  docker compose -p appbi-e2e up -d --wait\n\n'
+        + 'or, if this really is a throwaway deployment, say so:\n\n'
+        + '  E2E_TARGET_IS_DISPOSABLE=1 npx playwright test\n');
+    }
+  }
+
   // ── a workspace for this run ──────────────────────────────────────────
   //
   // Every test used to build in the bootstrap owner's own workspace, so a

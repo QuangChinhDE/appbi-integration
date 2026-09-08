@@ -40,6 +40,10 @@ services:
     restart: unless-stopped
 
   engine:
+    # Named rather than left to Compose's `<project>-<service>` default, so
+    # `IMAGE_TAG` selects a build here too and a release can be deployed by
+    # tag instead of by whatever was last built on the host.
+    image: appbi-workflow-engine:${IMAGE_TAG:-latest}
     build:
       context: ./workflow-engine
       dockerfile: Dockerfile
@@ -85,7 +89,15 @@ services:
     # separately-tagged images, so `docker compose build api` left the
     # migration running the previous build -- exactly the drift a shared image
     # exists to prevent.
-    image: &product-image appbi-workflow-api
+    # `${IMAGE_TAG}`, defaulting to `latest`.
+    #
+    # Without it every stack on a host shares one untagged image name, so a
+    # second project's `build` silently replaces the first project's image and
+    # `up` adopts it. Building a release candidate from a clean clone
+    # overwrote the running demo's API image, which happened to be the same
+    # source and so did nothing visible -- the version where it is not the
+    # same source is the one that matters.
+    image: &product-image appbi-workflow-api:${IMAGE_TAG:-latest}
     build: &product-build
       context: ./backend
       dockerfile: Dockerfile
@@ -165,6 +177,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: appbi-workflow-frontend:${IMAGE_TAG:-latest}
     build:
       context: ./frontend
       dockerfile: Dockerfile

@@ -1,6 +1,20 @@
 /**
  * i18n catalog (SRS 39).
  *
+ * **Which English words stay English.** A Vietnamese interface that translates
+ * every technical term reads as a translation; one that translates none reads
+ * as an untranslated product. The line here is what a Vietnamese team says out
+ * loud in the office:
+ *
+ *   Workflow · Webhook · Trigger · Publish · Cron · Email · API · Beta ·
+ *   Workspace · Draft · Run
+ *
+ * Everything else is Vietnamese, including every role name, every status and
+ * every sentence. Before this was written down the catalogue had `True`/`False`
+ * on the canvas next to `Đúng`/`Sai` on the ports, and seven role names in
+ * English inside otherwise Vietnamese screens -- not a translation policy, just
+ * whatever each string happened to be written as.
+ *
  * Every user-visible string lives here. Backend errors travel as stable codes;
  * the UI translates by code and falls back to the server's message when a code
  * is not in the catalog yet — so a new backend code degrades to a sentence the
@@ -87,7 +101,7 @@ const vi: Catalog = {
   'sidebar.monitoring': 'Giám sát',
   'sidebar.alerts': 'Cảnh báo',
   'sidebar.nodes': 'Thư viện bước',
-  'sidebar.audit': 'Audit log',
+  'sidebar.audit': 'Nhật ký hoạt động',
   'sidebar.account': 'Tài khoản',
   'sidebar.language': 'Ngôn ngữ',
   'sidebar.logout': 'Đăng xuất',
@@ -113,8 +127,8 @@ const vi: Catalog = {
     'Bạn vẫn xem và sửa được workflow. Chạy thử và publish sẽ tạm thời không thực hiện được.',
   'engine.status': 'Trạng thái engine',
   'engine.version': 'Phiên bản runtime',
-  'engine.contract': 'Adapter contract',
-  'engine.compiler': 'Compiler',
+  'engine.contract': 'Hợp đồng adapter',
+  'engine.compiler': 'Bộ biên dịch',
   'engine.productVersion': 'Phiên bản sản phẩm',
   'engine.loadedNodes': 'Bước đã nạp trong runtime',
   'engine.compatibility': 'Tương thích',
@@ -222,8 +236,8 @@ const vi: Catalog = {
   'editor.undo': 'Hoàn tác',
   'editor.redo': 'Làm lại',
   'editor.itemCount': '{n} item',
-  'editor.branchTrue': 'True',
-  'editor.branchFalse': 'False',
+  'editor.branchTrue': 'Đúng',
+  'editor.branchFalse': 'Sai',
   'editor.credentialPicker': 'Thông tin xác thực',
   'editor.credentialNone': 'Không dùng xác thực',
   'editor.credentialCreate': 'Tạo mới trong trang Thông tin xác thực',
@@ -231,7 +245,7 @@ const vi: Catalog = {
   'editor.jsonInvalid': 'JSON chưa hợp lệ.',
 
   // ── publish ──────────────────────────────────────────────────────────────
-  'publish.title': 'Publish workflow',
+  'publish.title': 'Publish workflow này',
   'publish.body':
     'Bản draft hiện tại sẽ được đóng băng thành phiên bản {version}. Phiên bản đã publish không thay đổi về sau.',
   'publish.changeNote': 'Ghi chú thay đổi',
@@ -342,7 +356,7 @@ const vi: Catalog = {
     'Ngưỡng áp dụng cho cảnh báo đếm số lần; chống trùng ngăn cùng một sự cố tạo hàng loạt thông báo.',
 
   // ── audit ────────────────────────────────────────────────────────────────
-  'audit.title': 'Audit log',
+  'audit.title': 'Nhật ký hoạt động',
   'audit.description': 'Ai đã làm gì, khi nào. Bản ghi chỉ thêm, không sửa.',
   'audit.column.action': 'Hành động',
   'audit.column.actor': 'Người thực hiện',
@@ -407,13 +421,13 @@ const vi: Catalog = {
   'trigger.MANUAL': 'Thủ công',
   'trigger.WEBHOOK': 'Webhook',
   'trigger.SCHEDULE': 'Lịch',
-  'role.OWNER': 'Owner',
-  'role.AUTOMATION_ADMIN': 'Automation Admin',
-  'role.AUTOMATION_BUILDER': 'Automation Builder',
-  'role.OPERATOR': 'Operator',
-  'role.ANALYST': 'Analyst',
-  'role.AUDITOR': 'Auditor',
-  'role.PLATFORM_ADMIN': 'Platform Admin',
+  'role.OWNER': 'Chủ sở hữu',
+  'role.AUTOMATION_ADMIN': 'Quản trị tự động hoá',
+  'role.AUTOMATION_BUILDER': 'Người dựng workflow',
+  'role.OPERATOR': 'Vận hành',
+  'role.ANALYST': 'Phân tích',
+  'role.AUDITOR': 'Kiểm toán',
+  'role.PLATFORM_ADMIN': 'Quản trị nền tảng',
 
   // ── remediation actions (SRS 34) ─────────────────────────────────────────
   'remediation.UPDATE_CREDENTIAL': 'Cập nhật thông tin xác thực',
