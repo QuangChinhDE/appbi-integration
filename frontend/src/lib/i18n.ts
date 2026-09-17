@@ -829,6 +829,14 @@ const en: Catalog = {
   'trigger.WEBHOOK': 'Webhook',
   'trigger.SCHEDULE': 'Schedule',
 
+  'role.OWNER': 'Owner',
+  'role.AUTOMATION_ADMIN': 'Automation Admin',
+  'role.AUTOMATION_BUILDER': 'Automation Builder',
+  'role.OPERATOR': 'Operator',
+  'role.ANALYST': 'Analyst',
+  'role.AUDITOR': 'Auditor',
+  'role.PLATFORM_ADMIN': 'Platform Admin',
+
   'remediation.UPDATE_CREDENTIAL': 'Update credential',
   'remediation.CHOOSE_CREDENTIAL': 'Choose a credential',
   'remediation.SHOW_INVALID_NODES': 'Show invalid steps',
@@ -858,7 +866,12 @@ const en: Catalog = {
   'schedule.CRON': 'Cron',
 };
 
-const CATALOGS: Record<Locale, Catalog> = { vi, en };
+/**
+ * Exported so `tests/i18n.test.ts` can compare the catalogues key for key.
+ * `translate` falls back to `vi`, which means a missing English string renders
+ * Vietnamese instead of failing -- invisible unless something compares them.
+ */
+export const CATALOGS: Record<Locale, Catalog> = { vi, en };
 
 function interpolate(template: string, vars?: Record<string, string | number>): string {
   if (!vars) return template;
