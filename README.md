@@ -13,6 +13,11 @@ Built to the specification in
 [`BA_SRS_AppBI_Workflow_Automation_n8n_Core.md`](BA_SRS_AppBI_Workflow_Automation_n8n_Core.md);
 the decisions are recorded in [`docs/adr/index.md`](docs/adr/index.md).
 
+> **Delivery scope: internal.** n8n is under the Sustainable Use License, which
+> covers one organisation's own use and does not cover selling or hosting this
+> for customers. See [Licensing](#licensing) before treating it as a product to
+> ship. Current state: `v1.0.0-rc1`, a release candidate for an internal pilot.
+
 ---
 
 ## What runs where
@@ -94,14 +99,24 @@ API_PORT=8001 FRONTEND_PORT=3100 ./run.sh up
 
 ```bash
 cp .env.example .env     # then fill in SECRET_ENCRYPTION_KEY and JWT_SECRET
-docker compose up -d --build
-docker compose exec api alembic upgrade head
-docker compose exec api python -m app.bootstrap
+docker compose up -d --build --wait
+docker compose logs migrate | tail -20     # the admin's one-time password
 ```
+
+That is the whole install. A `migrate` service runs before the API and does the
+five steps in the one order that works — schema, migration, drift check,
+catalogue, first admin — and stops the deployment if any of them fails rather
+than leaving a half-built one running. The generated admin password is printed
+once, in its log, and must be changed on first sign-in.
 
 `API_HOST_PORT`, `FRONTEND_HOST_PORT` and `POSTGRES_HOST_PORT` move the
 published ports when those are taken — but change `DATABASE_URL` alongside the
 last one, or every local tool loses the database.
+
+`IMAGE_TAG` selects which build the stack runs, so two checkouts on one host do
+not share an image. Note that `docker-compose.yml` fixes the project name, so
+`docker compose up` from a second checkout controls the *same* stack unless you
+pass `-p`.
 
 `docker compose ps` should show `engine` with a container port and **no host
 mapping**. That is guardrail 15 enforced by the compose file rather than by a
@@ -604,12 +619,35 @@ Each of these is a decision with a reopening condition, not an oversight:
 
 ## Licensing
 
-n8n is distributed under the **Sustainable Use License**, with additional
-conditions on `.ee` paths. This codebase uses none of that source and copies
-none of it.
+n8n is distributed under the **Sustainable Use License**, which grants use and
+modification "only for your own internal business purposes or for
+non-commercial or personal use", and distribution only free of charge for
+non-commercial purposes. Source files marked `.ee.` are excluded from that
+grant entirely and need an n8n Enterprise Licence.
 
-The architecture is not, and must not be presented as, a way around those terms.
-`compatibility.yaml` carries `licensing.commercial_gate`, which has to read
-`APPROVED` — after a Legal/Business review — before any commercial delivery
-mode: selling to customers, hosting for them, OEM or embedded distribution
-(**LIC-N8N-001**, SRS 33). It currently reads `NOT_REVIEWED`.
+**The delivery this product is built for is internal**: one organisation, many
+workspaces. Selling the service, hosting it for external customers, OEM
+embedding and redistribution are not covered, and
+`licensing.commercial_gate` in [`compatibility.yaml`](compatibility.yaml) reads
+`NOT_REVIEWED` until a legal review says otherwise.
+`scripts/release_gate.py` refuses `--delivery commercial` on that basis and
+passes `--delivery internal`; the release artefact records which was claimed
+(**LIC-N8N-001**, SRS 33, [ADR-015](docs/adr/index.md)).
+
+On the `.ee.` files, three claims that can each be checked rather than one that
+cannot:
+
+| | |
+|---|---|
+| `ee_source_present_in_dependency` | **true** — three files ship inside `n8n-core`; not ours to change |
+| `ee_source_loaded_by_runtime` | **false** — `workflow-engine/tests/contract/no-enterprise-source.test.ts` |
+| `ee_feature_enabled` | **false** — no S3 binary mode, no EE feature flag |
+
+The middle one was `false` and quietly wrong before it was measured:
+`n8n-core`'s entry point statically re-exports the Enterprise ObjectStore, so
+importing anything from the package root loaded it. The engine deep-imports
+past the entry point, and a test asserts the module cache stays clean after a
+real run.
+
+The architecture is not, and must not be presented as, a way around those
+terms.
