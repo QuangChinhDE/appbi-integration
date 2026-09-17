@@ -142,6 +142,6 @@ async def switch_workspace(
 
 @router.get("/permissions")
 async def permissions(ctx: CtxDep) -> dict:
-    from app.core.permissions import permission_map
+    from app.core.permissions import serialise
 
-    return {"role": ctx.role.value, "permissions": permission_map(ctx.role)}
+    return {"role": ctx.role.value, "permissions": serialise(ctx.effective_permissions())}

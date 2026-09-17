@@ -9,11 +9,11 @@ from sqlalchemy import (
     Boolean, DateTime, Enum as SAEnum, ForeignKey, Integer, String, UniqueConstraint,
     false as sa_false, text as sa_text,
 )
-from sqlalchemy.dialects.postgresql import UUID as PGUUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.db import Base, TimestampMixin
-from app.core.permissions import Role
+from app.core.permissions import OrgRole, Role
 from app.models.enums import WorkspaceStatus
 
 
@@ -50,11 +50,60 @@ class User(Base, TimestampMixin):
         back_populates="user", cascade="all, delete-orphan", lazy="selectin")
 
 
+class Organization(Base, TimestampMixin):
+    """The tenant that owns workspaces, and the unit a customer signs up as.
+
+    Everything the product already scoped by workspace stays scoped by
+    workspace. What this adds is the answer to "which workspaces exist and who
+    may open them", which previously had no home: a person reached a
+    workspace only through a row in `memberships`, so an administrator could
+    not see a department created today until somebody added them to it one at
+    a time.
+    """
+
+    __tablename__ = "organizations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    slug: Mapped[str] = mapped_column(String(120), unique=True, nullable=False, index=True)
+    status: Mapped[WorkspaceStatus] = mapped_column(
+        SAEnum(WorkspaceStatus, name="workspace_status"),
+        default=WorkspaceStatus.ACTIVE, nullable=False)
+
+    workspaces: Mapped[list["Workspace"]] = relationship(back_populates="organization")
+    memberships: Mapped[list["OrganizationMembership"]] = relationship(
+        back_populates="organization", cascade="all, delete-orphan")
+
+
+class OrganizationMembership(Base, TimestampMixin):
+    __tablename__ = "organization_memberships"
+    __table_args__ = (
+        UniqueConstraint("organization_id", "user_id", name="uq_org_membership_org_user"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False, index=True)
+    role: Mapped[OrgRole] = mapped_column(SAEnum(OrgRole, name="org_role"), nullable=False)
+
+    user: Mapped["User"] = relationship(lazy="joined")
+    organization: Mapped[Organization] = relationship(back_populates="memberships")
+
+
 class Workspace(Base, TimestampMixin):
     __tablename__ = "workspaces"
 
     id: Mapped[uuid.UUID] = mapped_column(
         PGUUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        PGUUID(as_uuid=True), ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False, index=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     status: Mapped[WorkspaceStatus] = mapped_column(
@@ -73,6 +122,7 @@ class Workspace(Base, TimestampMixin):
 
     memberships: Mapped[list["Membership"]] = relationship(
         back_populates="workspace", cascade="all, delete-orphan")
+    organization: Mapped[Organization] = relationship(back_populates="workspaces")
 
 
 class Membership(Base, TimestampMixin):
@@ -88,6 +138,15 @@ class Membership(Base, TimestampMixin):
         PGUUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False, index=True)
     role: Mapped[Role] = mapped_column(SAEnum(Role, name="member_role"), nullable=False)
+    #: What this membership holds *instead of* what its role's preset says, as
+    #: `{module: [action, ...]}`.
+    #:
+    #: NULL means "exactly the preset", which is what every row meant before
+    #: this column existed -- so no membership needs migrating, and a preset
+    #: improved in Python still reaches everybody who never departed from it.
+    #: A module missing from a stored map falls back to the preset too, so a
+    #: module added to the product later does not arrive silently denied.
+    permissions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
 
     user: Mapped[User] = relationship(back_populates="memberships", lazy="joined")
     workspace: Mapped[Workspace] = relationship(back_populates="memberships", lazy="joined")

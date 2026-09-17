@@ -938,3 +938,69 @@ of certifying one.
 place; `--delivery commercial` still refuses, and these exceptions are part of
 why. Neither may be cited as precedent for the other: they have different
 owners and different exits.
+
+---
+
+## ADR-031 — An organisation layer above workspaces, for departments within one deployment
+
+**Context.** The delivery scope stays internal (ADR-015): one company runs its
+own deployment. That company still wants several workspaces — one per
+department — administered as a set, with people who can see and create a
+department the moment it exists rather than being added to it one row at a
+time. Before this, `workspaces` was the top of the tree and reachable only
+through a row in `memberships`, which is a single-tenant assumption: a
+workspace created today was invisible to its own administrator until somebody
+remembered to add them.
+
+This is not the SaaS pivot floated and rejected in conversation (running n8n
+itself as the backend, with n8n's own database): that would still cross into
+SUL's hosting/reselling restriction the moment more than one customer shares an
+instance, and it would discard the tenant isolation, quota and audit machinery
+ADR-029/030 already hardened. What was actually needed was an admin layer
+*inside* the existing internal deployment, which is a schema addition, not an
+architecture change.
+
+**Decision.** `organizations` owns `workspaces` (`organization_id`, `ON DELETE
+RESTRICT`); `organization_memberships` carries a separate `OrgRole`
+(ORG_OWNER/ORG_ADMIN/ORG_MEMBER) axis from the workspace `Role`. An ORG_OWNER
+or ORG_ADMIN reaches every workspace their organisation holds, as OWNER,
+resolved in `access.reachable()` alongside the existing membership-row and
+platform-admin reach — additively; none of the existing reach paths narrowed.
+
+Riding along: `memberships.permissions` (JSONB, nullable) lets an admin edit
+one membership's grant away from its role's preset, resolved by
+`permissions.effective()`. NULL means exactly the preset, so no existing row
+changed meaning. An organisation grant suppresses a membership's override
+(it holds the workspace outright; a stale restrictive override on some
+membership of theirs must not narrow that) — verified live: overriding a
+department-creator's own membership had no effect on their session precisely
+because they also held it via the organisation, while the same override on a
+plain ANALYST membership took effect immediately, including an explicit empty
+list as a real revocation rather than "no override given".
+
+`provision_workspace` (onboarding, platform-admin only) now creates one
+organisation per tenant, unchanged in every other respect. A new,
+non-platform-admin action, `provision_department_workspace`, lets an
+ORG_OWNER/ORG_ADMIN add a department to their own organisation directly — the
+capability this ADR exists for.
+
+**Migration.** `20260917_1400_organizations_and_member_overrides` backfills a
+single default organisation over every pre-existing workspace, promotes
+whoever already owned a workspace (or carries the platform-admin flag) to
+ORG_OWNER, and everyone else who could already reach a workspace to
+ORG_MEMBER — nobody's existing access narrows. Run against a live copy of the
+accumulated dev database (260 workspaces, 408 users): zero workspaces left
+without an organisation, 236 accounts promoted to ORG_OWNER, no rows lost.
+
+**Consequences.** `context.py`'s `require`/`can` now resolve through
+`effective()` instead of reading the role matrix directly; every existing call
+site (`ctx.require(Module.X, Action.Y)`) is unchanged because the signature
+didn't move. `test_policy.py` gained the coverage for `effective()`'s
+precedence and the `OrgRole` matrix; the existing role-matrix tests
+(`allowed`/`require` against `MATRIX` directly) are untouched and still pass,
+because those two functions still mean exactly what they meant before.
+
+**Rejected.** Copying n8n's own project/folder grouping for this. It is an
+Enterprise-only feature in the version this product pins (ADR-013), so
+depending on it would be the licensing problem ADR-015 exists to avoid, not a
+shortcut around building one.

@@ -14,12 +14,16 @@ import pytest
 
 from app.core.errors import ERROR_UX_MATRIX, ForbiddenError, error_from_matrix
 from app.core.permissions import (
-    ASSIGNABLE_ROLES, Action, Module, Role, allowed, permission_map, require,
+    ASSIGNABLE_ROLES, MATRIX, ORG_MATRIX, ORG_ROLES_WITH_WORKSPACE_ACCESS, Action,
+    Module, OrgRole, Role, allowed, allowed_effective, effective, org_allowed,
+    org_require, parse_overrides, permission_map, require, serialise,
 )
 from app.core.redaction import preview, redact, sanitize_headers
 from app.core.config import settings
 from app.core.security import password_problems
+from app.models.identity import User
 from app.services import schedules
+from app.services.access import effective_role
 
 
 class TestSchedules:
@@ -193,6 +197,123 @@ class TestPermissions:
     def test_the_permission_map_covers_every_module(self):
         serialised = permission_map(Role.OWNER)
         assert set(serialised) == {module.value for module in Module}
+
+
+class TestEffectivePermissions:
+    """A role is a preset; `effective()` is what a membership actually holds
+    once an administrator has edited it (per-member `permissions` override)."""
+
+    def test_no_override_resolves_to_exactly_the_preset(self):
+        assert effective(Role.ANALYST) == {
+            module: set(actions) for module, actions in MATRIX[Role.ANALYST].items()
+        }
+
+    def test_an_override_replaces_its_module_outright(self):
+        # An Analyst is never allowed EXECUTE on workflows by preset; an
+        # override naming the module wins over that preset entirely.
+        perms = effective(Role.ANALYST, {"workflows": ["view", "execute"]})
+        assert allowed_effective(perms, Module.WORKFLOWS, Action.EXECUTE)
+        # Modules not named in the override still fall back to the preset.
+        assert perms[Module.CREDENTIALS] == set(MATRIX[Role.ANALYST][Module.CREDENTIALS])
+
+    def test_an_empty_list_override_is_a_revocation_not_a_no_op(self):
+        # OWNER can view audit by preset; an explicit empty list must survive
+        # resolution as "nothing", not be treated as "no override given".
+        perms = effective(Role.OWNER, {"audit": []})
+        assert perms[Module.AUDIT] == set()
+
+    def test_a_module_absent_from_the_override_keeps_its_preset(self):
+        perms = effective(Role.ANALYST, {"workflows": ["view"]})
+        assert perms[Module.EXECUTIONS] == set(MATRIX[Role.ANALYST][Module.EXECUTIONS])
+
+    def test_platform_admin_ignores_overrides_entirely(self):
+        # A stale restrictive override on some membership of theirs must never
+        # narrow what the account flag already grants.
+        perms = effective(Role.ANALYST, {"workflows": []}, is_platform_admin=True)
+        assert perms[Module.WORKFLOWS] == set(Action)
+
+    def test_unknown_module_or_action_in_an_override_is_dropped_not_guessed(self):
+        perms = effective(Role.ANALYST, {"not_a_module": ["view"], "workflows": ["not_a_verb"]})
+        assert perms[Module.WORKFLOWS] == set()
+
+    def test_parse_overrides_round_trips_a_valid_map(self):
+        stored = parse_overrides({"workflows": ["view", "execute"]})
+        assert stored == {"workflows": ["execute", "view"]}
+
+    def test_parse_overrides_rejects_an_unknown_module(self):
+        with pytest.raises(ValueError):
+            parse_overrides({"not_a_module": ["view"]})
+
+    def test_parse_overrides_rejects_an_unknown_action(self):
+        with pytest.raises(ValueError):
+            parse_overrides({"workflows": ["not_a_verb"]})
+
+    def test_serialise_matches_permission_map_when_nothing_overrides(self):
+        assert serialise(effective(Role.OPERATOR)) == permission_map(Role.OPERATOR)
+
+
+class TestEffectiveRole:
+    """Which role actually applies inside one workspace, given a real
+    membership row, the platform-admin flag, and an organisation grant."""
+
+    def test_a_real_membership_wins_even_for_a_platform_admin(self):
+        # `app.bootstrap` gives the first admin a real OWNER membership in
+        # their own workspace. If the flag outranked that row, their home
+        # workspace would read "Platform Admin" the moment the flag exists,
+        # and revoking the membership later would silently change nothing.
+        admin = User(is_platform_admin=True)
+        assert effective_role(admin, Role.OWNER, None) is Role.OWNER
+        assert effective_role(admin, Role.ANALYST, None) is Role.ANALYST
+
+    def test_the_platform_flag_grants_reach_where_there_is_no_membership(self):
+        admin = User(is_platform_admin=True)
+        assert effective_role(admin, None, None) is Role.PLATFORM_ADMIN
+
+    def test_an_org_grant_gives_owner_where_there_is_no_membership(self):
+        member = User(is_platform_admin=False)
+        assert effective_role(member, None, OrgRole.ORG_ADMIN) is Role.OWNER
+        assert effective_role(member, None, OrgRole.ORG_OWNER) is Role.OWNER
+
+    def test_a_real_membership_wins_over_an_org_grant_too(self):
+        member = User(is_platform_admin=False)
+        assert effective_role(member, Role.ANALYST, OrgRole.ORG_ADMIN) is Role.ANALYST
+
+    def test_no_claim_at_all_is_the_callers_to_refuse(self):
+        member = User(is_platform_admin=False)
+        with pytest.raises(LookupError):
+            effective_role(member, None, None)
+        with pytest.raises(LookupError):
+            effective_role(member, None, OrgRole.ORG_MEMBER)
+
+
+class TestOrganizationRole:
+    """The organisation axis: separate from a workspace role, and the one
+    thing that makes a department created today administrable today."""
+
+    def test_org_owner_and_org_admin_reach_every_workspace_the_org_holds(self):
+        assert OrgRole.ORG_OWNER in ORG_ROLES_WITH_WORKSPACE_ACCESS
+        assert OrgRole.ORG_ADMIN in ORG_ROLES_WITH_WORKSPACE_ACCESS
+        assert OrgRole.ORG_MEMBER not in ORG_ROLES_WITH_WORKSPACE_ACCESS
+
+    def test_only_org_owner_can_delete_the_organization(self):
+        assert org_allowed(OrgRole.ORG_OWNER, Action.DELETE)
+        assert not org_allowed(OrgRole.ORG_ADMIN, Action.DELETE)
+
+    def test_org_admin_can_create_departments_but_not_dissolve_the_org(self):
+        assert org_allowed(OrgRole.ORG_ADMIN, Action.CREATE)
+        assert not org_allowed(OrgRole.ORG_ADMIN, Action.DELETE)
+
+    def test_org_member_only_views(self):
+        assert ORG_MATRIX[OrgRole.ORG_MEMBER] == {Action.VIEW}
+
+    def test_no_org_role_is_never_allowed_anything(self):
+        assert not org_allowed(None, Action.VIEW)
+
+    def test_org_require_raises_naming_the_organization_scope(self):
+        with pytest.raises(ForbiddenError) as caught:
+            org_require(OrgRole.ORG_MEMBER, Action.CREATE)
+        assert caught.value.details["scope"] == "organization"
+        assert caught.value.details["action"] == "create"
 
 
 class TestErrorMatrix:

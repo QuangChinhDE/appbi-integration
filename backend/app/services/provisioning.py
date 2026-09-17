@@ -29,11 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.context import RequestContext
 from app.core.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
-from app.core.permissions import Role
+from app.core.permissions import Action, OrgRole, Role, org_require
 from app.core.security import hash_password, password_problems
 from app.models.catalog import EngineInstance
 from app.models.enums import WorkspaceStatus
-from app.models.identity import Membership, User, Workspace
+from app.models.identity import Membership, Organization, OrganizationMembership, User, Workspace
 from app.services import audit, schedules
 
 #: Lowercase, digits and single hyphens. It appears in URLs and in log lines.
@@ -191,6 +191,10 @@ async def provision_workspace(
         raise ConflictError(
             f"Workspace slug '{resolved_slug}' đã tồn tại.",
             code="WORKSPACE_SLUG_TAKEN", details={"field": "slug"})
+    if await session.scalar(select(Organization).where(Organization.slug == resolved_slug)):
+        raise ConflictError(
+            f"Slug '{resolved_slug}' đã tồn tại.",
+            code="WORKSPACE_SLUG_TAKEN", details={"field": "slug"})
 
     # A schedule computed in an unknown zone would fire at an unpredictable
     # hour, so an unresolvable timezone is refused here rather than at the
@@ -211,9 +215,20 @@ async def provision_workspace(
                               code="OWNER_EMAIL_INVALID",
                               details={"field": "owner_email"})
 
+    # One organisation per customer, created alongside their first workspace.
+    # `provision_workspace` has always meant "onboard a customer"; a customer
+    # who needs more than one workspace (a department each) adds those
+    # afterward through their own ORG_OWNER/ORG_ADMIN, via
+    # `provision_department_workspace`.
+    organization = Organization(
+        name=display_name, slug=resolved_slug, status=WorkspaceStatus.ACTIVE)
+    session.add(organization)
+    await session.flush()
+
     workspace = Workspace(
         name=display_name,
         slug=resolved_slug,
+        organization_id=organization.id,
         timezone=timezone,
         status=WorkspaceStatus.ACTIVE,
         engine_instance_id=engine.id,
@@ -257,6 +272,8 @@ async def provision_workspace(
 
     session.add(Membership(
         workspace_id=workspace.id, user_id=owner.id, role=Role.OWNER))
+    session.add(OrganizationMembership(
+        organization_id=organization.id, user_id=owner.id, role=OrgRole.ORG_OWNER))
     await session.flush()
 
     # Recorded in the audit log of the workspace that was just created, with
@@ -281,6 +298,99 @@ async def provision_workspace(
 
     return ProvisionResult(
         workspace=workspace, owner=owner, generated_password=generated)
+
+
+async def provision_department_workspace(
+    session: AsyncSession,
+    ctx: RequestContext,
+    *,
+    name: str,
+    slug: str | None = None,
+    timezone: str = "Asia/Bangkok",
+    max_concurrent_executions: int | None = None,
+    engine_name: str | None = None,
+) -> Workspace:
+    """Add a department to the caller's own organisation.
+
+    Unlike `provision_workspace` this crosses no tenant boundary -- it is an
+    organisation administering itself -- so it is gated on `org_require`
+    rather than the platform-admin flag, and the acting account becomes the
+    new workspace's Owner outright rather than one named by email. There is
+    nothing to invite: whoever is creating the department is already inside
+    the organisation.
+    """
+    if ctx.organization_id is None:
+        raise ForbiddenError(
+            "Phiên này không gắn với tổ chức nào.", code="SESSION_WITHOUT_ORG")
+    org_require(ctx.org_role, Action.CREATE)
+
+    display_name = name.strip()
+    if not display_name:
+        raise ValidationError("Tên workspace không được để trống.",
+                              code="WORKSPACE_NAME_REQUIRED",
+                              details={"field": "name"})
+
+    resolved_slug = _validate_slug((slug or slugify(display_name)).strip().lower())
+    if await session.scalar(select(Workspace).where(Workspace.slug == resolved_slug)):
+        raise ConflictError(
+            f"Workspace slug '{resolved_slug}' đã tồn tại.",
+            code="WORKSPACE_SLUG_TAKEN", details={"field": "slug"})
+
+    schedules.resolve_zone(timezone)
+    if max_concurrent_executions is not None and max_concurrent_executions < 1:
+        raise ValidationError(
+            "Quota số lần chạy đồng thời phải từ 1 trở lên.",
+            code="WORKSPACE_QUOTA_INVALID",
+            details={"field": "max_concurrent_executions"})
+
+    engine = await _resolve_engine(session, engine_name)
+
+    workspace = Workspace(
+        name=display_name,
+        slug=resolved_slug,
+        organization_id=ctx.organization_id,
+        timezone=timezone,
+        status=WorkspaceStatus.ACTIVE,
+        engine_instance_id=engine.id,
+        max_concurrent_executions=max_concurrent_executions,
+    )
+    session.add(workspace)
+    try:
+        await session.flush()
+    except IntegrityError as exc:  # pragma: no cover - guarded above
+        raise ConflictError(
+            "Không tạo được workspace: dữ liệu đã tồn tại.",
+            code="WORKSPACE_SLUG_TAKEN") from exc
+
+    session.add(Membership(
+        workspace_id=workspace.id, user_id=ctx.user_id, role=Role.OWNER))
+    await session.flush()
+
+    await audit.record(
+        session, ctx.for_workspace(workspace.id),
+        action="workspace.provisioned", resource_type="WORKSPACE",
+        resource_id=workspace.id, resource_label=workspace.name,
+        after={"slug": workspace.slug, "timezone": workspace.timezone,
+               "organization_id": str(ctx.organization_id),
+               "engine_instance": engine.name})
+    return workspace
+
+
+async def list_department_workspaces(
+    session: AsyncSession, ctx: RequestContext
+) -> dict[str, Any]:
+    """Every workspace (department) in the caller's own organisation."""
+    if ctx.organization_id is None:
+        raise ForbiddenError(
+            "Phiên này không gắn với tổ chức nào.", code="SESSION_WITHOUT_ORG")
+    org_require(ctx.org_role, Action.VIEW)
+
+    rows = list((await session.scalars(
+        select(Workspace)
+        .where(Workspace.organization_id == ctx.organization_id)
+        .order_by(Workspace.created_at)
+    )).all())
+    return {"items": [summary(row) for row in rows]}
 
 
 async def set_quota(

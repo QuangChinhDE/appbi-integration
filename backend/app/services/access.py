@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
@@ -18,16 +19,95 @@ from app.core.errors import (
 )
 from app.core.logging import log_event
 from app.core.permissions import (
-    ASSIGNABLE_ROLES, Action, Module, Role, permission_map,
+    ASSIGNABLE_ROLES, ORG_ROLES_WITH_WORKSPACE_ACCESS, Action, Module, OrgRole, Role,
+    effective, parse_overrides, serialise,
 )
 from app.core.security import (
     hash_password, issue_session_token, password_problems, verify_password,
 )
 from app.models.enums import WorkspaceStatus
-from app.models.identity import Membership, User, Workspace
+from app.models.identity import Membership, OrganizationMembership, User, Workspace
 from app.services import audit
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(slots=True, frozen=True)
+class WorkspaceAccess:
+    """A workspace the user can open, and how they got there."""
+
+    workspace: Workspace
+    role: Role
+    #: Set when the reach came from the organisation rather than a membership
+    #: row. The FE says "through the organisation" instead of implying
+    #: somebody was added to this workspace by hand.
+    via_organization: bool
+    org_role: OrgRole | None = None
+    #: What the membership stores on top of its preset, or None when it
+    #: stores nothing, or when the reach did not come through a membership
+    #: row at all. A platform admin or an organisation grant holds the
+    #: workspace outright, and a stale override on some membership of theirs
+    #: must not narrow that.
+    permissions: dict | None = None
+
+    @property
+    def workspace_id(self) -> uuid.UUID:
+        return self.workspace.id
+
+    @property
+    def organization_id(self) -> uuid.UUID:
+        return self.workspace.organization_id
+
+
+async def organizations_of(session: AsyncSession, user: User) -> dict[uuid.UUID, OrgRole]:
+    rows = await session.execute(
+        select(OrganizationMembership.organization_id, OrganizationMembership.role)
+        .where(OrganizationMembership.user_id == user.id)
+    )
+    return {org_id: role for org_id, role in rows.all()}
+
+
+async def org_role_of(
+    session: AsyncSession, user: User, organization_id: uuid.UUID
+) -> OrgRole | None:
+    return await session.scalar(
+        select(OrganizationMembership.role).where(
+            OrganizationMembership.user_id == user.id,
+            OrganizationMembership.organization_id == organization_id,
+        )
+    )
+
+
+def effective_role(
+    user: User, workspace_role: Role | None, org_role: OrgRole | None,
+) -> Role:
+    """The role that actually applies inside one workspace.
+
+    A real membership row wins first: it is a specific decision somebody made
+    about this account in this workspace, and the platform-admin flag exists
+    to add reach on top of that, not to overwrite it. `app.bootstrap` gives
+    the first admin a real OWNER membership in their own workspace precisely
+    so they administer it as its Owner; if the flag outranked that row, their
+    own home workspace would show "Platform Admin" instead of "Owner" the
+    moment the flag exists, and revoking that membership later would silently
+    change nothing because the flag still carries OWNER-equivalent authority
+    everywhere.
+
+    A workspace with no membership row is where the flag and the organisation
+    grant do their actual job: reach that would not otherwise exist. The
+    platform-admin flag outranks the organisation grant there, then the
+    organisation grant provides OWNER. Returning a default for "no claim at
+    all" would be wrong -- the caller must not reach a workspace it has no
+    claim on, so that case is the caller's to refuse, not this function's to
+    paper over.
+    """
+    if workspace_role is not None:
+        return workspace_role
+    if user.is_platform_admin:
+        return Role.PLATFORM_ADMIN
+    if org_role in ORG_ROLES_WITH_WORKSPACE_ACCESS:
+        return Role.OWNER
+    raise LookupError("no claim on this workspace")
 
 
 async def authenticate(
@@ -103,44 +183,90 @@ async def change_password(
     return issue_session_token(user.id, workspace_id, user.session_version)
 
 
-async def reachable(session: AsyncSession, user: User) -> list[Membership]:
-    """Workspaces this account can operate in.
+async def reachable(session: AsyncSession, user: User) -> list[WorkspaceAccess]:
+    """Every workspace this account can operate in, and with what authority.
 
-    A platform admin reaches every active workspace, *in addition to* any it
-    holds a real membership in -- not instead of. This was an either/or at
-    first, and the consequence was subtle: `app.bootstrap` gives the first
-    admin an Owner membership, so the platform branch never applied to the one
-    account that needs it, and the admin could provision a tenant and then not
-    open it.
+    Two sources of reach, and a person can have both:
 
-    Their own memberships come first, so the workspace they land in by default
-    is the one they belong to rather than whichever tenant was created first.
+    1. an organisation role of ORG_OWNER or ORG_ADMIN reaches every workspace
+       (department) the organisation holds, as OWNER;
+    2. a row in `memberships` reaches exactly that workspace, with exactly
+       that role.
+
+    A platform admin reaches every active workspace on top of both -- *in
+    addition to*, not instead of. This was an either/or at first, and the
+    consequence was subtle: `app.bootstrap` gives the first admin an Owner
+    membership, so the platform branch never applied to the one account that
+    needs it, and the admin could provision a tenant and then not open it.
+
+    Own memberships come first in the result, so the workspace an account
+    lands in by default is one it actually belongs to rather than whichever
+    workspace was created first.
     """
     rows = list((await session.scalars(
         select(Membership)
         .where(Membership.user_id == user.id)
         .order_by(Membership.created_at)
     )).all())
-    memberships = [m for m in rows if m.workspace.status is WorkspaceStatus.ACTIVE]
+    memberships = {
+        m.workspace_id: m for m in rows if m.workspace.status is WorkspaceStatus.ACTIVE
+    }
 
-    if not user.is_platform_admin:
-        return memberships
-
-    held = {m.workspace_id for m in memberships}
-    workspaces = list((await session.scalars(
-        select(Workspace).where(Workspace.status == WorkspaceStatus.ACTIVE)
-        .order_by(Workspace.created_at)
-    )).all())
-    # Synthetic memberships, not persisted: the authority comes from the account
-    # flag, and writing rows for it would make revoking the flag insufficient.
-    return memberships + [
-        Membership(
-            id=uuid.uuid4(), workspace_id=workspace.id, user_id=user.id,
-            role=Role.PLATFORM_ADMIN, workspace=workspace, user=user,
-        )
-        for workspace in workspaces
-        if workspace.id not in held
+    org_roles = await organizations_of(session, user)
+    admin_org_ids = [
+        org_id for org_id, role in org_roles.items()
+        if role in ORG_ROLES_WITH_WORKSPACE_ACCESS
     ]
+
+    workspaces: dict[uuid.UUID, Workspace] = {
+        m.workspace_id: m.workspace for m in memberships.values()
+    }
+    if admin_org_ids:
+        for workspace in (await session.scalars(
+            select(Workspace).where(
+                Workspace.organization_id.in_(admin_org_ids),
+                Workspace.status == WorkspaceStatus.ACTIVE,
+            )
+        )).all():
+            workspaces.setdefault(workspace.id, workspace)
+
+    if user.is_platform_admin:
+        for workspace in (await session.scalars(
+            select(Workspace).where(Workspace.status == WorkspaceStatus.ACTIVE)
+            .order_by(Workspace.created_at)
+        )).all():
+            workspaces.setdefault(workspace.id, workspace)
+
+    out: list[WorkspaceAccess] = []
+    for workspace in workspaces.values():
+        org_role = org_roles.get(workspace.organization_id)
+        via_org = org_role in ORG_ROLES_WITH_WORKSPACE_ACCESS
+        membership = memberships.get(workspace.id)
+        try:
+            role = effective_role(user, membership.role if membership else None, org_role)
+        except LookupError:                                   # pragma: no cover
+            continue
+        # A platform admin or an organisation administrator holds the
+        # workspace outright; a stale override on some membership of theirs
+        # must not narrow that, or administering a workspace would depend on
+        # never having been given a restricted seat in it.
+        overrides = (
+            membership.permissions
+            if membership and not via_org and not user.is_platform_admin
+            else None
+        )
+        out.append(WorkspaceAccess(
+            workspace=workspace, role=role, via_organization=via_org,
+            org_role=org_role, permissions=overrides,
+        ))
+
+    # Own memberships first (insertion order from `memberships`, which was
+    # already ordered by `created_at`), org-reached workspaces after, active
+    # before suspended within each.
+    order = {workspace_id: i for i, workspace_id in enumerate(workspaces)}
+    out.sort(key=lambda a: (a.workspace.status is not WorkspaceStatus.ACTIVE,
+                            order[a.workspace.id]))
+    return out
 
 
 async def session_payload(session: AsyncSession, user: User, workspace_id: uuid.UUID | None):
@@ -150,6 +276,9 @@ async def session_payload(session: AsyncSession, user: User, workspace_id: uuid.
         current = memberships[0]
 
     role = current.role if current else Role.ANALYST
+    perms = effective(
+        role, current.permissions if current else None,
+        is_platform_admin=user.is_platform_admin)
     return {
         "id": user.id,
         "email": user.email,
@@ -162,13 +291,15 @@ async def session_payload(session: AsyncSession, user: User, workspace_id: uuid.
             "name": current.workspace.name,
             "slug": current.workspace.slug,
             "timezone": current.workspace.timezone,
+            "via_organization": current.via_organization,
         } if current else None,
         "workspaces": [
-            {"id": m.workspace.id, "name": m.workspace.name, "slug": m.workspace.slug}
+            {"id": m.workspace.id, "name": m.workspace.name, "slug": m.workspace.slug,
+             "via_organization": m.via_organization}
             for m in memberships
         ],
         "role": role.value,
-        "permissions": permission_map(role),
+        "permissions": serialise(perms),
     }
 
 
@@ -188,6 +319,9 @@ async def list_members(session: AsyncSession, ctx: RequestContext) -> list[dict[
             "is_active": row.user.is_active,
             "last_login_at": row.user.last_login_at,
             "created_at": row.created_at,
+            #: Raw override, or null when this membership carries exactly its
+            #: role's preset. Use `effective()` for what it actually grants.
+            "permissions": row.permissions,
         }
         for row in rows
     ]
@@ -278,6 +412,45 @@ async def update_role(
         resource_id=row.user_id, resource_label=row.user.email,
         before={"role": before}, after={"role": role_enum.value})
     return {"id": row.id, "user_id": row.user_id, "role": row.role.value}
+
+
+async def update_permissions(
+    session: AsyncSession, ctx: RequestContext, membership_id: uuid.UUID,
+    overrides: dict | None,
+) -> dict[str, Any]:
+    """Set what one membership holds instead of its role's preset.
+
+    Gated on `ADMIN` rather than `EDIT`: `EDIT` on MEMBERS is "change which
+    preset somebody starts from", `ADMIN` is "grant or take away authority
+    itself" -- the same distinction the organisation axis draws. `None`
+    clears the override and the membership falls back to its role's preset.
+    """
+    ctx.require(Module.MEMBERS, Action.ADMIN)
+    row = await session.scalar(
+        select(Membership).where(
+            Membership.id == membership_id,
+            Membership.workspace_id == ctx.workspace_id,
+        )
+    )
+    if row is None:
+        raise NotFoundError("Không tìm thấy thành viên.")
+
+    try:
+        stored = parse_overrides(overrides) if overrides else None
+    except ValueError as exc:
+        raise ValidationError(str(exc), code="PERMISSION_OVERRIDE_INVALID") from None
+
+    before = row.permissions
+    row.permissions = stored
+    await session.flush()
+    await audit.record(
+        session, ctx, action="member.permissions_changed", resource_type="MEMBER",
+        resource_id=row.user_id, resource_label=row.user.email,
+        before={"permissions": before}, after={"permissions": stored})
+
+    perms = effective(row.role, stored)
+    return {"id": row.id, "user_id": row.user_id, "role": row.role.value,
+            "permissions": serialise(perms)}
 
 
 async def remove_member(

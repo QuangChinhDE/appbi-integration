@@ -19,7 +19,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api import hooks
 from app.api.v1 import (
-    auth, credentials, executions, nodes, ops, platform, workflows,
+    auth, credentials, executions, nodes, ops, organization, platform, workflows,
 )
 from app.core.config import settings
 from app.core.errors import AppError, ErrorCategory
@@ -196,6 +196,7 @@ for router in (
     nodes.admin_router,
     ops.router,
     ops.admin_router,
+    organization.router,
     platform.router,
 ):
     app.include_router(router, prefix=API_PREFIX)

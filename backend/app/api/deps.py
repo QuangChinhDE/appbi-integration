@@ -132,6 +132,9 @@ async def request_context(
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
         timezone=workspace.timezone,
+        organization_id=chosen.organization_id,
+        org_role=chosen.org_role,
+        permission_overrides=chosen.permissions,
     )
 
 

@@ -11,7 +11,7 @@ import dataclasses
 import uuid
 from dataclasses import dataclass
 
-from app.core.permissions import Action, Module, Role, require
+from app.core.permissions import Action, Module, OrgRole, Role
 
 
 @dataclass(slots=True)
@@ -26,14 +26,31 @@ class RequestContext:
     ip_address: str | None = None
     user_agent: str | None = None
     timezone: str = "Asia/Bangkok"
+    #: The organisation that owns `workspace_id`, and this account's role in
+    #: it -- None when the session predates the organisation layer resolving
+    #: (background workers; `RequestContext.system`).
+    organization_id: uuid.UUID | None = None
+    org_role: OrgRole | None = None
+    #: What `role`'s membership row holds instead of its preset, or None. See
+    #: `app.core.permissions.effective`.
+    permission_overrides: dict | None = None
+
+    def effective_permissions(self) -> dict[Module, set[Action]]:
+        """What this session may actually do, role preset plus its overrides."""
+        from app.core.permissions import effective
+
+        return effective(
+            self.role, self.permission_overrides, is_platform_admin=self.is_platform_admin)
 
     def require(self, module: Module, action: Action) -> None:
-        require(self.role, module, action)
+        from app.core.permissions import require_effective
+
+        require_effective(self.effective_permissions(), module, action, self.role)
 
     def can(self, module: Module, action: Action) -> bool:
-        from app.core.permissions import allowed
+        from app.core.permissions import allowed_effective
 
-        return allowed(self.role, module, action)
+        return allowed_effective(self.effective_permissions(), module, action)
 
     def for_workspace(self, workspace_id: uuid.UUID) -> "RequestContext":
         """The same caller, addressed at a different workspace.

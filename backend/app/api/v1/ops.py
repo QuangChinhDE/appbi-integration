@@ -45,6 +45,12 @@ class RoleRequest(BaseModel):
     role: str
 
 
+class PermissionOverrideRequest(BaseModel):
+    #: `{module: [action, ...]}`, or omitted/null to clear the override and
+    #: fall back to the role's preset.
+    permissions: dict[str, list[str]] | None = None
+
+
 # ── dashboards ─────────────────────────────────────────────────────────────
 @router.get("/overview")
 async def overview(ctx: CtxDep, session: SessionDep) -> dict:
@@ -181,6 +187,17 @@ async def update_member_role(
     membership_id: uuid.UUID, payload: RoleRequest, ctx: CtxDep, session: SessionDep
 ) -> dict:
     result = await access.update_role(session, ctx, membership_id, payload.role)
+    await session.commit()
+    return result
+
+
+@router.patch("/workspace/members/{membership_id}/permissions")
+async def update_member_permissions(
+    membership_id: uuid.UUID, payload: PermissionOverrideRequest,
+    ctx: CtxDep, session: SessionDep,
+) -> dict:
+    result = await access.update_permissions(
+        session, ctx, membership_id, payload.permissions)
     await session.commit()
     return result
 

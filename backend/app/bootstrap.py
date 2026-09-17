@@ -21,12 +21,13 @@ from sqlalchemy import func, select
 from app.core.config import settings
 from app.core.db import Base, SessionLocal, get_engine
 from app.core.logging import configure_logging, log_event
-from app.core.permissions import Role
+from app.core.permissions import OrgRole, Role
 from app.core.security import hash_password
 from app.models import (  # noqa: F401 - importing registers every table
     AlertRule, AuditEvent, Credential, EngineInstance, Execution, ExecutionLogLine,
-    ExecutionNodeResult, Membership, NodeDefinition, Notification, SecretRecord,
-    TriggerBinding, User, Workflow, WorkflowDraft, WorkflowVersion, Workspace,
+    ExecutionNodeResult, Membership, NodeDefinition, Notification, Organization,
+    OrganizationMembership, SecretRecord, TriggerBinding, User, Workflow,
+    WorkflowDraft, WorkflowVersion, Workspace,
 )
 from app.models.enums import EngineType
 from app.services import catalog
@@ -110,9 +111,18 @@ async def seed_admin(email: str | None, password: str | None) -> None:
         workspace = await session.scalar(
             select(Workspace).where(Workspace.slug == DEFAULT_WORKSPACE_SLUG))
         if workspace is None:
+            organization = await session.scalar(
+                select(Organization).where(Organization.slug == DEFAULT_WORKSPACE_SLUG))
+            if organization is None:
+                organization = Organization(
+                    name=DEFAULT_WORKSPACE_NAME, slug=DEFAULT_WORKSPACE_SLUG)
+                session.add(organization)
+                await session.flush()
+
             workspace = Workspace(
                 name=DEFAULT_WORKSPACE_NAME,
                 slug=DEFAULT_WORKSPACE_SLUG,
+                organization_id=organization.id,
                 timezone=os.getenv("BOOTSTRAP_TIMEZONE", "Asia/Bangkok"),
             )
             session.add(workspace)
@@ -148,6 +158,9 @@ async def seed_admin(email: str | None, password: str | None) -> None:
         await session.flush()
         session.add(Membership(
             workspace_id=workspace.id, user_id=user.id, role=Role.OWNER))
+        session.add(OrganizationMembership(
+            organization_id=workspace.organization_id, user_id=user.id,
+            role=OrgRole.ORG_OWNER))
         await session.commit()
 
         log_event(logger, logging.INFO, "bootstrap.admin_created", email=admin_email)
