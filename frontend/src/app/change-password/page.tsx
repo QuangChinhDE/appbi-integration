@@ -29,6 +29,8 @@ export default function ChangePasswordPage() {
   const mismatch = confirm.length > 0 && next !== confirm;
 
   const change = useMutation({
+    // The rules it broke are listed under the field, one line each.
+    meta: { errorHandledInline: true },
     mutationFn: () => authApi.changePassword(current, next),
     onSuccess: (user) => {
       queryClient.setQueryData(qk.me(), user);

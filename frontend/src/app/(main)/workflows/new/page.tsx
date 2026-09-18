@@ -12,7 +12,7 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { NodeIcon } from '@/components/automation/NodeIcon';
@@ -30,6 +30,7 @@ export default function NewWorkflowPage() {
   const { t } = useI18n();
   const router = useRouter();
   const workspaceId = useWorkspaceId();
+  const queryClient = useQueryClient();
 
   const [name, setName] = React.useState('');
   const [description, setDescription] = React.useState('');
@@ -47,7 +48,16 @@ export default function NewWorkflowPage() {
       description: description.trim() || undefined,
       trigger_node_key: triggerKey,
     }),
-    onSuccess: (workflow) => router.replace(`/workflows/${workflow.id}`),
+    onSuccess: (workflow) => {
+      // Two things read this key and both were wrong without it, for the whole
+      // 15s `staleTime`: the list a user goes back to would not contain the
+      // workflow they just made, and the sidebar's first-run probe -- which
+      // folds the advanced modules away until a workspace has one workflow --
+      // would keep them folded (it queries `qk.workflows(ws, {probe})`, and the
+      // unfiltered key is a true prefix of it, by design in `queryKeys.ts`).
+      void queryClient.invalidateQueries({ queryKey: qk.workflows(workspaceId) });
+      router.replace(`/workflows/${workflow.id}`);
+    },
     onError: (error) => toast.error(error instanceof Error ? error.message : String(error)),
   });
 

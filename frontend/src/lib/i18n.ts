@@ -159,6 +159,7 @@ const vi: Catalog = {
   'overview.emptyTitle': 'Chưa có workflow nào',
   'overview.emptyBody':
     'Tạo workflow đầu tiên: chọn bước bắt đầu, thêm vài bước xử lý rồi bấm Run để thử.',
+  'overview.emptyBodyReadOnly': 'Workspace này chưa có workflow nào.',
 
   // ── workflows ────────────────────────────────────────────────────────────
   'workflows.title': 'Workflows',
@@ -169,6 +170,7 @@ const vi: Catalog = {
   'workflows.triggerChoice': 'Bước bắt đầu',
   'workflows.emptyTitle': 'Chưa có workflow',
   'workflows.emptyBody': 'Tạo workflow đầu tiên để bắt đầu.',
+  'workflows.emptyBodyReadOnly': 'Workspace này chưa có workflow nào.',
   'workflows.column.workflow': 'Workflow',
   'workflows.column.trigger': 'Trigger',
   'workflows.column.published': 'Đã publish',
@@ -277,6 +279,7 @@ const vi: Catalog = {
   'executions.description': 'Lịch sử thực thi của workspace.',
   'executions.emptyTitle': 'Chưa có lần chạy nào',
   'executions.emptyBody': 'Chạy một workflow để thấy lịch sử ở đây.',
+  'executions.emptyBodyReadOnly': 'Chưa có lần chạy nào trong workspace này.',
   'executions.column.id': 'Mã',
   'executions.column.workflow': 'Workflow',
   'executions.column.version': 'Phiên bản',
@@ -304,6 +307,7 @@ const vi: Catalog = {
   'credentials.emptyTitle': 'Chưa có thông tin xác thực',
   'credentials.emptyBody':
     'Tạo một thông tin xác thực để bước HTTP Request có thể gọi API cần đăng nhập.',
+  'credentials.emptyBodyReadOnly': 'Workspace này chưa có thông tin xác thực nào.',
   'credentials.column.type': 'Loại',
   'credentials.column.usedBy': 'Đang dùng ở',
   'credentials.column.lastTest': 'Kiểm tra gần nhất',
@@ -354,6 +358,36 @@ const vi: Catalog = {
   'alerts.enabled': 'Đang bật',
   'alerts.ruleHelp':
     'Ngưỡng áp dụng cho cảnh báo đếm số lần; chống trùng ngăn cùng một sự cố tạo hàng loạt thông báo.',
+
+  // ── error codes ──────────────────────────────────────────────────────────
+  // Short labels for the places that have a code and no sentence to pair it
+  // with -- the overview's recent-failures list being the one that reaches a
+  // customer. Where the server's own message is available it is still the
+  // better text; these are for the summary rows that carry the code alone.
+  'errorCode.CREDENTIAL_INVALID': 'Thông tin xác thực không hợp lệ',
+  'errorCode.CREDENTIAL_REQUIRED': 'Thiếu thông tin xác thực',
+  'errorCode.DRAFT_VERSION_CONFLICT': 'Bản nháp đã bị sửa ở nơi khác',
+  'errorCode.EGRESS_BLOCKED': 'Địa chỉ bị chặn bởi chính sách mạng',
+  'errorCode.ENGINE_INCOMPATIBLE': 'Runtime không tương thích',
+  'errorCode.ENGINE_INTERRUPTED': 'Runtime bị ngắt giữa chừng',
+  'errorCode.ENGINE_UNAVAILABLE': 'Không kết nối được runtime',
+  'errorCode.EXECUTION_CANCELLED': 'Đã hủy',
+  'errorCode.EXECUTION_TIMED_OUT': 'Quá thời gian cho phép',
+  'errorCode.EXPRESSION_EVALUATION_FAILED': 'Biểu thức chạy lỗi',
+  'errorCode.EXPRESSION_INVALID': 'Biểu thức không hợp lệ',
+  'errorCode.NODE_AUTHENTICATION_FAILED': 'Xác thực với dịch vụ thất bại',
+  'errorCode.NODE_CONFIGURATION_INVALID': 'Cấu hình bước không hợp lệ',
+  'errorCode.NODE_EXECUTION_FAILED': 'Bước chạy thất bại',
+  'errorCode.NODE_NETWORK_UNREACHABLE': 'Không gọi được dịch vụ',
+  'errorCode.NODE_RATE_LIMITED': 'Bị giới hạn tần suất',
+  'errorCode.NODE_TIMEOUT': 'Dịch vụ phản hồi quá chậm',
+  'errorCode.NODE_UNSUPPORTED': 'Bước không được hỗ trợ',
+  'errorCode.SCHEDULE_INVALID': 'Lịch chạy không hợp lệ',
+  'errorCode.WEBHOOK_AUTH_FAILED': 'Chữ ký webhook không hợp lệ',
+  'errorCode.WORKFLOW_ALREADY_RUNNING': 'Workflow đang chạy',
+  'errorCode.WORKFLOW_INVALID': 'Workflow không hợp lệ',
+  'errorCode.WORKFLOW_NOT_PUBLISHED': 'Workflow chưa được publish',
+  'remediation.INSPECT_EXECUTION': 'Xem lần chạy',
 
   // ── audit ────────────────────────────────────────────────────────────────
   'audit.title': 'Nhật ký hoạt động',
@@ -580,6 +614,7 @@ const en: Catalog = {
   'overview.emptyTitle': 'No workflows yet',
   'overview.emptyBody':
     'Create your first workflow: pick a trigger, add a few steps, then press Run.',
+  'overview.emptyBodyReadOnly': 'This workspace has no workflows yet.',
 
   'workflows.title': 'Workflows',
   'workflows.description': 'The automations in this workspace.',
@@ -589,6 +624,7 @@ const en: Catalog = {
   'workflows.triggerChoice': 'Trigger',
   'workflows.emptyTitle': 'No workflows',
   'workflows.emptyBody': 'Create your first workflow to get started.',
+  'workflows.emptyBodyReadOnly': 'This workspace has no workflows yet.',
   'workflows.column.workflow': 'Workflow',
   'workflows.column.trigger': 'Trigger',
   'workflows.column.published': 'Published',
@@ -692,6 +728,7 @@ const en: Catalog = {
   'executions.description': 'Execution history for this workspace.',
   'executions.emptyTitle': 'No executions yet',
   'executions.emptyBody': 'Run a workflow to see its history here.',
+  'executions.emptyBodyReadOnly': 'No runs in this workspace yet.',
   'executions.column.id': 'ID',
   'executions.column.workflow': 'Workflow',
   'executions.column.version': 'Version',
@@ -718,6 +755,7 @@ const en: Catalog = {
   'credentials.emptyTitle': 'No credentials',
   'credentials.emptyBody':
     'Create one so an HTTP Request step can call an API that needs authentication.',
+  'credentials.emptyBodyReadOnly': 'This workspace has no credentials yet.',
   'credentials.column.type': 'Type',
   'credentials.column.usedBy': 'Used by',
   'credentials.column.lastTest': 'Last check',
@@ -765,6 +803,31 @@ const en: Catalog = {
   'alerts.ruleHelp':
     'The threshold applies to counting alerts; the cooldown stops one incident producing a flood.',
 
+  // ── error codes ──────────────────────────────────────────────────────────
+  'errorCode.CREDENTIAL_INVALID': 'Credential is not valid',
+  'errorCode.CREDENTIAL_REQUIRED': 'Credential missing',
+  'errorCode.DRAFT_VERSION_CONFLICT': 'Draft changed elsewhere',
+  'errorCode.EGRESS_BLOCKED': 'Address blocked by network policy',
+  'errorCode.ENGINE_INCOMPATIBLE': 'Runtime incompatible',
+  'errorCode.ENGINE_INTERRUPTED': 'Runtime interrupted',
+  'errorCode.ENGINE_UNAVAILABLE': 'Runtime unreachable',
+  'errorCode.EXECUTION_CANCELLED': 'Cancelled',
+  'errorCode.EXECUTION_TIMED_OUT': 'Timed out',
+  'errorCode.EXPRESSION_EVALUATION_FAILED': 'Expression failed at runtime',
+  'errorCode.EXPRESSION_INVALID': 'Expression is not valid',
+  'errorCode.NODE_AUTHENTICATION_FAILED': 'Authentication failed',
+  'errorCode.NODE_CONFIGURATION_INVALID': 'Step configuration is not valid',
+  'errorCode.NODE_EXECUTION_FAILED': 'Step failed',
+  'errorCode.NODE_NETWORK_UNREACHABLE': 'Service unreachable',
+  'errorCode.NODE_RATE_LIMITED': 'Rate limited',
+  'errorCode.NODE_TIMEOUT': 'Service too slow to respond',
+  'errorCode.NODE_UNSUPPORTED': 'Step not supported',
+  'errorCode.SCHEDULE_INVALID': 'Schedule is not valid',
+  'errorCode.WEBHOOK_AUTH_FAILED': 'Webhook signature invalid',
+  'errorCode.WORKFLOW_ALREADY_RUNNING': 'Workflow already running',
+  'errorCode.WORKFLOW_INVALID': 'Workflow is not valid',
+  'errorCode.WORKFLOW_NOT_PUBLISHED': 'Workflow not published',
+  'remediation.INSPECT_EXECUTION': 'View run',
   'audit.title': 'Audit log',
   'audit.description': 'Who did what, and when. Append-only.',
   'audit.column.action': 'Action',

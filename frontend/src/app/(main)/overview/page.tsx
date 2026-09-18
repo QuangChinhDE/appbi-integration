@@ -37,7 +37,7 @@ import { usePermissions } from '@/hooks/use-permissions';
 import { useI18n } from '@/providers/LanguageProvider';
 
 export default function OverviewPage() {
-  const { t, locale } = useI18n();
+  const { t, tf, locale } = useI18n();
   const workspaceId = useWorkspaceId();
   const { can } = usePermissions();
 
@@ -94,7 +94,12 @@ export default function OverviewPage() {
         <EmptyState
           icon={Zap}
           title={t('overview.emptyTitle')}
-          description={t('overview.emptyBody')}
+          // Telling somebody to create their first workflow while withholding
+          // the button that would do it reads as broken rather than as
+          // read-only. An Analyst gets the fact, not the instruction.
+          description={can('workflows', 'create')
+            ? t('overview.emptyBody')
+            : t('overview.emptyBodyReadOnly')}
           action={can('workflows', 'create') ? (
             <Link href="/workflows/new">
               <Button variant="primary" size="sm">{t('workflows.new')}</Button>
@@ -167,9 +172,16 @@ export default function OverviewPage() {
                             {row.workflow_name ?? '—'}
                           </span>
                           <span className="block truncate text-tiny text-text-tertiary">
-                            {row.failed_node_name
-                              ? `${row.failed_node_name} · ${row.error_code ?? ''}`
-                              : row.error_code ?? ''}
+                            {/* The code is an identifier, not a sentence. This
+                                row is the first thing a customer reads when
+                                something has failed, and `NODE_NETWORK_
+                                UNREACHABLE` is not an answer — it falls back to
+                                the raw code only for a code with no label yet. */}
+                            {[row.failed_node_name,
+                              row.error_code
+                                ? tf([`errorCode.${row.error_code}`], row.error_code)
+                                : null]
+                              .filter(Boolean).join(' · ')}
                           </span>
                         </span>
                         <span data-volatile className="shrink-0 text-tiny text-text-quaternary">

@@ -62,3 +62,12 @@ dist/images/
 # this checkout's in-flight work, not the repository's history.
 .claude/active-change
 .claude/light-change.json
+
+# Screenshot evidence from a walkthrough or product audit. Reproducible from
+# the scripts that wrote them, large, and specific to one run's data -- the
+# findings they support live in docs/changes/<change>/, not in git history.
+e2e/ux-screenshots/
+e2e/ux-after*/
+e2e/audit-screenshots/
+e2e/audit-demo/
+e2e/audit-populated/

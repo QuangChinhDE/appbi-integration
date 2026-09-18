@@ -22,6 +22,7 @@ import { executionApi } from '@/lib/api';
 import { formatDateTime, formatDuration } from '@/lib/format';
 import { qk } from '@/lib/queryKeys';
 import { useWorkspaceId } from '@/hooks/use-current-user';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useI18n } from '@/providers/LanguageProvider';
 
 const ACTIVE = ['QUEUED', 'DISPATCHING', 'RUNNING', 'CANCEL_REQUESTED'];
@@ -30,6 +31,7 @@ const PAGE_SIZE = 50;
 export default function ExecutionsPage() {
   const { t, tf, locale } = useI18n();
   const workspaceId = useWorkspaceId();
+  const { can } = usePermissions();
   const searchParams = useSearchParams();
 
   const [status, setStatus] = React.useState(searchParams.get('status') ?? '');
@@ -114,7 +116,11 @@ export default function ExecutionsPage() {
         <EmptyState
           icon={PlayCircle}
           title={status || kind ? t('common.noResults') : t('executions.emptyTitle')}
-          description={status || kind ? undefined : t('executions.emptyBody')}
+          description={status || kind
+            ? undefined
+            : t(can('workflows', 'execute')
+              ? 'executions.emptyBody'
+              : 'executions.emptyBodyReadOnly')}
         />
       ) : (
         <>

@@ -19,6 +19,8 @@ export default function LoginPage() {
   const [password, setPassword] = React.useState('');
 
   const login = useMutation({
+    // The reason is rendered under the fields; a toast would say it twice.
+    meta: { errorHandledInline: true },
     mutationFn: () => authApi.login(email.trim(), password),
     onSuccess: (user) => {
       queryClient.setQueryData(qk.me(), user);

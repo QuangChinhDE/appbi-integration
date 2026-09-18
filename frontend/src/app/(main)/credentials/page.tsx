@@ -101,7 +101,9 @@ export default function CredentialsPage() {
         <EmptyState
           icon={KeyRound}
           title={search ? t('common.noResults') : t('credentials.emptyTitle')}
-          description={search ? undefined : t('credentials.emptyBody')}
+          description={search
+            ? undefined
+            : t(createButton ? 'credentials.emptyBody' : 'credentials.emptyBodyReadOnly')}
           action={search ? undefined : createButton}
         />
       ) : (

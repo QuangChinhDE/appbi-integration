@@ -175,7 +175,9 @@ export default function WorkflowsPage() {
           title={debounced || status || trigger
             ? t('common.noResults')
             : t('workflows.emptyTitle')}
-          description={debounced || status || trigger ? undefined : t('workflows.emptyBody')}
+          description={debounced || status || trigger
+            ? undefined
+            : t(createButton ? 'workflows.emptyBody' : 'workflows.emptyBodyReadOnly')}
           action={debounced || status || trigger ? undefined : createButton}
         />
       ) : (

@@ -7,7 +7,9 @@
 
 import { expect, test } from '@playwright/test';
 
-import { OWNER, createWorkflow, deleteWorkflow, unique } from './fixtures';
+import {
+  OWNER, createWorkflow, deleteWorkflow, signInSettlingPassword, unique,
+} from './fixtures';
 
 // The path only. Screens with tabs put the active tab in the query string as
 // soon as they mount, so anchoring on the end of the URL would be a race the
@@ -19,7 +21,7 @@ const JOURNEY: [RegExp, RegExp][] = [
   [/Giám sát|Monitoring/, /\/monitoring(\?|$)/],
   [/Cảnh báo|Alerts/, /\/alerts(\?|$)/],
   [/Thư viện bước|Node library/, /\/nodes(\?|$)/],
-  [/Audit log/, /\/audit(\?|$)/],
+  [/Nhật ký hoạt động|Audit log/, /\/audit(\?|$)/],
 ];
 
 test.describe('navigation', () => {
@@ -77,7 +79,7 @@ test.describe('navigation', () => {
     // having to escape a workspace name into a regular expression.
     const switcher = page.getByRole('button', { name: workspaceName });
     await expect(switcher).toBeVisible();
-    await expect(switcher).toContainText(/Owner|Platform Admin/);
+    await expect(switcher).toContainText(/Chủ sở hữu|Quản trị nền tảng|Owner|Platform Admin/);
   });
 });
 
@@ -152,23 +154,17 @@ test.describe('a workspace with nothing in it', () => {
       });
       const page = await context.newPage();
 
-      await page.goto('/login');
-      await page.getByLabel('Email').fill(email);
-      await page.getByLabel(/Mật khẩu|Password/).fill(password);
-      await page.getByRole('button', { name: /Đăng nhập|Sign in/ }).click();
-
-      await expect(page).toHaveURL(/\/change-password/);
-      await page.getByLabel(/Mật khẩu hiện tại|Current password/).fill(password);
-      await page.getByLabel(/^Mật khẩu mới|^New password/).fill('FirstRunChanged123');
-      await page.getByLabel(/Nhập lại|Confirm/).fill('FirstRunChanged123');
-      await page.getByRole('button', { name: /Đổi mật khẩu|Change password/ }).click();
-      await expect(page).toHaveURL(/\/overview/);
+      // Settles the forced first-use change whichever state the account is in.
+      // Hard-coding "sign in with the initial password, then change it" made
+      // the next test depend on this one having succeeded, and a retry
+      // re-provisions a different account entirely.
+      await signInSettlingPassword(page, email, password, 'FirstRunChanged123');
 
       // Build is offered; operate-and-manage is not, yet.
       await expect(page.getByRole('link', { name: /^Workflows$/ })).toBeVisible();
       await expect(
         page.getByRole('link', { name: /Giám sát|Monitoring/ })).toHaveCount(0);
-      await expect(page.getByRole('link', { name: /Audit log/ })).toHaveCount(0);
+      await expect(page.getByRole('link', { name: /Nhật ký hoạt động|Audit log/ })).toHaveCount(0);
 
       // Folded, not removed: the rest of the product is one click away and
       // says so.
@@ -176,7 +172,7 @@ test.describe('a workspace with nothing in it', () => {
         { name: /Hiện toàn bộ chức năng|Show everything/ }).click();
       await expect(
         page.getByRole('link', { name: /Giám sát|Monitoring/ })).toBeVisible();
-      await expect(page.getByRole('link', { name: /Audit log/ })).toBeVisible();
+      await expect(page.getByRole('link', { name: /Nhật ký hoạt động|Audit log/ })).toBeVisible();
 
       await context.close();
     });
@@ -187,11 +183,7 @@ test.describe('a workspace with nothing in it', () => {
         storageState: { cookies: [], origins: [] },
       });
       const page = await context.newPage();
-      await page.goto('/login');
-      await page.getByLabel('Email').fill(email);
-      await page.getByLabel(/Mật khẩu|Password/).fill('FirstRunChanged123');
-      await page.getByRole('button', { name: /Đăng nhập|Sign in/ }).click();
-      await expect(page).toHaveURL(/\/overview/);
+      await signInSettlingPassword(page, email, password, 'FirstRunChanged123');
 
       // A strip of zeroes reads as a broken dashboard; an empty state reads as
       // an empty workspace (SRS 17.2).

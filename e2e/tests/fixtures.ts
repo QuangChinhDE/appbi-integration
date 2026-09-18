@@ -324,3 +324,59 @@ export function branchingGraph() {
     ],
   };
 }
+
+/**
+ * Sign in an invited account whose password may or may not have been settled
+ * yet, and leave it signed in either way.
+ *
+ * An invited account arrives with an initial password and is forced to change
+ * it on first use. Two specs used to encode that as a dependency between
+ * *tests*: the first signed in with the initial password and changed it, the
+ * second signed in with the changed one. That works exactly once. When the
+ * first test fails and Playwright retries it in a fresh worker, `beforeAll`
+ * re-provisions a **new** account with the initial password still on it, and
+ * the second test authenticates a user that never had its password changed --
+ * so one real failure became two, and the second one pointed at nothing.
+ *
+ * This asks the account which state it is in rather than assuming: settled
+ * first (the common case on a re-run), falling back to the initial password
+ * and completing the forced change. At most one failed attempt per call, which
+ * matters because eight of them lock the account for five minutes.
+ */
+export async function signInSettlingPassword(
+  page: Page,
+  email: string,
+  initialPassword: string,
+  settledPassword: string,
+) {
+  const attempt = async (password: string) => {
+    await page.goto('/login');
+    await page.getByLabel('Email').fill(email);
+    await page.getByLabel(/Mật khẩu|Password/).fill(password);
+    await page.getByRole('button', { name: /Đăng nhập|Sign in/ }).click();
+    // Waiting for "overview OR change-password OR login" resolves instantly,
+    // because we are already on /login when the click happens. Wait only for
+    // the two destinations that mean the password was accepted, and treat the
+    // timeout as the rejection it is.
+    try {
+      await page.waitForURL(/\/overview|\/change-password/, { timeout: 10000 });
+    } catch {
+      return null;
+    }
+    return new URL(page.url()).pathname;
+  };
+
+  let path = await attempt(settledPassword);
+  if (path === null) path = await attempt(initialPassword);
+  if (path === null) {
+    throw new Error(`could not sign in as ${email} with either password`);
+  }
+
+  if (path === '/change-password') {
+    await page.getByLabel(/Mật khẩu hiện tại|Current password/).fill(initialPassword);
+    await page.getByLabel(/^Mật khẩu mới|^New password/).fill(settledPassword);
+    await page.getByLabel(/Nhập lại|Confirm/).fill(settledPassword);
+    await page.getByRole('button', { name: /Đổi mật khẩu|Change password/ }).click();
+    await page.waitForURL(/\/overview/, { timeout: 15000 });
+  }
+}

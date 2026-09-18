@@ -8,7 +8,7 @@
 
 import { expect, test } from '@playwright/test';
 
-import { deleteWorkflow, unique } from './fixtures';
+import { deleteWorkflow, signInSettlingPassword, unique } from './fixtures';
 
 const SECRET = 'e2e-secret-value-do-not-echo';
 
@@ -212,21 +212,12 @@ test.describe('role gating', () => {
       });
       const page = await context.newPage();
 
-      await page.goto('/login');
-      await page.getByLabel('Email').fill(email);
-      await page.getByLabel(/Mật khẩu|Password/).fill(password);
-      await page.getByRole('button', { name: /Đăng nhập|Sign in/ }).click();
-
-      // First sign-in must change the password.
-      await expect(page).toHaveURL(/\/change-password/);
-      await page.getByLabel(/Mật khẩu hiện tại|Current password/).fill(password);
-      await page.getByLabel(/^Mật khẩu mới|^New password/).fill('AnalystChanged123');
-      await page.getByLabel(/Nhập lại|Confirm/).fill('AnalystChanged123');
-      await page.getByRole('button', { name: /Đổi mật khẩu|Change password/ }).click();
-      await expect(page).toHaveURL(/\/overview/);
+      // Settles the forced first-use password change, whichever state this
+      // account is in -- a retry re-provisions it with the initial password.
+      await signInSettlingPassword(page, email, password, 'AnalystChanged123');
 
       // The role is visible where the user can check their own access.
-      await expect(page.getByText(/Analyst/)).toBeVisible();
+      await expect(page.getByText(/Phân tích|Analyst/)).toBeVisible();
 
       await page.goto('/workflows');
       // Read-only: no create, and the row menu offers nothing destructive.
@@ -257,11 +248,9 @@ test.describe('role gating', () => {
       storageState: { cookies: [], origins: [] },
     });
     const page = await context.newPage();
-    await page.goto('/login');
-    await page.getByLabel('Email').fill(email);
-    await page.getByLabel(/Mật khẩu|Password/).fill('AnalystChanged123');
-    await page.getByRole('button', { name: /Đăng nhập|Sign in/ }).click();
-    await expect(page).toHaveURL(/\/overview/);
+    // Not "sign in with the password the previous test set": on a retry this
+    // account is a fresh one that still has its initial password.
+    await signInSettlingPassword(page, email, password, 'AnalystChanged123');
 
     await page.goto(`/workflows/${workflow.id}`);
     await expect(page.locator('.react-flow')).toBeVisible();

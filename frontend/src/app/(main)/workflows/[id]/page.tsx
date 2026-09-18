@@ -26,7 +26,9 @@ import { toast } from 'sonner';
 
 import { ExecutionDataPanel } from '@/components/automation/ExecutionDataPanel';
 import { NodeConfigPanel } from '@/components/automation/NodeConfigPanel';
-import { InspectorAside, PaletteRail } from '@/components/automation/EditorPanels';
+import {
+  InspectorAside, PaletteRail, rememberPaletteOpen,
+} from '@/components/automation/EditorPanels';
 import { NodePalette } from '@/components/automation/NodePalette';
 import { NodeReadOnlyDetail } from '@/components/automation/NodeReadOnlyDetail';
 import { PublishWorkflowDialog } from '@/components/automation/PublishWorkflowDialog';
@@ -145,7 +147,19 @@ export default function WorkflowEditorPage() {
   const [saveState, setSaveState] = React.useState<SaveState>('idle');
   const [selectedNodeId, setSelectedNodeId] = React.useState<string | null>(null);
   const [paletteOpen, setPaletteOpen] = React.useState(false);
+  // Whether the wide-screen rail is expanded. Reported by `PaletteRail` so the
+  // labelled "add step" button can stand in while it is not.
+  const [paletteRailOpen, setPaletteRailOpen] = React.useState(false);
   const [publishOpen, setPublishOpen] = React.useState(false);
+  // One function, because the pair it replaces is exactly what went wrong the
+  // first time: opening the rail without persisting it meant the rail a
+  // first-time user opened was shut again on their next visit. A third caller
+  // writing one and forgetting the other would reproduce that.
+  const openStepPicker = React.useCallback(() => {
+    if (belowXl) { setPaletteOpen(true); return; }
+    rememberPaletteOpen(true);
+    setPaletteRailOpen(true);
+  }, [belowXl]);
   // Collapsed until there is something in it. Open, it is 290px of canvas
   // spent on the sentence "press Run to see data" -- which on a 900px window
   // is a third of the editor, before the user has anything to look at. It
@@ -725,6 +739,8 @@ export default function WorkflowEditorPage() {
             label={t('editor.palette')}
             expandLabel={t('editor.paletteExpand')}
             collapseLabel={t('editor.paletteCollapse')}
+            open={paletteRailOpen}
+            onOpenChange={setPaletteRailOpen}
           >
             <NodePalette
               nodes={nodes.data?.items ?? []}
@@ -748,16 +764,24 @@ export default function WorkflowEditorPage() {
             canvasRef={canvasRef}
           />
 
-          {/* Only where the rail is not: on a wide screen the palette is
-              already on screen and a button that opens a dialog to show it
-              again is one control too many. */}
-          {canEdit && belowXl && (
+          {/* The one legible way to add a step, wherever the palette is not
+              already showing its contents.
+
+              Below `xl` that means the sheet. At `xl` and above it means the
+              rail is collapsed -- which is its default, so this used to render
+              nothing at all on a wide screen and leave a first-time user with
+              an empty canvas, one trigger node, and an unlabelled `+` in the
+              corner. The old reasoning ("on a wide screen the palette is
+              already on screen") was true only for somebody who had opened it
+              before. It is an overlay either way, so the canvas keeps its full
+              width and `11-appearance.spec.ts` keeps its guarantee. */}
+          {canEdit && (belowXl || !paletteRailOpen) && (
             <div className="absolute left-3 top-3 z-10">
               <Button
                 size="sm"
                 variant="primary"
                 leadingIcon={<Plus className="h-3.5 w-3.5" />}
-                onClick={() => setPaletteOpen(true)}
+                onClick={openStepPicker}
               >
                 {t('editor.addNode')}
               </Button>

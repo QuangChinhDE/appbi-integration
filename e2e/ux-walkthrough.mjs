@@ -151,15 +151,28 @@ await shot(page, 'editor-trigger-config',
   'the webhook trigger config panel — is the URL findable?');
 
 // ── 5. adding a step ───────────────────────────────────────────────────────
-await page.getByRole('button', { name: /Thêm bước|Add step/ }).click();
-await page.waitForTimeout(600);
+// One labelled button at every width, opening a sheet below `xl` and the
+// collapsed rail above it. This used to assume the button existed only below
+// `xl` and hung for 30s on every desktop run -- which is why nobody saw that a
+// wide screen offered neither the rail nor the button.
+const addStepButton = page.getByRole('button', { name: /Thêm bước|Add step/ });
+if (await addStepButton.count()) {
+  await addStepButton.click();
+  await page.waitForTimeout(600);
+}
+// Which surface opened depends on width, not on whether the button was there:
+// below `xl` it is a sheet over the canvas, at `xl` and above the button
+// expands the rail beside it. Ask the page rather than inferring.
+const palette = (await page.getByRole('dialog').count())
+  ? page.getByRole('dialog')
+  : page.locator('[data-palette="rail"]');
 await shot(page, 'node-palette', 'the step palette — can I tell what these do?');
 
-await page.getByRole('dialog').getByRole('textbox').fill('http');
+await palette.getByRole('textbox').first().fill('http');
 await page.waitForTimeout(400);
 await shot(page, 'node-palette-search', 'searching the palette');
 
-await page.getByRole('dialog').getByRole('button', { name: /HTTP Request/ })
+await palette.getByRole('button', { name: /HTTP Request/ })
   .first().click();
 await page.waitForTimeout(1200);
 await shot(page, 'editor-http-added',

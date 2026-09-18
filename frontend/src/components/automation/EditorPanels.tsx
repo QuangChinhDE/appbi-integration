@@ -96,6 +96,19 @@ function ResizeHandle({
 }
 
 const PALETTE_KEY = 'appbi.editor.paletteOpen';
+
+/**
+ * Remember the rail's state from outside the rail.
+ *
+ * The editor opens the palette from its own "add step" button, which exists
+ * precisely because the rail is collapsed and therefore cannot offer a labelled
+ * control itself. Without this the rail would open and be forgotten -- shut
+ * again on the next visit, and on any resize across `xl` that unmounts it --
+ * for exactly the first-time user the button was added for.
+ */
+export function rememberPaletteOpen(open: boolean): void {
+  write(PALETTE_KEY, open);
+}
 const PALETTE_WIDTH_KEY = 'appbi.editor.paletteWidth';
 const PALETTE_MIN = 180;
 const PALETTE_MAX = 320;
@@ -111,33 +124,45 @@ const PALETTE_MAX = 320;
  * permanently between the sidebar and the graph, and a person spends far more
  * of their time looking at the canvas than picking from a list of eight. It
  * remembers being opened, so anyone assembling a long chain pays the click
- * once.
+ * once. `11-appearance.spec.ts` asserts the canvas width this protects.
+ *
+ * It reports that state through `onOpenChange`, because the editor renders the
+ * labelled "Add step" button only while this rail is shut. Collapsed, the rail
+ * is a bare `+`, and a first-time user with one trigger node and an empty
+ * canvas had no legible way to add their second step: the button was rendered
+ * only below `xl`, on the reasoning that above it "the palette is already on
+ * screen" — which was false exactly when it mattered. Telling the editor
+ * whether it is open fixes that without taking the canvas width back.
  */
 export function PaletteRail({
-  children, label, expandLabel, collapseLabel,
+  children, label, expandLabel, collapseLabel, open, onOpenChange,
 }: {
   children: React.ReactNode;
   label: string;
   expandLabel: string;
   collapseLabel: string;
+  /** Controlled by the editor, which renders the labelled "add step" button
+      while this is false and therefore has to know. */
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = React.useState(false);
   const [width, setWidth] = React.useState(224);
+
+  const report = React.useRef(onOpenChange);
+  report.current = onOpenChange;
 
   // Read after mount, not during render: `localStorage` on the server is
   // undefined and reading it during the first client render would make the
   // markup disagree with the server's.
   React.useEffect(() => {
-    setOpen(readStored(PALETTE_KEY, 0) === 1);
+    report.current(readStored(PALETTE_KEY, 0) === 1);
     setWidth(Math.min(PALETTE_MAX,
       Math.max(PALETTE_MIN, readStored(PALETTE_WIDTH_KEY, 224))));
   }, []);
 
   const toggle = () => {
-    setOpen((value) => {
-      write(PALETTE_KEY, !value);
-      return !value;
-    });
+    write(PALETTE_KEY, !open);
+    report.current(!open);
   };
 
   if (!open) {
