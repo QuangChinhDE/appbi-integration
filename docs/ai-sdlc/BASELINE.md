@@ -1,31 +1,33 @@
 # Baseline audit
 
-**Date:** 2026-09-18 · **Commit:** `10a59c5` · **Branch:** `master` ·
+**HEAD:** `d182975` on `ai-sdlc-bootstrap` · **Fingerprint at last full
+re-verification:** `7a74c7d80e8b0c…` (`python scripts/repo_fingerprint.py`) ·
 **Product version:** 1.0.0 (`v1.0.0-rc1`) · **Engine:** n8n 1.14.1
 
-Established while bootstrapping the AI-native SDLC harness. Every row cites
-evidence from a command actually run on this machine, or says **NOT RUN**.
+This is the second audit. The first bootstrapped the development harness
+(intent/spec/plan/review artefacts, scoped rules, reviewer agents, CI/branch
+fixes); this one hardened the harness's evidence discipline (fingerprinting,
+staleness detection, the completion gate) and re-ran verification honestly
+against the corrected vocabulary below.
 
-Environment: Docker 27.4.0 with the container stack up (api ×3, worker,
-engine, postgres, frontend), kubectl v1.30.5, Python 3.12, Node 22.
+## Vocabulary — read this before reading a single row
 
----
+The first version of this document used a broad **PASS** for several rows
+where only a narrower property had actually been checked. That is corrected
+here. States used below:
 
-## Summary
+| State | Means |
+|---|---|
+| **VERIFIED** | a specific command was run, against a specific repository state, and its result is cited (evidence record, fingerprint, or command output) |
+| **PARTIALLY VERIFIED** | some real evidence exists, but it proves less than the row's heading suggests — the gap is named explicitly |
+| **NOT VERIFIED** | coverage exists (a suite, a test, a check) but it was not executed to produce this claim — a suite existing is not the suite having passed |
+| **FAIL** | executed and failed |
+| **BLOCKED** | cannot be executed in this environment, and why |
+| **N/A** | genuinely does not apply, with the reason |
 
-This repository is in **unusually good health**. It is not a prototype with a
-test suite bolted on: 362 automated tests across four suites plus 118 browser
-scenarios, 31 ADRs recording what was rejected, architectural rules enforced by
-CI greps and AST walks rather than convention, and artefact tests that check the
-deployment rather than only the code.
-
-What it did **not** have, before this bootstrap, was a development harness: no
-`CLAUDE.md`, no `.claude/`, no scoped rules, no reviewers, no change-artefact
-discipline, no single verification entry point, and no Definition of Done. The
-engineering was strong and entirely undocumented as a *process*.
-
-Three real defects were found and fixed while bootstrapping (§ Harness defects).
-All three were in the SDLC wiring, none in the product.
+**"No defects found" is never used as a synonym for "not tested."** Where a
+suite did not run, the row says NOT VERIFIED and names what did not run,
+never "no defects found."
 
 ---
 
@@ -33,144 +35,195 @@ All three were in the SDLC wiring, none in the product.
 
 | Area | State | Evidence | Risk | Required action |
 |---|---|---|---|---|
-| **Development harness** | **WAS FAIL → now PASS** | No `CLAUDE.md`, no `.claude/` existed. Now: constitution, 6 scoped rule files, 5 skills, 4 reviewers, DoD, templates, `verify.py`, `guardrails.py`, a `PreToolUse` guard proven to fire | — | none; keep it current as the code moves |
-| **Backend** | **PASS** | `260 passed in 2.45s`; `ruff` clean (after fixing 2 errors); migration round-trip, `alembic check` and `schema_drift.py` all PASS against the live database | low | none |
-| **Frontend** | **PASS** | typecheck, lint, 34 component tests, `next build` — all PASS | low | none |
-| **Engine** | **PASS** | typecheck, build, **68 contract tests against the real pinned runtime**, `certify.py --check` PASS. Live `/readyz` reports `n8n-core@1.14.1` — the pin is real at runtime, not only in a manifest | low | none |
-| **Node contracts** | **PASS** | 9 of 294 available nodes certified, each with registry entry, schema, compiler mapper, pinned allowlist entry, golden test and both locales. `certify.py` cross-checks registry ↔ compatibility ↔ installed tree ↔ compiler | low | new nodes via `/engine-node` only |
-| **E2E** | **NOT RUN** (this session) | 118 scenarios across 12 specs exist and are wired into CI. Not executed here: the suite runs serially against the images and would mutate the running dev stack | **medium — unverified today** | run `verify.py full` on a disposable stack before the next release |
-| **CI** | **WAS FAIL → now PASS** | Two real defects, both fixed (§ below). 7 jobs; YAML parses; guardrails consolidated to one runnable script | low | confirm the first `master` push actually triggers |
-| **Deployment** | **PASS** | manifest/alert/production-doctor tests PASS; unedited production template correctly **refused**; `docker compose config` and `kubectl kustomize` PASS. Live `docker compose ps`: engine exposes `8099/tcp` with **no host mapping** — guardrail 15 confirmed in the running deployment | low | none |
-| **Security** | **PASS, with two carried exceptions** | Secrets never echoed (contract + smoke); redaction in both layers; HMAC + replay + constant-time on `/hooks`; egress guard; tenant isolation by AST walk and 12 asserted cross-tenant routes. **ADR-030 carries two exceptions for the internal pilot: no row-level security, and the second gap recorded there** | **medium** | neither exception survives opening to customers; re-open ADR-030 before that decision |
-| **Licensing** | **BLOCKED, correctly** | `commercial_gate: NOT_REVIEWED`; `release_gate.py --delivery commercial` refuses, and CI asserts the refusal | **high for commercialisation** | a legal review is a prerequisite for any non-internal delivery. Not an engineering task |
-| **UX completion** | **PASS, with a caveat** | Appearance asserted at 3 viewports with 12 pixel baselines and measured invariants (overflow, 12px floor after transforms, canvas share). 9 UX defects previously found by *looking* and fixed | low | the screenshots still have to be looked at; assertions cannot see "no focal point" |
+| **Development harness** | **VERIFIED** | `.claude/`, `CLAUDE.md`, `REVIEW.md`, `docs/ai-sdlc/`, `scripts/{verify,guardrails,claude_guard,repo_fingerprint,evidence,record_review,session_context,completion_gate}.py` exist and were exercised live this session (see "Proof of freshness" below) | low | keep current as the code moves; this file's own claims are the test of whether that is happening |
+| **Repository fingerprinting** | **VERIFIED** | `scripts/repo_fingerprint.py`: same clean tree → identical hash across repeated runs; a one-line append to README.md changes it; reverting restores the original hash exactly; staged and unstaged changes both count; `.claude/evidence/` is provably excluded. All four properties demonstrated live, commands and output in this session's transcript | low | none |
+| **Evidence staleness detection** | **VERIFIED** | `scripts/evidence.py`: a record made `CURRENT`, then a source edit made it `STALE` (exit 1), then a revert restored `CURRENT` (exit 0) — demonstrated live for both `verification` and `review` kinds | low | none |
+| **Backend** | **VERIFIED** | `verify.py targeted backend` against a live database: **264 tests passed** (up from 260 — 4 new regression/invariant tests added this session), `ruff` clean, migration round-trip clean, `alembic check` clean, no schema drift. Evidence: `verification/backend`, fingerprint `7a74c7d8…`, 2026-09-18T03:49:58Z | low | none |
+| **Frontend** | **VERIFIED** | `verify.py targeted frontend`: typecheck, lint, 34 component tests, `next build` all pass. Evidence: `verification/frontend`, same fingerprint, 03:50:59Z | low | none |
+| **Engine** | **VERIFIED** | `verify.py targeted engine`: typecheck, build, **68 contract tests against the real pinned runtime**, `certify.py --check`. Evidence: `verification/engine`, same fingerprint, 03:51:30Z. Live `/readyz` on the running stack separately confirmed `engine_version: n8n-core@1.14.1` | low | none |
+| **Node contracts** | **VERIFIED** (existing 9), **N/A** (other 285) | `certify.py --check` cross-checks registry ↔ compatibility ↔ installed tree ↔ compiler for the 9 certified nodes. The other 285 are correctly uncertified, not a gap — `/engine-node` is the path, `docs/node-catalog-backlog.md` the queue | low | new nodes via `/engine-node` only |
+| **Architectural guardrails** | **VERIFIED** | `scripts/guardrails.py`, 9 checks, all pass. Two are new this session (**"one compiler"**, **"Publish != Activate"**) and both were proven to actually fire by injecting the violation they name and watching them fail, then reverting — see "Proof of freshness" | low | none |
+| **Deployment** | **VERIFIED** | `verify.py targeted deployment`: manifest/alert/production-doctor tests, the production template correctly refused, `docker compose config`, `kubectl kustomize` all pass. Evidence: `verification/deployment`, same fingerprint, 03:51:43Z. Live `docker compose ps`: engine exposes `8099/tcp` with no host mapping (guardrail 15, confirmed in the running deployment, not only in the compose file) | low | none |
+| **E2E / browser suite** | **FAIL, root cause identified — environment state, not a code regression** | `verify.py targeted e2e` was actually run against the live dev stack (non-destructive `clean-install.spec.ts` excluded by default). `global.setup.ts:36` ("sign in as the workspace owner") failed; 1 of 135 tests ran, 134 did not. Cause: `global.setup.ts` tries only the bootstrap default password and the suite's own post-first-run password — this stack has been running 16+ hours across many prior manual sessions and its admin credential no longer matches either. This is a property of a long-lived, non-disposable stack, not a defect this session introduced or found in the product. **Evidence: `verification/e2e`, status FAIL, fingerprint `9e22ace8…`.** A second, real defect was found and fixed in the course of getting this far: `scripts/verify.py` crashed with `UnicodeEncodeError` reporting a failing stage's output on Windows (fixed by `reconfigure(errors="replace")` on stdout/stderr) | medium | run against a stack whose credentials are known (fresh `docker compose up` on an empty volume, or export `E2E_PASSWORD`/`E2E_SETTLED_PASSWORD` matching this stack's actual current admin password) |
+| **Security** | **VERIFIED for the mechanisms checked; PARTIALLY VERIFIED overall** | Secrets never echoed (contract + smoke, not re-run this session — see below); redaction in both layers; HMAC + replay + constant-time on `/hooks`; tenant isolation by AST walk (`test_tenant_isolation.py`, passing in the 264); **new this session:** `retry()` now has a direct regression test proving it forwards the sealed original payload, not the redacted preview, and `public_view()` now has a direct test (plus an AST check on the router) proving `engine_binding` cannot reach a non-admin response — both previously "documented-only". `scripts/smoke.py` (39 checks incl. secret-never-echoed against a running deployment) was **not** re-run this session — NOT VERIFIED for that specific claim today, though it is wired into CI | medium | run `scripts/smoke.py` against the live stack; re-open ADR-030 before any decision to open the product to customers (its two carried exceptions are unchanged) |
+| **Licensing** | **VERIFIED as correctly blocked** | `commercial_gate: NOT_REVIEWED`; `release_gate.py --delivery commercial` refuses; CI asserts the refusal (not re-run this session, but the assertion is a repository-level guarantee independent of session state) | high for commercialisation | a legal review, not an engineering task |
+| **UX completion** | **NOT VERIFIED this session (UI_VISUAL / UI_JOURNEY)** | `11-appearance.spec.ts` (UI_STRUCTURAL) is included in whatever the E2E row above records. **No screenshot was captured or read this session, and no journey was walked in the running product.** Per the new three-way split (`docs/ai-sdlc/EVIDENCE_MODEL.md`, `.claude/skills/ui-review/SKILL.md`), UI_STRUCTURAL evidence is not a substitute for UI_VISUAL or UI_JOURNEY evidence, and this document does not claim either | medium | run `/ui-review` before any UI-affecting change is called Done |
 
 ---
 
 ## Product journeys
 
-| Journey | State | Evidence |
-|---|---|---|
-| Sign in, forced password change | COMPLETE | `02-auth.spec.ts`, smoke, clean-install |
-| Build a graph on the canvas | COMPLETE | `03-editor.spec.ts` (14), `test_new_workflow_seed.py` |
-| Run a draft, read real output | COMPLETE | smoke (39 checks); expressions asserted to resolve against real data |
-| Publish → activate → rollback | COMPLETE | `04-lifecycle.spec.ts`; smoke proves v1 unchanged after a draft edit |
-| Trigger a real execution (webhook, schedule) | COMPLETE | `06-triggers-ops.spec.ts`, `demo_webhook.py` incl. unsigned and replay refusals |
-| Execution history and failure diagnosis | COMPLETE | `06-triggers-ops.spec.ts`; a deliberately-failing seeded workflow exists so the error screen is exercised |
-| Credentials, secret never echoed | COMPLETE | `05-credentials-rbac.spec.ts`, smoke |
-| Multi-tenant isolation | COMPLETE | `07-tenancy.spec.ts` (17), incl. `X-Workspace-Id` spoofing |
-| Idempotency and rate limits at 2 replicas | COMPLETE | `08-idempotency-limits.spec.ts` (8) |
-| Members, invite, role change, revoke | COMPLETE | `10-members.spec.ts` (9) |
-| Operations: doctor, drift, backup, restore | COMPLETE | `09-operations.spec.ts` (11) |
-| Clean install from an empty volume | COMPLETE | `clean-install.spec.ts`, CI job |
-| **All of the above, verified today** | **NOT TESTED** | the browser suite did not run in this session |
+The first baseline listed every journey as "COMPLETE" on the strength of
+coverage existing in the test suites. That conflated "a test exists for this"
+with "this passed today." Corrected:
 
-Every journey has coverage that exists and is wired into CI. What this session
-can attest to is that the code, the contracts and the deployment artefacts pass;
-it cannot attest that the browser suite is green *today*, because it was not run.
+| Journey | State | What actually supports this claim today |
+|---|---|---|
+| Sign in, forced password change | **NOT VERIFIED this session** | `02-auth.spec.ts` exists; not run standalone this session — folded into the E2E row above |
+| Build a graph, run a draft | **PARTIALLY VERIFIED** | `test_new_workflow_seed.py` is in the 264 backend tests that passed; the browser-driven version (`03-editor.spec.ts`) is in the E2E row |
+| Publish → activate → rollback stay distinct | **VERIFIED at the code level, this session** | new: `scripts/guardrails.py`'s structural check, proven to catch both directions of coupling by injection. The end-to-end browser journey (`04-lifecycle.spec.ts`) is in the E2E row |
+| Multi-tenant isolation | **VERIFIED at the code level** | `test_tenant_isolation.py` (AST walk over every service module) is in the 264 passing backend tests. The two-real-tenant browser proof (`07-tenancy.spec.ts`) is in the E2E row |
+| Secret never echoed | **VERIFIED at the unit level, this session; NOT VERIFIED end-to-end today** | `test_payload_integrity.py`'s existing suite plus this session's new retry-forwarding test are in the 264 passing tests. `scripts/smoke.py`'s live assertion of the same property was not re-run this session |
+| Idempotency and rate limits at 2 replicas | **NOT VERIFIED this session** | `08-idempotency-limits.spec.ts` exists; folded into the E2E row |
+| All of the above, in the browser, today | **See the E2E row above** | this is the only row that can turn "coverage exists" into "passed today" for a full journey |
 
 ---
 
-## Harness defects found and fixed
+## Proof of freshness — demonstrated live this session
 
-All three were in the SDLC wiring. None was a product defect.
+Every claim below has its exact commands and output in this session's
+transcript, not merely asserted here.
 
-### 1. CI gated a branch that does not exist — **the repository was ungated**
-
-`ci.yml` had `push: branches: [main]`. The default branch, locally and on the
-remote, is `master`. **No push to the default branch has ever triggered CI.**
-Pull requests still ran, so the repository looked green while its most important
-trigger was dead — precisely the defect that hides behind a badge.
-
-Fixed: the trigger names `master`. Guarded: `guardrails.py` now compares the
-push trigger against `.git/HEAD`, so this cannot silently recur.
-
-### 2. The `.ee` guardrail failed on the comment documenting it
-
-CI's ADR-015 step grepped for the text `.ee.` anywhere in `backend`, `frontend`
-and `workflow-engine/src`. It matched `binary-data.ts:23` — a comment explaining
-why that file deep-imports `BinaryData.service` instead of the package root,
-and naming the contract test that enforces it. Reproduced exactly:
-
+**1. Fingerprint determinism and sensitivity.**
 ```
-$ grep -rIln --include='*.ts' --include='*.py' -E "\.ee\." backend frontend workflow-engine/src
-workflow-engine/src/runtime/binary-data.ts
+$ python scripts/repo_fingerprint.py        # run twice, clean tree
+<identical hash both times>
+$ echo "" >> README.md && python scripts/repo_fingerprint.py
+<different hash>
+$ git checkout -- README.md && python scripts/repo_fingerprint.py
+<original hash, restored exactly>
 ```
 
-**The `guardrails` job failed on every pull request.** The comment documenting
-the rule broke the check enforcing it — and the repository's own stated
-principle is that a check failing on prose gets switched off within a week.
+**2. Evidence goes stale the instant the tree changes, and un-stales on
+revert.**
+```
+$ python scripts/verify.py targeted guardrails   # records evidence at fp=X
+$ python scripts/evidence.py check --kind verification --area guardrails
+CURRENT  verification/guardrails: PASS (fingerprint X)
+$ echo "" >> README.md
+$ python scripts/evidence.py check --kind verification --area guardrails
+STALE  verification/guardrails: recorded for X, current is Y   (exit 1)
+$ git checkout -- README.md
+$ python scripts/evidence.py check --kind verification --area guardrails
+CURRENT  ...   (exit 0)
+```
 
-Fixed: the check matches module specifiers (`import`/`require`/`from` paths
-ending in `.ee`), not arbitrary text. The runtime guarantee was never affected —
-`no-enterprise-source.test.ts` runs a real execution and asserts nothing
-matching `.ee.` reaches `require.cache`.
+**3. Reviewer verdicts go stale the same way.**
+```
+$ python scripts/record_review.py --reviewer architecture-reviewer \
+    --status FINDINGS --blocker 0 --important 2 --minor 1 --summary "..."
+$ python scripts/evidence.py check --kind review --area architecture-reviewer
+CURRENT ...
+$ echo "" >> README.md
+$ python scripts/evidence.py check --kind review --area architecture-reviewer
+STALE ...   (exit 1)
+```
+(This record is itself now stale in `evidence.py status` above, from the
+documentation edits made after it — which is the mechanism working as
+intended, not a defect in this document.)
 
-### 3. `ruff` failed on `master`
+**4. The completion gate blocks a detected completion claim on missing
+evidence, and allows it once evidence is current.**
+```
+$ echo '{"transcript_path":".../t1.jsonl"}' | python scripts/completion_gate.py
+# t1.jsonl's assistant text: "Implementation complete. Everything is passing."
+{"decision": "block", "reason": "... Missing:\n  - verification/quick ...\n  - verification/engine ...\n  - verification/guardrails ..."}
 
-Two unused imports (`pathlib` in `test_production_doctor.py:336`, `argparse` in
-`test_release_gate.py:168`). The backend job's Lint step would have failed. Both
-were genuinely unused locals; removing them touched no assertion.
+$ python scripts/verify.py quick && python scripts/verify.py targeted guardrails
+$ echo '{"transcript_path":".../t1.jsonl"}' | python scripts/completion_gate.py
+{}   # allowed
+```
+Also demonstrated: an honest `"STATUS: NOT DONE. Docker unavailable..."`
+message is let through without blocking; `stop_hook_active: true` always
+allows (loop safety); a message with no completion-claim phrasing (ordinary
+mid-task text) is never blocked.
 
-Together, defects 1–3 mean **CI was failing or not running on the default
-branch**. The product was healthy; the thing that was supposed to prove it was
-not.
+**5. The preflight write-gate blocks product-code edits with no declared
+scope, and unblocks on either declaration.**
+```
+$ echo '{"tool_name":"Edit","tool_input":{"file_path":".../backend/app/services/workflows.py",...}}' \
+    | python scripts/claude_guard.py
+{"...": "ask", "...reason": "... is product code, and no change is declared..."}
+
+$ echo '{"reason":"...", "declared_at":"..."}' > .claude/light-change.json
+$ echo '{"tool_name":"Edit", ...}' | python scripts/claude_guard.py
+{}   # allowed
+```
+Also demonstrated: the light-path file cap (5 files) escalates back to
+"ask, run /preflight" once exceeded; a real `.claude/active-change` pointing
+at a `docs/changes/<slug>/plan.md` also satisfies the gate; test files are
+exempt (writing a regression test is how a bugfix starts); `.claude/`,
+`docs/`, and top-level docs are never gated.
+
+**6. New guardrails catch the exact violation they name, by injection.**
+```
+$ echo "// new Workflow({ id: 'test' });" >> workflow-engine/src/logger.ts
+$ python scripts/guardrails.py
+[ FAIL ] one compiler: only compiler.ts constructs an n8n Workflow instance
+           workflow-engine/src/logger.ts:56: ...
+$ git checkout -- workflow-engine/src/logger.ts   # reverted
+```
+Same pattern proven for both directions of the Publish/Activate check
+(`publish()` assigning `workflow.status`; `activate()` constructing a
+`WorkflowVersion`) — both injected, both caught, both reverted.
+
+**7. New regression tests catch the exact defect they are named for, by
+reverting the fix.**
+```
+$ sed -i 's/_payload_for_engine(original)/_sanitize_payload(original.start_payload)/' \
+    backend/app/services/executions.py
+$ pytest tests/test_payload_integrity.py::TestRetryForwardsTheSealedPayloadNotThePreview
+FAILED ... assert {'password': '********'} == {'password': 'hunter2'}
+$ git checkout -- backend/app/services/executions.py   # reverted
+```
+Same pattern proven for the `engine_binding` leak test, via an injected
+`include_binding=True` on the non-admin `get_node` route.
 
 ---
 
-## Also changed, and why
+## Previously "documented-only" invariants — three closed, one narrowed
 
-The `guardrails` CI job was seven inline shell greps, runnable only by pushing.
-They are now one script, `scripts/guardrails.py`, called by both CI and
-`verify.py` — one definition of the rules, runnable locally and on Windows, and
-it prints the offending file and line. It gained two checks the greps did not
-have: the frontend carries no engine address (guardrail 1), and CI's push
-trigger names the default branch.
+From the first baseline's list of four:
 
----
-
-## Known product-level gaps
-
-Not defects found here — positions the repository takes deliberately, recorded
-so they are not mistaken for oversights.
-
-| Gap | Where recorded | Status |
+| Invariant | Then | Now |
 |---|---|---|
-| No row-level security; tenant scoping by query + AST walk + composite FK | ADR-030 | deliberate, internal pilot only |
-| The second security exception carried into the pilot | ADR-030 | deliberate, internal pilot only |
-| `commercial_gate: NOT_REVIEWED` — SUL covers internal delivery only | ADR-015 | blocks commercial release, correctly |
-| 285 of 294 nodes uncertified | `docs/node-catalog-backlog.md` | deliberate; tiered backlog exists |
-| Code node, community nodes, arbitrary execution disabled | ADR-014 | deliberate |
-| Wait/resume and long-lived execution out of scope | guardrail 14 | deliberate |
-| SheetJS resolves off-registry (1 of 896 lockfile entries) | `mirror_bundle.py` | needs explicit internal-registry publication |
+| Masked payload becoming execution input | documented only | **VERIFIED mechanically**: `TestRetryForwardsTheSealedPayloadNotThePreview` in `backend/tests/test_payload_integrity.py`, proven to catch the regression by reverting the fix |
+| A second product-graph → n8n translation site | documented only | **VERIFIED mechanically**: `scripts/guardrails.py`'s `there_is_exactly_one_compiler`, proven by injection |
+| Publish/Activate coupling | documented only | **VERIFIED mechanically**: `scripts/guardrails.py`'s `publish_never_activates_and_activate_never_publishes`, proven by injection in both directions |
+| `engine_binding` leaking into non-admin responses | documented only | **VERIFIED mechanically**: `backend/tests/test_node_catalog_projection.py`, both the direct projection test and an AST-based check over the router, proven by injection |
 
-## Invariants standing on documentation alone
+All four were closed with real behavioural or structural checks rather than
+naive text greps — see each mechanism's own docstring for why the chosen
+check is the specific, narrow thing that actually matters (e.g. "constructing
+a `Workflow` instance", not "importing `n8n-workflow`", which most of the
+engine legitimately does).
 
-From [ARCHITECTURE_INVARIANTS.md](ARCHITECTURE_INVARIANTS.md) — the thin places,
-and the best candidates for the next guard:
+## Remaining documented-only invariants
 
-- a redacted value becoming execution input (ADR-027) — nothing prevents it;
-- a second product-graph → n8n translation site appearing outside the compiler;
-- Publish and Activate becoming coupled;
-- an `engine_binding` leaking into a non-admin response (guardrail 9).
+None from the original four. New ones surfaced by this session's own work,
+listed rather than hidden:
 
----
+- **The completion gate's transcript heuristic** is phrase-based, not
+  semantic. Wording it does not recognise (see `completion_gate.py`'s
+  `COMPLETION_PATTERNS`) will not be blocked — `CLAUDE.md`'s
+  no-self-certification principle and the evidence system itself remain the
+  primary mechanism; this hook is a backstop, documented as such in its own
+  module docstring.
+- **The light-path file cap** (5 files) is a proxy for "how big has this
+  gotten", not a semantic judgement of complexity — a determined agent could
+  touch 5 *very* consequential lines and stay under it. It is a tripwire, not
+  a substitute for judgement about what warrants `/preflight`.
 
-## Verification run for this baseline
+## Remaining blockers
 
-| Command | Result |
-|---|---|
-| `verify.py quick` | **PASS** — 9/9 stages, 53s |
-| `verify.py targeted backend` (with `DATABASE_URL`) | **PASS** — 6/6 incl. migration round-trip, `alembic check`, no drift |
-| `verify.py targeted frontend` | **PASS** — 5/5 incl. `next build` |
-| `verify.py targeted engine` | **PASS** — 5/5 incl. 68 contract tests, `certify.py --check` |
-| `verify.py targeted deployment` | **PASS** — 5/5 incl. the refused production template, kustomize render |
-| `verify.py targeted backend` (no `DATABASE_URL`) | **exit 2, SKIP reported** — confirms an incomplete run is not called green |
-| `guardrails.py` | **PASS** — 8 checks, warns that `commercial_gate` is `NOT_REVIEWED` |
-| `verify.py full` | **NOT RUN** — would execute the 118-scenario browser suite against the running dev stack and mutate its data |
-| `scripts/smoke.py` | **NOT RUN** — same reason |
-
-**The browser suite and the smoke suite were not run in this session.** They are
-the two that catch defects existing only in the deployed shape, so this baseline
-is evidence about the sources, the contracts and the deployment artefacts — not
-about today's running deployment.
+1. **E2E did not pass today.** It ran, and failed at the sign-in step because
+   the long-lived dev stack's admin credential no longer matches what the
+   suite tries. This blocks *this document* from claiming any browser-level
+   journey evidence, but is not evidence of a product regression — the 134
+   tests that never ran are NOT VERIFIED, not FAIL. Re-run against a stack
+   with known credentials (freshest: `docker compose down -v && docker compose
+   up -d --build --wait`, which is also what item 4 below asks for anyway).
+2. `scripts/smoke.py` has not been re-run this session; its live
+   secret-never-echoed assertion is NOT VERIFIED today even though its unit-
+   level counterpart is.
+3. No UI_VISUAL or UI_JOURNEY evidence exists this session for any screen —
+   `/ui-review` was not run. Any UI-affecting change from this point should
+   not be called Done without it.
+4. A genuinely disposable-environment certification (`docker compose down -v`
+   → fresh install → smoke → e2e, the original bootstrap's §15) was **not**
+   attempted this session, to avoid mutating a stack that had been running
+   16+ hours and might carry state relied on elsewhere. That caution turned
+   out to have a cost — item 1 above is the direct consequence of the stack's
+   accumulated state. The disposable run is now the clearer next step, not
+   merely a nice-to-have: it would have produced real E2E evidence instead of
+   an environment-state failure.

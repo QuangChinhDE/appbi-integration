@@ -78,9 +78,12 @@ automatically via the `CLAUDE.md` in that directory.
 
 ## Procedures
 
-`/feature`, `/bugfix`, `/verify`, `/ui-review`, `/engine-node` —
+`/preflight`, `/feature`, `/bugfix`, `/verify`, `/ui-review`, `/engine-node` —
 see [.claude/skills/](.claude/skills/). Adding an n8n node is `/engine-node`,
-a certification exercise, not an import.
+a certification exercise, not an import. **Editing product code
+(`backend/app/**`, `frontend/src/**`, `workflow-engine/src/**`) with no active
+change declared is asked-about** by a `PreToolUse` hook until `/preflight` runs
+or a light-path fix is declared — see `.claude/skills/preflight/SKILL.md`.
 
 ---
 
@@ -120,6 +123,34 @@ Underlying commands, if you need one directly: `ruff check app tests` and
 `npm run typecheck|test|build` in `workflow-engine/`; `python
 scripts/certify.py --check`; `./run.sh test|smoke|e2e` (or `.\run.ps1`).
 
+### Evidence is valid only for the exact state that produced it
+
+`verify.py` fingerprints the repository (`scripts/repo_fingerprint.py`) and
+records what it found (`scripts/evidence.py`) against that fingerprint. **The
+instant a source file changes, evidence recorded for the old fingerprint is
+stale** — `python scripts/evidence.py status` shows what is current versus
+stale right now. Do not re-run one check, edit something else, and report the
+first check as still passing: check again.
+
+The same applies to review: a reviewer's verdict (`scripts/record_review.py`)
+is stamped with the fingerprint it reviewed. A fix made in response to a
+finding invalidates that review — the review-fix-review loop in
+[REVIEW.md](REVIEW.md) means the reviewer runs again on the result, not that
+the finding being addressed is itself proof the fix is right.
+
+`scripts/completion_gate.py` (a `Stop` hook) refuses an apparent completion
+claim when required evidence is missing or stale for the current state, and
+says exactly what to run. It is a backstop, not the primary mechanism — see
+the next point. Full pipeline: [docs/ai-sdlc/EVIDENCE_MODEL.md](docs/ai-sdlc/EVIDENCE_MODEL.md).
+
+### No self-certification by wording
+
+"I checked", "looks correct", "should work", "no defects found", "ready",
+"production-ready", "implementation complete" are not evidence. **Only a
+recorded, fingerprint-matched result from `scripts/verify.py` or
+`scripts/record_review.py` counts.** If you find yourself typing one of those
+phrases, run the check that would actually justify it first.
+
 ---
 
 ## Definition of Done
@@ -128,17 +159,21 @@ Full checklist: [docs/ai-sdlc/DEFINITION_OF_DONE.md](docs/ai-sdlc/DEFINITION_OF_
 The summary — a change is Done when, and not before:
 
 - intent / spec / plan exist for substantial work, and the diff matches the plan
-  or the deviation is written down;
-- lint and typecheck pass; the relevant suites pass;
+  or the deviation is written down (start with `/preflight`);
+- lint and typecheck pass; the relevant suites pass, **as current evidence**
+  (`python scripts/evidence.py status`), not as a memory of an earlier run;
 - engine behaviour changed ⇒ contract tests pass against the **real pinned
   runtime**; schema changed ⇒ migration applies, rolls back, re-applies, and
   `alembic check` is clean;
-- UI changed ⇒ it has been **looked at** in a browser, across the states in
-  [.claude/rules/frontend.md](.claude/rules/frontend.md). A rendering component
-  is not a finished feature;
+- UI changed ⇒ all three of **structural** (typecheck/build/component tests),
+  **visual** (screenshots actually captured and looked at) and **journey**
+  (the real deployed flow walked) evidence exist — see
+  [.claude/rules/frontend.md](.claude/rules/frontend.md). A rendering
+  component with green component tests is not a finished feature;
 - the acceptance journey in `acceptance.md` has been walked;
-- the reviewers in [REVIEW.md](REVIEW.md) have run, and **no BLOCKER is open**;
-- verification status is reported truthfully, SKIPs included.
+- the reviewers in [REVIEW.md](REVIEW.md) have run **against the current
+  diff** (a stale review does not count), and **no BLOCKER is open**;
+- verification status is reported truthfully, SKIPs (NOT RUN) included.
 
 Mark anything genuinely inapplicable **N/A with a reason**. "Not applicable"
 and "forgotten" must not look the same.

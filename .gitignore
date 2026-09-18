@@ -51,3 +51,14 @@ test-results/
 # Image tarballs from scripts/release_images.py. Hundreds of megabytes, and
 # reproducible from the tagged commit.
 dist/images/
+
+# Session-local verification/review evidence (scripts/evidence.py). Tied to a
+# repository fingerprint that is only meaningful on the machine that produced
+# it, and stale the instant the tree changes -- nothing here belongs in git.
+.claude/evidence/
+
+# Session-local preflight declarations (scripts/claude_guard.py). Which
+# change is active, or that a light-path fix was declared, is a fact about
+# this checkout's in-flight work, not the repository's history.
+.claude/active-change
+.claude/light-change.json

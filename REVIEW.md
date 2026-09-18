@@ -19,6 +19,43 @@ Reviewers are read-only by default. They report findings; they do not rewrite
 the implementation. That separation keeps the finding legible, and stops a
 reviewer from quietly fixing a symptom and reporting a pass.
 
+Every reviewer's **last** action is `scripts/record_review.py` (see
+`.claude/agents/*.md`), which stamps the verdict with
+`scripts/repo_fingerprint.py`'s current fingerprint. A review that only exists
+as text in the transcript is not evidence — nothing else can tell whether it
+happened, or against which version of the diff. `scripts/completion_gate.py`
+and `python scripts/evidence.py status` both read this record, not the
+transcript.
+
+## Review-fix-review is a loop, not a line
+
+```
+implementation fingerprint A
+        ↓
+review A                        ← scripts/record_review.py stamps fingerprint A
+        ↓
+findings
+        ↓
+fix
+        ↓
+fingerprint B                   ← the fix changed the diff
+        ↓
+review A is now STALE            (evidence.py: fingerprint mismatch)
+        ↓
+verification, then re-review B  ← the reviewer runs again, on the result
+```
+
+**A fix being made in response to a finding is not proof the fix is correct.**
+The review that found the problem was a review of the *broken* code; it says
+nothing about the patch. The relevant reviewer runs again on fingerprint B —
+mandatory for architecture, security, execution semantics, concurrency,
+tenancy and UI flow changes, and good practice everywhere else.
+
+This is automatic, not a discipline to remember: the moment the diff changes,
+`review/<reviewer>` for the old fingerprint reads STALE in
+`scripts/evidence.py status`, and the completion gate will not accept it as
+current evidence for the new state.
+
 ## The eleven dimensions
 
 Every change is reviewed against the dimensions that apply. Mark the rest
@@ -87,7 +124,9 @@ maintainability or consistency with an established convention.
 
 An agent that re-reads its own diff, decides the findings were overstated, and
 reports "implementation complete" has done the one thing this harness was built
-to prevent.
+to prevent. `blocker` and `important` counts in `scripts/record_review.py`'s
+output are what `scripts/completion_gate.py` actually checks — changing the
+prose summary without changing those numbers does not change the verdict.
 
 ## Recording it
 

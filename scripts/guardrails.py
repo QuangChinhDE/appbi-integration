@@ -195,6 +195,75 @@ def validation_describes_credentials_without_disclosing_them(r: Report) -> None:
     r.check("ADR-016", "validation sends credential descriptors, not values", offences)
 
 
+def there_is_exactly_one_compiler(r: Report) -> None:
+    """The product graph and the n8n graph are separate models (SRS §2.1),
+
+    translated in exactly one place. Constructing n8n's `Workflow` object is
+    the one irreversible step of that translation -- once a graph is a
+    `Workflow`, it is in n8n's model, not the product's -- so this checks the
+    one thing that actually matters: nowhere outside
+    `workflow-engine/src/compiler/compiler.ts` may call `new Workflow(`.
+
+    Deliberately not "only compiler.ts imports n8n-workflow": most of the
+    engine legitimately imports types and error classes from that package
+    (`INode`, `IRun`, ...), and a check that flagged every such import would
+    either misfire constantly or get narrowed into uselessness. Constructing
+    the Workflow instance is the specific, rare, meaningful act; grep for that
+    act, not for the import.
+    """
+    pattern = re.compile(r"new\s+Workflow\s*\(")
+    offences = [
+        h for h in hits(pattern, ROOT / "workflow-engine" / "src")
+        if not h.startswith("workflow-engine/src/compiler/compiler.ts:")
+    ]
+    r.check(
+        "one compiler",
+        "only compiler.ts constructs an n8n Workflow instance",
+        offences,
+    )
+
+
+def publish_never_activates_and_activate_never_publishes(r: Report) -> None:
+    """Publish and Activate are separate operations (SRS §2.1, ADR-009).
+
+    Checked structurally rather than by behaviour here (the behaviour is
+    covered by backend/tests/test_workflow_lifecycle.py): `publish()` must
+    never write `workflow.status` or `workflow.active_version_id`, and
+    `activate()` must never construct a new `WorkflowVersion`. A future edit
+    that starts doing either is exactly the coupling this guards against, and
+    it is cheap to catch as a source pattern because the two functions are
+    each one contiguous block in one file.
+    """
+    path = ROOT / "backend" / "app" / "services" / "workflows.py"
+    if not path.exists():
+        r.check("Publish != Activate", "publish() and activate() stay separate",
+                [f"{path.relative_to(ROOT).as_posix()} is missing"])
+        return
+
+    text = path.read_text(encoding="utf-8")
+    offences: list[str] = []
+
+    def _function_body(name: str) -> str | None:
+        match = re.search(rf"^async def {name}\(.*?\n(?=^async def |\Z)", text, re.M | re.S)
+        return match.group(0) if match else None
+
+    publish_body = _function_body("publish")
+    if publish_body is None:
+        offences.append("could not locate publish() to check")
+    elif re.search(r"\bworkflow\.status\s*=|\bworkflow\.active_version_id\s*=", publish_body):
+        offences.append("publish() assigns workflow.status or workflow.active_version_id "
+                         "-- that is activation, not publishing")
+
+    activate_body = _function_body("activate")
+    if activate_body is None:
+        offences.append("could not locate activate() to check")
+    elif re.search(r"\bWorkflowVersion\s*\(", activate_body):
+        offences.append("activate() constructs a WorkflowVersion -- that is publishing, "
+                         "not activation")
+
+    r.check("Publish != Activate", "publish() and activate() stay separate", offences)
+
+
 def the_licence_gate_is_recorded(r: Report) -> None:
     """SRS 33.1. Not a pass/fail on the value -- on the field existing.
 
@@ -255,6 +324,8 @@ CHECKS = [
     no_enterprise_source,
     the_frontend_talks_only_to_the_product,
     validation_describes_credentials_without_disclosing_them,
+    there_is_exactly_one_compiler,
+    publish_never_activates_and_activate_never_publishes,
     the_licence_gate_is_recorded,
     ci_listens_to_the_default_branch,
 ]

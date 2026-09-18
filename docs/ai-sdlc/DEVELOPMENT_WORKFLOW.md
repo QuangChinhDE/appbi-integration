@@ -6,18 +6,27 @@ this codebase; there is no general philosophy here.
 The shape of every substantial change:
 
 ```
-intent → spec → plan → build → verify → review → acceptance → full verify → Done
+session start → repository state check → preflight → implementation gate
+   → code → fingerprint → targeted verification → independent review
+   → acceptance → full verification → fingerprint → completion gate → Done
 ```
 
 An agent must not go `prompt → code → "done"`. Small obvious fixes may take a
-lighter path, but they still verify themselves.
+lighter path, but they still verify themselves. Full detail on the
+fingerprint/evidence pipeline: [EVIDENCE_MODEL.md](EVIDENCE_MODEL.md).
 
 ---
 
 ## Feature
 
-`/feature`. Full procedure in `.claude/skills/feature/SKILL.md`.
+`/preflight` then `/feature`. Full procedure in
+`.claude/skills/{preflight,feature}/SKILL.md`.
 
+0. **Preflight** — read intent/spec/plan/acceptance, inspect the current
+   implementation, name affected layers and invariants, classify risk, record
+   a starting verification and fingerprint, declare the active change. This is
+   what satisfies `claude_guard.py`'s preflight gate — product code stops
+   being asked-about once it runs.
 1. **Intent** — the user problem, who has it, what is out of scope, what success
    looks like. `docs/changes/<NNN>-<slug>/intent.md`.
 2. **Spec** — observable behaviour: primary flow, alternates, failures,
@@ -30,11 +39,17 @@ lighter path, but they still verify themselves.
 5. **Build** — against the approved scope. Read the existing implementation
    first; most "new" things have a precedent here.
 6. **Verify continuously** — `python scripts/verify.py quick` plus the targeted
-   test, after each meaningful piece.
-7. **Review** — the reviewer agents, independently. Findings in `review.md`.
+   test, after each meaningful piece. Each run records evidence at the current
+   fingerprint; an edit afterwards makes it stale again.
+7. **Review** — the reviewer agents, independently, each ending in
+   `scripts/record_review.py`. Findings in `review.md`. A fix in response to a
+   finding makes that review stale — the relevant reviewer runs again on the
+   result (REVIEW.md's review-fix-review loop).
 8. **Acceptance journey** — walked in the running product, not asserted.
 9. **Full verify** — `python scripts/verify.py full`, recorded verbatim.
-10. **Done** — against `DEFINITION_OF_DONE.md`, with no BLOCKER open.
+10. **Done** — against `DEFINITION_OF_DONE.md`, with no BLOCKER open and no
+    stale evidence. `scripts/completion_gate.py` checks this before an apparent
+    completion claim is allowed through.
 
 ## Bug
 
@@ -127,6 +142,14 @@ non-zero rather than call an incomplete run green.
 kind of change, and the rule that a BLOCKER blocks. Use the reviewer agents
 rather than re-reading your own diff — asking the context that wrote the code
 whether the code is right shares every assumption that produced the defect.
+
+## Evidence, in one place
+
+[EVIDENCE_MODEL.md](EVIDENCE_MODEL.md). Verification and review results are
+tied to a repository fingerprint (`scripts/repo_fingerprint.py`) and stop
+counting the moment the diff changes. `/preflight` starts the pipeline;
+`scripts/completion_gate.py` (a `Stop` hook) is what refuses a completion
+claim on stale or missing evidence rather than trusting the claim itself.
 
 ---
 

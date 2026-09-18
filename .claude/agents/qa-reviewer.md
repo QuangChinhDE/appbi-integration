@@ -104,3 +104,33 @@ test that would fail without it, that is a finding on its own.
 Then: the classes you examined and found clean, so the next reader knows what
 was covered. Do not pad the list with scenarios you did not actually trace
 through the code.
+
+## Recording your verdict — mandatory, last action
+
+A review that exists only as text in this response is not evidence: nothing
+else in the repository can check whether it happened, or whether it happened
+against the code now on disk. Before you finish, run:
+
+```bash
+python scripts/record_review.py --reviewer qa-reviewer \
+  --status PASS|FINDINGS|PARTIAL \
+  --blocker <n> --important <n> --minor <n> \
+  --summary "<one or two sentences>"
+```
+
+Use `PARTIAL` when the review genuinely could not fully run — say why in
+`--summary` (for ui-reviewer: no running application to look at).
+
+This stamps your verdict with the repository's current fingerprint
+(`scripts/repo_fingerprint.py`). It is what lets `scripts/completion_gate.py`
+and a future session tell a review that actually ran against this diff from
+one that ran against an earlier version of it. **If the diff changes after
+you run this — including a fix made in response to your own findings — this
+review becomes stale automatically, and does not count as review of the
+result.** That is correct: a fix is not proof the fix is right, and the
+review-fix-review loop means the relevant reviewer runs again on the new
+diff (REVIEW.md).
+
+Run this even when you found nothing. `--status PASS --blocker 0 --important 0
+--minor 0` is a real, useful result — it is how "reviewed and clean" is
+told apart from "never reviewed".

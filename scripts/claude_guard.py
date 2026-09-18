@@ -15,9 +15,10 @@ Two decisions are used:
            work is refused outright. The documented escape hatch is to declare
            the migration explicitly (see below), because an engine upgrade is
            a project, not an edit.
-  ask   -- migrations, CI, deployment, security-sensitive code, and anything
-           that looks like a test being removed or disabled. These are
-           legitimate often enough that blocking would be wrong, and
+  ask   -- migrations, CI, deployment, security-sensitive code, anything that
+           looks like a test being removed or disabled, and -- since the
+           preflight gate below -- product code edited with no declared scope.
+           These are legitimate often enough that blocking would be wrong, and
            consequential enough that they should never happen unnoticed.
 
 Declaring an engine migration:
@@ -27,6 +28,32 @@ Declaring an engine migration:
 where `docs/changes/<change-slug>/` exists and contains a `plan.md`. That is
 the acknowledgement: a named change artefact with a plan, which is exactly what
 ADR-013 requires before a pin moves.
+
+## The preflight gate
+
+Before this existed, an agent could start editing `backend/app/services/`
+without ever having read the existing implementation, named the affected
+layers, or checked which invariants apply -- `/feature` and `/preflight`
+described the right process, but nothing enforced starting it. Now: an edit
+to product code (`backend/app/**` excluding tests, `frontend/src/**`,
+`workflow-engine/src/**`, `e2e/tests/**`) is asked-about unless one of two
+markers exists:
+
+  `.claude/active-change`       one line, the slug of a `docs/changes/<slug>/`
+                                 directory that has a `plan.md`. Written by
+                                 `/preflight`.
+  `.claude/light-change.json`   `{"reason": "...", "declared_at": "..."}`, for
+                                 a genuinely small fix that does not warrant
+                                 the full artefact set (see .claude/skills/
+                                 feature/SKILL.md's light path). Capped: past
+                                 a handful of touched product files under one
+                                 declaration, the guard insists on a real
+                                 preflight instead -- a light path that keeps
+                                 growing is not a light fix.
+
+Editing the markers themselves, or anything under `docs/changes/`, `.claude/`,
+or the repository's top-level documentation, is never gated -- that is how the
+gate gets satisfied in the first place.
 
 Exit code is always 0 -- the decision travels in the JSON, and a crashing hook
 must not block the session. Anything unexpected falls through to `allow`,
@@ -38,10 +65,14 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+LIGHT_CHANGE_MARKER = ROOT / ".claude" / "light-change.json"
+ACTIVE_CHANGE_MARKER = ROOT / ".claude" / "active-change"
+LIGHT_PATH_FILE_CAP = 5
 
 
 def allow() -> dict:
@@ -106,6 +137,68 @@ DISABLING = re.compile(
 
 TEST_PATH = re.compile(r"(^|/)(tests?|e2e)/|\.(test|spec)\.[tj]sx?$|(^|/)test_[^/]+\.py$")
 
+# Product code the preflight gate cares about. Deliberately excludes tests
+# (writing a regression test is how a bugfix *starts*, per .claude/skills/
+# bugfix/SKILL.md) and excludes everything the gate itself needs edited to be
+# satisfied (docs/changes/, .claude/, top-level docs).
+PRODUCT_CODE_PREFIXES = (
+    "backend/app/",
+    "frontend/src/",
+    "workflow-engine/src/",
+)
+
+NEVER_GATED_PREFIXES = (
+    "docs/", ".claude/", "README.md", "CLAUDE.md", "REVIEW.md",
+)
+
+
+def is_product_code(rel: str) -> bool:
+    if any(rel.startswith(p) for p in NEVER_GATED_PREFIXES):
+        return False
+    if TEST_PATH.search(rel):
+        return False
+    return any(rel.startswith(p) for p in PRODUCT_CODE_PREFIXES)
+
+
+def active_change_slug() -> str | None:
+    if not ACTIVE_CHANGE_MARKER.exists():
+        return None
+    slug = ACTIVE_CHANGE_MARKER.read_text(encoding="utf-8").strip()
+    if slug and (ROOT / "docs" / "changes" / slug / "plan.md").exists():
+        return slug
+    return None
+
+
+def light_change_state() -> dict | None:
+    if not LIGHT_CHANGE_MARKER.exists():
+        return None
+    try:
+        return json.loads(LIGHT_CHANGE_MARKER.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def light_path_files_touched() -> int:
+    """How many distinct product files already differ from HEAD.
+
+    Cheap proxy for "how big has this 'light' fix actually gotten" -- a real
+    diff count against HEAD, not a count this script maintains itself (which
+    a fresh session would have no way to recover).
+    """
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "-uall"],
+            cwd=ROOT, capture_output=True, text=True, timeout=10,
+        ).stdout
+    except (subprocess.SubprocessError, OSError):
+        return 0
+    count = 0
+    for line in out.splitlines():
+        path = line[3:].strip()
+        if is_product_code(path):
+            count += 1
+    return count
+
 
 def relative(file_path: str) -> str | None:
     """The path relative to the repository root, in posix form."""
@@ -129,6 +222,42 @@ def engine_migration_declared() -> str | None:
 
 def check_write(rel: str, payload: dict) -> dict:
     """A file is being written or edited."""
+
+    if is_product_code(rel):
+        slug = active_change_slug()
+        light = light_change_state()
+
+        if not slug and not light:
+            return decide(
+                "ask",
+                f"{rel} is product code, and no change is declared for this session.\n\n"
+                "Substantial work should not begin implementation before intent, spec "
+                "and plan exist (`/feature`, or `/preflight`) -- so that review has "
+                "something to check the diff against, and so this session and any "
+                "session that resumes it can tell what is in flight.\n\n"
+                "If this is a real feature or bugfix: run `/preflight`, or create "
+                "docs/changes/<slug>/ with a plan.md and write the slug to "
+                ".claude/active-change.\n\n"
+                "If this is genuinely a small, self-contained fix: write "
+                ".claude/light-change.json as "
+                '{"reason": "<why this is small>", "declared_at": "<ISO time>"} '
+                "and proceed -- the light path still requires the targeted test and "
+                "final verification (.claude/skills/bugfix/SKILL.md).",
+            )
+
+        if light and not slug:
+            touched = light_path_files_touched()
+            if touched >= LIGHT_PATH_FILE_CAP:
+                return decide(
+                    "ask",
+                    f"{rel}: the light-path fix declared \"{light.get('reason', '?')}\" "
+                    f"has now touched {touched} product files, at or past the cap of "
+                    f"{LIGHT_PATH_FILE_CAP}.\n\n"
+                    "A light path that keeps growing is not a light fix. Run "
+                    "`/preflight` and continue as a proper change with intent, spec "
+                    "and plan -- that is what review and the completion gate will "
+                    "expect for something this size.",
+                )
 
     if rel in ENGINE_PINS:
         slug = engine_migration_declared()

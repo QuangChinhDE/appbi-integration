@@ -19,8 +19,16 @@ from __future__ import annotations
 import logging
 import uuid
 
+import uuid as _uuid
+
+import pytest
+
 from app.core import payload_vault
+from app.core.context import RequestContext
+from app.core.permissions import Role
 from app.core.redaction import MAX_ITEMS, MAX_STRING
+from app.models.enums import ExecutionStatus, TriggerType, VersionKind
+from app.services import executions
 from app.services.executions import _payload_for_engine, _sanitize_payload
 
 
@@ -128,3 +136,67 @@ class TestTheSplit:
         # Not `None`: the engine contract wants an object, and a manual run
         # with no payload is the most common case in the product.
         assert _payload_for_engine(_Execution(None, None)) == {}
+
+
+# ── the service call, not just the helper ───────────────────────────────────
+class TestRetryForwardsTheSealedPayloadNotThePreview:
+    """`_payload_for_engine` is exhaustively tested above in isolation.
+
+    What is not covered there is that `executions.retry()` actually calls it,
+    on the exact original row, rather than `_sanitize_payload` or the raw
+    `start_payload` preview column -- which is the one-line regression this
+    bug actually was ("the redacted value became execution input"): fixing
+    the helper and then still passing the wrong argument to it at the one call
+    site that matters would leave the product exactly as broken as before.
+
+    Documented in docs/ai-sdlc/ARCHITECTURE_INVARIANTS.md as a previously
+    "documented-only" invariant; this closes it to a mechanical check.
+    """
+
+    class _RetriableExecution:
+        def __init__(self) -> None:
+            self.id = _uuid.uuid4()
+            self.workspace_id = _uuid.uuid4()
+            self.workflow_id = _uuid.uuid4()
+            self.status = ExecutionStatus.FAILED
+            self.version_kind = VersionKind.PUBLISHED
+            self.trigger_type = TriggerType.MANUAL
+            self.workflow_version_id = _uuid.uuid4()
+            # The two payloads a bug could confuse: the sealed original, and
+            # the redacted preview a screen would show. Deliberately different
+            # so a test asserting the wrong one is picked would fail loudly.
+            self.start_payload_sealed = payload_vault.seal({"password": "hunter2"})
+            self.start_payload = {"password": "********"}
+
+    def _ctx(self) -> RequestContext:
+        return RequestContext(
+            user_id=_uuid.uuid4(), workspace_id=_uuid.uuid4(),
+            role=Role.OWNER, trace_id="trc_test",
+        )
+
+    @pytest.mark.asyncio
+    async def test_retry_sends_the_original_not_the_redacted_preview(self, monkeypatch):
+        original = self._RetriableExecution()
+        captured: dict = {}
+
+        async def fake_get(session, ctx, execution_id):
+            assert execution_id == original.id
+            return original
+
+        async def fake_create(session, ctx, workflow_id, **kwargs):
+            captured.update(kwargs)
+            return original  # the return value is not what this test checks
+
+        monkeypatch.setattr(executions, "get", fake_get)
+        monkeypatch.setattr(executions, "create", fake_create)
+
+        await executions.retry(session=None, ctx=self._ctx(), execution_id=original.id)
+
+        assert captured["start_payload"] == {"password": "hunter2"}, (
+            "retry() must forward the unsealed original payload -- if this "
+            "assertion sees the redacted preview instead, the fix for the "
+            "original defect has regressed at its one call site."
+        )
+        assert captured["start_payload"] != original.start_payload
+        assert captured["retry_of"] == original.id
+        assert captured["version_id"] == original.workflow_version_id

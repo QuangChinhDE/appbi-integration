@@ -13,6 +13,19 @@ minutes of use — and a second pass at three viewports found four more.
 So: assertions answer "does it work". Only looking answers "is it pleasant",
 and the two have different answers.
 
+## Three separate kinds of evidence — do not let one stand in for another
+
+| | What it is | What it proves | What it does NOT prove |
+|---|---|---|---|
+| **UI_STRUCTURAL** | typecheck, component tests, build, `11-appearance.spec.ts` | the code compiles, the components render, the measured invariants (no overflow, 12px floor, canvas share) hold | that a human looked at it, or that the flow makes sense |
+| **UI_VISUAL** | screenshots actually captured, actually opened and read, findings recorded, re-inspected after fixes | someone looked and can say what they saw | that the underlying user journey works end to end |
+| **UI_JOURNEY** | the real deployed product walked as a user would, through the actual flow | the feature works in the deployed shape, for a real sequence of actions | fine-grained visual polish outside that one path |
+
+**All three are required for "UI complete".** A green `verify.py targeted
+frontend` is UI_STRUCTURAL only — say so, do not call it "UI verified". This
+skill's job is to produce UI_VISUAL and UI_JOURNEY; record which you actually
+did (see step 6) rather than letting a structural pass imply the others.
+
 ## 1. Know what you are judging against
 
 Read the screen's acceptance criteria — `acceptance.md` in the change artefact,
@@ -92,12 +105,21 @@ three hardcoded `text-[10px]` survived a type-scale fix.
 
 Labels must come from `Field`, which wires the id both ways.
 
-## 6. Report findings
+## 6. Report findings, and record which kinds of evidence you produced
 
 Severity **BLOCKER / IMPORTANT / MINOR**, each with the screen, the viewport,
 what a user sees, why it matters, and the concrete fix. Attach the screenshot.
 "Spacing feels off" is not a finding; "the toolbar overflows at 390px and Run
 is cut by the right edge" is.
+
+If this ran as the `ui-reviewer` agent, its final `scripts/record_review.py`
+call's `--summary` states plainly which of UI_STRUCTURAL / UI_VISUAL /
+UI_JOURNEY were actually produced this pass — e.g. "UI_VISUAL and
+UI_JOURNEY: walked publish→activate at 3 viewports, 2 IMPORTANT findings" —
+and uses `--status PARTIAL` if the application could not be run (so only
+UI_STRUCTURAL exists). A summary that does not say which kinds ran defaults,
+for completion-gate purposes, to "structural only" — do not let a UI review
+that only read the JSX pass as one that looked at the screen.
 
 ## 7. Fix, then look again
 

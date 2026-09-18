@@ -29,9 +29,13 @@ Small obvious fixes may skip the artefacts — but not the verification below.
 | ☐ | `python scripts/guardrails.py` passes |
 | ☐ | `python scripts/verify.py full` has been run, and its result is recorded **verbatim** in `review.md` |
 | ☐ | Every stage reported **PASS / FAIL / NOT RUN** — no stage that did not execute is described as passing |
+| ☐ | `python scripts/evidence.py status` shows the relevant records **CURRENT**, i.e. matching `scripts/repo_fingerprint.py`'s value right now, not from an earlier point in the session |
 
 A `full` run that skipped stages is not a green repository. Say which stages
-did not run and why.
+did not run and why. **A verification run recorded before the last edit is not
+evidence about the diff being delivered** — re-run it. This is not a manual
+discipline to remember: `scripts/completion_gate.py` checks it before allowing
+a completion claim through, and will name exactly what is stale.
 
 ## 3. Engine behaviour changed?
 
@@ -66,14 +70,28 @@ did not run and why.
 
 ## 6. UI changed?
 
-| | Item |
-|---|---|
-| ☐ | It has been **looked at in a browser** — `/ui-review`, not only component tests |
-| ☐ | Checked at 1440×900, 1280×800 and 390×844 |
-| ☐ | Every state reviewed: initial, loading, empty, populated, long content, validation error, API failure, permission denied, disabled, engine unavailable |
-| ☐ | Errors are actionable — `remediation.action` reaches somewhere useful |
-| ☐ | Design-system primitives and tokens used; nothing renders below 12px after ancestor transforms |
-| ☐ | Every user-visible string is in `i18n.ts`, in both locales |
+Three separate kinds of evidence, none a substitute for another (see
+`.claude/skills/ui-review/SKILL.md`):
+
+| | Item | Evidence kind |
+|---|---|---|
+| ☐ | Typecheck, component tests, build, `11-appearance.spec.ts` pass | UI_STRUCTURAL |
+| ☐ | Screenshots actually captured, at 1440×900, 1280×800 and 390×844 | UI_VISUAL |
+| ☐ | Screenshots actually opened and read; findings recorded; re-inspected after fixes | UI_VISUAL |
+| ☐ | The real deployed flow walked as a user would, not asserted through the API | UI_JOURNEY |
+| ☐ | Every state reviewed: initial, loading, empty, populated, long content, validation error, API failure, permission denied, disabled, engine unavailable | UI_VISUAL |
+| ☐ | Errors are actionable — `remediation.action` reaches somewhere useful | UI_VISUAL / UI_JOURNEY |
+| ☐ | Design-system primitives and tokens used; nothing renders below 12px after ancestor transforms | UI_STRUCTURAL |
+| ☐ | Every user-visible string is in `i18n.ts`, in both locales | UI_STRUCTURAL |
+
+**A green UI_STRUCTURAL row is not "UI verified."** Component tests passing
+and a build succeeding prove the code compiles and the measured invariants
+hold; they say nothing about whether a human looked at the result or whether
+the flow makes sense. Do not report "UI complete" — or let
+`review/ui-reviewer` evidence be treated as current — unless UI_VISUAL and (for
+a flow, not a copy tweak) UI_JOURNEY evidence exist too. If the application
+could not be run, that is `--status PARTIAL` from the `ui-reviewer` agent and
+**NOT DONE for the UI dimension**, not a pass by default.
 
 A component that renders is not a finished feature.
 
@@ -90,7 +108,9 @@ A component that renders is not a finished feature.
 
 | | Item |
 |---|---|
-| ☐ | The reviewers mandatory for this kind of change have run (REVIEW.md) |
+| ☐ | The reviewers mandatory for this kind of change have run (REVIEW.md), each ending in `scripts/record_review.py` |
+| ☐ | Every recorded review's fingerprint matches the current one — a review stamped for an earlier diff is stale, even if the finding it raised was fixed |
+| ☐ | If a fix was made in response to a finding, the relevant reviewer ran **again** on the result (REVIEW.md's review-fix-review loop) |
 | ☐ | Review was done with fresh perspective, not by re-reading your own reasoning |
 | ☐ | **No BLOCKER is open** |
 | ☐ | Every IMPORTANT finding is fixed, or documented with a reason **and an owner** |

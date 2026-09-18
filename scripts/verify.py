@@ -24,6 +24,14 @@ commands in a README:
   * the exit status is non-zero if any stage FAILED, and the summary names the
     stage. `--allow-skips` is required before a run with SKIPs can exit zero,
     so `full` cannot quietly pass on a machine with no Docker.
+
+A third property, added once evidence needed to survive past the terminal
+scrollback: **a run's result is recorded against the exact repository state
+that produced it** (`scripts/evidence.py`, keyed by `scripts/repo_fingerprint.py`).
+`scripts/completion_gate.py` refuses a "Done" claim unless that record's
+fingerprint still matches the tree -- so editing a file after verifying it
+does not get to reuse the old green result. Pass `--no-evidence` to skip
+recording (for one-off manual runs that should not appear in the record).
 """
 
 from __future__ import annotations
@@ -37,6 +45,18 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(ROOT / "scripts"))
+import evidence  # noqa: E402  (needs ROOT on sys.path first)
+
+# A failing stage's captured output can contain characters (Vietnamese UI
+# strings, box-drawing glyphs Playwright uses for its diff output, ...) that
+# the Windows console's legacy code page cannot encode. Reporting *why* a
+# stage failed must not itself crash -- that turns "the e2e suite failed, see
+# below" into a traceback with no "below" in it. `errors="replace"` substitutes
+# an unprintable character rather than raising.
+for _stream in (sys.stdout, sys.stderr):
+    if hasattr(_stream, "reconfigure"):
+        _stream.reconfigure(errors="replace")
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
 
@@ -113,6 +133,13 @@ class Runner:
         if status != PASS:
             print(f"[{status}] {name} -- {detail}")
         return status
+
+    def mark(self) -> int:
+        """An index into `self.results`, to slice out one area's stages later."""
+        return len(self.results)
+
+    def since(self, mark: int) -> list[tuple[str, str, str]]:
+        return self.results[mark:]
 
     def report(self, *, allow_skips: bool) -> int:
         print("\n" + "=" * 68)
@@ -245,6 +272,63 @@ AREAS = {
 }
 
 
+def _tool_versions() -> dict[str, str]:
+    """Best-effort, for the evidence record. Never fails the run."""
+    versions: dict[str, str] = {}
+    checks = {
+        "python": [_python(), "--version"],
+        "node": ["node", "--version"],
+        "npm": ["npm.cmd" if os.name == "nt" else "npm", "--version"],
+        "docker": ["docker", "--version"],
+    }
+    for name, cmd in checks.items():
+        try:
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            versions[name] = (out.stdout or out.stderr).strip().splitlines()[0] if out.stdout or out.stderr else "?"
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            versions[name] = "not available"
+    return versions
+
+
+def record_evidence(r: Runner, *, area: str, depth: str, mark: int, fp_before: str) -> None:
+    """Record this area's result against the fingerprint it was checked at.
+
+    Fingerprints *before and after* the stages ran: if they differ, something
+    edited the tree mid-run (another process, a background hook, the person
+    at the keyboard) and the result is not trustworthy evidence about any
+    single state -- it is skipped with a loud warning rather than recorded
+    under either fingerprint.
+    """
+    stages = r.since(mark)
+    if not stages:
+        return
+
+    fp_after = evidence.current_fingerprint()
+    if fp_after != fp_before:
+        print(f"\n[evidence] NOT recorded for verification/{area}: the repository "
+              f"changed while these stages ran ({fp_before[:12]} -> {fp_after[:12]}). "
+              f"A result spanning two states is not evidence about either one -- "
+              f"re-run verification once the tree is settled.")
+        return
+
+    failed = [n for n, s, _ in stages if s == FAIL]
+    skipped = [n for n, s, _ in stages if s == SKIP]
+    status = "FAIL" if failed else ("PARTIAL" if skipped else "PASS")
+
+    detail = {
+        "stages": [{"name": n, "status": s, "detail": d} for n, s, d in stages],
+        "failed": failed,
+        "skipped": skipped,
+        "tool_versions": _tool_versions(),
+    }
+    rec = evidence.record(
+        kind="verification", area=area, status=status, depth=depth,
+        fingerprint=fp_after, detail=detail,
+    )
+    print(f"\n[evidence] recorded verification/{area} = {status} "
+          f"at fingerprint {rec['fingerprint'][:12]}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="The repository's verification entry point.",
@@ -255,18 +339,25 @@ def main() -> int:
     parser.add_argument("--allow-skips", action="store_true",
                         help="exit 0 even when a stage could not run (report the SKIPs)")
     parser.add_argument("-v", "--verbose", action="store_true", help="stream stage output")
+    parser.add_argument("--no-evidence", action="store_true",
+                        help="do not record an evidence file for this run")
     args = parser.parse_args()
 
     r = Runner(verbose=args.verbose)
+    record = not args.no_evidence
 
     if args.depth == "quick":
         # Fast enough to run between edits: lint, typecheck and the pure-logic
         # suites. No database, no containers, no build.
         print("QUICK verification -- not sufficient for Done.")
+        fp_before = evidence.current_fingerprint() if record else ""
+        mark = r.mark()
         backend(r)
         frontend(r)
         engine(r)
         guardrails(r)
+        if record:
+            record_evidence(r, area="quick", depth="quick", mark=mark, fp_before=fp_before)
         # quick is a working aid, so a missing toolchain should not fail it
         args.allow_skips = True
 
@@ -274,17 +365,28 @@ def main() -> int:
         if args.area not in AREAS:
             parser.error(f"area must be one of: {', '.join(sorted(AREAS))}")
         print(f"TARGETED verification: {args.area}")
+        fp_before = evidence.current_fingerprint() if record else ""
+        mark = r.mark()
         for group in AREAS[args.area]:
             group(r)
         # Guardrails are cheap and catch the mistake this repo most fears.
         if args.area != "guardrails":
             guardrails(r)
+        if record:
+            record_evidence(r, area=args.area, depth="targeted", mark=mark, fp_before=fp_before)
 
     else:
         print("FULL verification -- release quality.")
+        fp_before = evidence.current_fingerprint() if record else ""
+        full_mark = r.mark()
         for area in ("backend", "frontend", "engine", "guardrails", "deployment", "e2e"):
+            area_mark = r.mark()
             for group in AREAS[area]:
                 group(r)
+            if record:
+                record_evidence(r, area=area, depth="full", mark=area_mark, fp_before=fp_before)
+        if record:
+            record_evidence(r, area="full", depth="full", mark=full_mark, fp_before=fp_before)
 
     return r.report(allow_skips=args.allow_skips)
 
