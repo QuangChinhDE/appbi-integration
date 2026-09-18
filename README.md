@@ -407,6 +407,40 @@ webhook journey in `03-editor.spec.ts` now cover the seeded graph specifically
 
 ---
 
+## Working in this repository
+
+Development governance lives alongside the code, so a rule does not depend on
+whoever is at the keyboard remembering it.
+
+```bash
+python scripts/verify.py quick               # seconds; while working
+python scripts/verify.py targeted <area>     # backend|frontend|engine|deployment|guardrails|e2e
+python scripts/verify.py full                # release quality
+python scripts/guardrails.py                 # the architectural rules, locally
+```
+
+A stage that could not run reports **NOT RUN**, and `verify.py` exits non-zero
+rather than call an incomplete run green.
+
+| Where | What |
+|---|---|
+| [`CLAUDE.md`](CLAUDE.md) | the constitution: boundaries, invariants, commands, Done |
+| [`.claude/rules/`](.claude/rules/) | scoped rules per area, loaded per directory |
+| [`.claude/skills/`](.claude/skills/) | `/feature`, `/bugfix`, `/verify`, `/ui-review`, `/engine-node` |
+| [`.claude/agents/`](.claude/agents/) | independent reviewers: product, architecture, QA, UI |
+| [`REVIEW.md`](REVIEW.md) | the review dimensions, and what a BLOCKER obliges |
+| [`docs/ai-sdlc/`](docs/ai-sdlc/) | workflow, invariants, Definition of Done, baseline audit |
+| [`docs/changes/`](docs/changes/) | one intent/spec/plan/acceptance/review per substantial change |
+
+A `PreToolUse` hook (`scripts/claude_guard.py`) refuses an edit to the engine
+pins outright, and asks before a migration, a CI gate, deployment config,
+security-sensitive code, or a test being removed or disabled.
+
+Current state of the repository, with evidence:
+[`docs/ai-sdlc/BASELINE.md`](docs/ai-sdlc/BASELINE.md).
+
+---
+
 ## The rules this codebase keeps
 
 Each of these is a decision that would be expensive to reverse, so each is

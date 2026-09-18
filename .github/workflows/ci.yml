@@ -28,7 +28,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # The repository's default branch. A push workflow naming a branch that
+    # does not exist gates nothing, and the badge looks the same.
+    branches: [master]
   pull_request:
 
 concurrency:
@@ -410,78 +412,21 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
-      - name: The engine is the only thing that imports n8n
-        # Guardrails 2 and 10. Matched on imports and declared dependencies,
-        # not on any mention of the word: the ADRs and the adapter docstrings
-        # name n8n deliberately, and a check that failed on prose would be
-        # switched off within a week.
-        run: |
-          set -e
-          if grep -rIn --exclude-dir=node_modules -E "(from|require\(|import) *['\"]n8n-" backend frontend; then
-            echo "::error::n8n imported outside workflow-engine (guardrail 10)"
-            exit 1
-          fi
-          if grep -rIn -E "n8n[-_]" backend/requirements.txt frontend/package.json; then
-            echo "::error::n8n declared as a dependency outside workflow-engine"
-            exit 1
-          fi
-          echo "engine boundary is intact"
-
-      - name: The product schema carries no engine identity
-        # Guardrail 5, checked against the schema rather than the source: the
-        # rule is about what the database stores, and the migrations are the
-        # only place that settles it.
-        run: |
-          set -e
-          if grep -rIn -E "n8n" backend/migrations/versions/; then
-            echo "::error::an engine identifier reached the product schema (guardrail 5)"
-            exit 1
-          fi
-          echo "no engine identity in the product schema"
-
-      - name: No enterprise-only source
-        # ADR-015: `.ee` paths are not used, and copying one would be a licence
-        # problem rather than a code problem.
-        run: |
-          set -e
-          if grep -rIln --exclude-dir=node_modules --include='*.ts' --include='*.py' -E "\.ee\." backend frontend workflow-engine/src; then
-            echo "::error::reference to .ee source found (ADR-015)"
-            exit 1
-          fi
-          echo "no enterprise-only source referenced"
-
-      - name: A validation dry run resolves credentials without carrying their values
-        # Three layers independently decided "no secrets on validate" by dropping
-        # the credential list entirely, and each time that made every workflow
-        # that authenticates to anything impossible to publish -- the compiler
-        # cannot resolve a reference that was never sent. The rule is: send the
-        # id and the type, send an empty payload. This checks the two places
-        # that are easy to "simplify" back into a bug.
-        run: |
-          set -e
-          if ! grep -q 'credential_type": item.credential_type' backend/app/engine/n8n_service_adapter.py; then
-            echo "::error::the adapter no longer describes credentials on the validation path"
-            exit 1
-          fi
-          if grep -qE "credentials: \\[\\]" workflow-engine/src/server.ts; then
-            echo "::error::the engine validate route drops the credential list again"
-            exit 1
-          fi
-          echo "validation sends credential descriptors, not values"
-
-      - name: The commercial licence gate is recorded
-        # Not a pass/fail on the value: the point is that a release cannot claim
-        # the review happened when compatibility.yaml still says otherwise
-        # (SRS 33.1). It fails only if the field is missing entirely.
-        run: |
-          set -e
-          gate=$(grep -E "^ *commercial_gate:" compatibility.yaml | head -1 | cut -d: -f2- | tr -d ' "')
-          if [ -z "$gate" ]; then
-            echo "::error::licensing.commercial_gate is missing from compatibility.yaml"
-            exit 1
-          fi
-          echo "commercial gate: $gate"
-          if [ "$gate" != "APPROVED" ]; then
-            echo "::warning::n8n commercial review is $gate -- not releasable as a commercial delivery (LIC-N8N-001)"
-          fi
+      # One step, because these rules used to be seven shell greps here and
+      # nowhere else -- which meant a developer could only discover a boundary
+      # violation by pushing. `scripts/guardrails.py` is the same set, runnable
+      # locally and on Windows, and it is what `scripts/verify.py` calls. There
+      # is one definition of these rules and both CI and the developer run it.
+      #
+      # Covers: guardrail 1 (the frontend carries no engine address),
+      # guardrails 2/10 (only the engine imports or declares n8n), guardrail 5
+      # (no engine identity in the product schema), ADR-015 (no enterprise-only
+      # module imported), ADR-016 (validation describes credentials without
+      # disclosing them), SRS 33.1 (the commercial licence gate is recorded),
+      # and that this workflow's push trigger names the default branch.
+      - name: Architectural guardrails
+        run: python scripts/guardrails.py

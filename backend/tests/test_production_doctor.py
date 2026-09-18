@@ -333,7 +333,6 @@ class TestFileBackedSecrets:
         Read from the application's source rather than imported, because the
         doctor deliberately does not import the application.
         """
-        import pathlib
         import re
 
         config = (ROOT / "backend" / "app" / "core" / "config.py").read_text(

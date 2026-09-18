@@ -165,7 +165,6 @@ class TestLegal:
         If somebody adds `--delivery` to a pipeline and forgets it elsewhere,
         the forgotten call site must be the one that refuses.
         """
-        import argparse
         import inspect
 
         source = inspect.getsource(gate.main)
