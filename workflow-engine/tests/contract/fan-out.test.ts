@@ -1,20 +1,23 @@
 /**
- * SPIKE — does basic App-to-App fan-out need `split_in_batches`?
+ * Item fan-out semantics — a product contract, not an n8n implementation
+ * detail.
  *
- * `NODE_CAPABILITY_MATRIX.md` put `split_in_batches` at P0 on the assumption
- * that "call API B once per row of API A" requires it. That assumption was
- * never measured, and a node whose semantics are a loop is expensive to
- * certify and easy to get subtly wrong (a loop that runs twice produces
- * plausible output).
+ * AppBI's App-to-App integration story rests on this behaviour: a JSON array
+ * response becomes one item per element, and a downstream node executes once
+ * per item carrying that item's own values. Every "call API B for each row of
+ * API A" workflow depends on it, and no product node implements it — it is
+ * inherited from the execution runtime, which is precisely why it needs a
+ * contract test rather than an assumption.
  *
- * This spike answers the question against the real pinned runtime, using only
- * the nine nodes certified today. It is a spike, not a golden test: it exists
- * to settle a priority decision. Whatever it establishes becomes a real
- * contract test in Wave 0.
+ * **An engine upgrade must keep every assertion in this file true.** If a
+ * future runtime stops fanning out, or changes the pairing, the product's
+ * reference workflows produce silently wrong data rather than failing.
  *
- * Question: when an HTTP response is a JSON array of N objects, does a
- * downstream HTTP Request node execute N times, once per item, with each
- * request carrying that item's own values?
+ * Written originally as a spike, to settle whether `split_in_batches` belonged
+ * at P0 in the node catalogue. It does not — fan-out needs no loop node
+ * (`docs/changes/002-capability-audit/SPIKE_FANOUT_FINDINGS.md`). Promoted out
+ * of `tests/spike/` because what it measured turned out to be load-bearing:
+ * this is a release gate, and its name should say so.
  */
 
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
@@ -81,7 +84,7 @@ async function fanOutGraph(count: number) {
 	return { rows, list, detail, graph };
 }
 
-describe('SPIKE: fan-out without split_in_batches', () => {
+describe('item fan-out semantics', () => {
 	it('a JSON array response becomes one item per element', async () => {
 		const { graph } = await fanOutGraph(10);
 		const status = await run(graph);

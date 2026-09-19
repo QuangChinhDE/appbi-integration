@@ -106,7 +106,7 @@ operation surface, **L** = adds durable state or a product decision first.
 **`splitInBatches` — demoted from P0 by measurement.** This node was listed P0
 on the assumption that App-to-App fan-out requires it. **That assumption was
 wrong**, and a spike against the real runtime settled it
-(`SPIKE_FANOUT_FINDINGS.md`, `tests/spike/fan-out.spike.test.ts`, 5/5 pass):
+(`SPIKE_FANOUT_FINDINGS.md`, `tests/contract/fan-out.test.ts`, 5/5 pass):
 
 - a JSON array response already becomes one item per element;
 - a downstream HTTP node already runs **once per item**, correctly paired;

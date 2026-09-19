@@ -14,7 +14,13 @@ Coverage was read off the tests, not assumed:
 | error normalizer | `contract/error-normalizer.test.ts` | 11 |
 | egress | `contract/egress.test.ts` | 8 |
 | filter | `contract/filter-node.test.ts` | 5 |
+| **item fan-out** | `contract/fan-out.test.ts` | **5** |
 | enterprise / reachability | 2 files | 4 |
+
+**73 assertions across 8 files** as of fingerprint `d721ba3249b1a200`. The
+fan-out file was written as a spike during this audit and has been promoted
+into `contract/`: what it measured is a release gate, so its location and name
+now say so.
 
 **Legend.** OK = asserted today (test named). PART = the mechanism is covered
 but not this case. GAP = not covered.
@@ -27,7 +33,7 @@ The most common cause of "it worked in preview and broke on real data".
 
 | # | Case | Cov | Where / gap |
 |---|---|---|---|
-| 1.1 | 0 items (empty upstream result) | **GAP** | **Nothing asserts what a node does with an empty stream.** An HTTP node fed zero items runs zero times and every downstream branch is empty — the product should report SUCCEEDED with 0 items, not look like a failure |
+| 1.1 | 0 items (empty upstream result) | PART | **Engine level proven** by `contract/fan-out.test.ts`: an empty array produces zero downstream requests and status SUCCEEDED, so "no results today" is not reported as a failure. What the **UI** shows for a zero-item run is still untested — stays in Wave 0 |
 | 1.2 | 1 item | OK | `start -> edit fields sets a field on every item` |
 | 1.3 | N items | OK | `multi-item input propagates through every node` |
 | 1.4 | Nested object / array field | **GAP** | Expressions reaching `$json.a.b[0].c` |
@@ -37,6 +43,8 @@ The most common cause of "it worked in preview and broke on real data".
 | 1.8 | Unicode / emoji / RTL in a value | **GAP** | Matters for a Vietnamese-language product: encoding through the HTTP body, the preview, and the stored execution payload |
 | 1.9 | Very long string (~1 MB in one field) | **GAP** | Payload vault and preview truncation |
 | 1.10 | Heterogeneous items (item 1 has a field item 2 lacks) | **GAP** | Real API pagination produces this constantly |
+| 1.11 | A top-level JSON array **fans out** to one item per element, and a downstream node runs once per item, correctly paired | OK | `contract/fan-out.test.ts` — 10 items, paired in order; 100 items, 100 distinct requests. The behaviour the whole App-to-App story rests on |
+| 1.12 | A **nested** `{data: [...]}` payload arrives as **one** item and does not fan out | OK | `contract/fan-out.test.ts`. The boundary of 1.11, and the reason `item_lists`(splitOut) stays P0 |
 
 ## 2. Expressions
 
@@ -49,6 +57,7 @@ The most common cause of "it worked in preview and broke on real data".
 | 2.5 | Reference a node that does not exist | **GAP** | Should fail at validation, before publish — not at run time |
 | 2.6 | Date / number / string built-ins | **GAP** | Becomes load-bearing the moment `date_time` is certified |
 | 2.7 | Expression in a credential-bearing field | **GAP** | Must not become a way to interpolate a secret into a URL |
+| 2.8 | **Expression-looking text that is not an expression** | **GAP** | **Found by the fan-out spike, and the worst failure shape in this matrix.** `http://host/item/={{ $json.id }}` — the `=` mid-string rather than leading — is a Fixed value. The braces went to the server as literal text and the run returned **200 / SUCCEEDED with semantically wrong data**. Silent success beats a visible failure to the user's eye, so nothing prompts them to look. Needs a product decision, not only a test — see below |
 
 ## 3. Branching and merging
 
@@ -122,6 +131,14 @@ though both nodes pass alone.
 
 (`if -> merge` is already golden, so it is not repeated here.)
 
+**One pair is already covered**, and it is not in the list above because it
+needs no new node: `http_request -> http_request` fan-out, asserted by
+`contract/fan-out.test.ts` at 10 and 100 items with per-item pairing. It is the
+pair `split_in_batches -> http_request` was assumed to be needed for.
+
+These 20 pairs are **not** counted in the row totals below; they are a separate
+suite that does not exist yet.
+
 ## 6. Chaos and recovery
 
 | # | Case | Cov | Gap |
@@ -149,7 +166,7 @@ though both nodes pass alone.
 | # | Case | Cov | Note |
 |---|---|---|---|
 | 7.1 | 1 / 10 items | OK | implicitly |
-| 7.2 | 100 items | **GAP** | |
+| 7.2 | 100 items | OK | `contract/fan-out.test.ts` — 100 items produce 100 distinct downstream requests. Engine level; the UI at that size is row 7.6's concern |
 | 7.3 | 1000 items | **GAP** | Where preview truncation, payload-vault size and UI rendering all first bite |
 | 7.4 | 5-node graph | OK | goldens |
 | 7.5 | 10-node graph | **GAP** | |
@@ -164,7 +181,32 @@ its ceiling.
 
 ## The gap, summarised (deliverable 6)
 
-Of the **85** rows above: **19 OK**, **11 PART**, **55 GAP**.
+Of the **73** numbered rows above: **21 OK**, **11 PART**, **41 GAP**. Plus 20
+composition pairs in §5, none of which has a suite — one is incidentally
+covered by the fan-out contract test.
+
+**Correction.** An earlier version of this section said "85 rows: 19 OK, 11
+PART, 55 GAP". Those numbers were wrong — the real count at the time was 70
+rows, 18/10/42, and nothing summed to 85. They have been counted from the file
+rather than re-estimated, and the count is now reproducible:
+
+```bash
+f=docs/changes/002-capability-audit/WORKFLOW_STABILITY_MATRIX.md
+grep -cE '^\| [0-9]+\.[0-9]+ \|' $f                              # rows
+grep -E  '^\| [0-9]+\.[0-9]+ \|' $f | grep -cw 'OK'              # OK
+grep -E  '^\| [0-9]+\.[0-9]+ \|' $f | grep -cw 'PART'            # PART
+grep -E  '^\| [0-9]+\.[0-9]+ \|' $f | grep -c  '\*\*GAP\*\*'     # GAP
+```
+
+This is the second invented number found in this audit, after "`item_lists`
+unblocks 11 of 15". Both were summary figures over detail that was itself
+sound, which is the pattern: **the tables were checked and the totals were
+not.** Any future total in this change is expected to come with the command
+that produces it.
+
+The three rows that moved are all from the fan-out contract test: 1.1 GAP ->
+PART, 7.2 GAP -> OK, and two new rows (1.11, 1.12) added OK. One new GAP was
+added — 2.8, the silent-expression case that same test uncovered.
 
 The shape of the gap matters more than the number:
 
@@ -183,6 +225,60 @@ The shape of the gap matters more than the number:
 5. **Scale is entirely unmeasured** (§7).
 6. **§5 does not exist at all.** There is no composition test layer — it is a
    new suite, not an extension of an existing one.
+
+---
+
+---
+
+## Row 2.8 in full: the silent-expression decision
+
+This one needs a product answer before Wave 0 can test it, because there is no
+correct behaviour to assert against yet.
+
+**What the code does today.** `DynamicNodeForm.tsx` decides the mode from the
+value alone:
+
+```ts
+const EXPRESSION_PREFIX = '=';
+export const isExpression = (value: unknown): boolean =>
+  typeof value === 'string' && value.startsWith(EXPRESSION_PREFIX);
+```
+
+So "Fixed" and "Expression" are not stored state — they are a reading of the
+first character. Two failure shapes follow:
+
+| The user types (Fixed mode) | What happens |
+|---|---|
+| `http://h/item/{{ $json.id }}` | Sent literally. `{{ }}` is URL-encoded into the request. **200, SUCCEEDED, wrong data** |
+| `http://h/item/={{ $json.id }}` | Same — the `=` is not leading, so it is not an expression. This is the exact case the spike hit |
+| `=hello` typed as a literal | Silently *becomes* an expression. The inverse hazard |
+
+**Options considered.**
+
+1. **Validation warning at graph level (recommended).** A Fixed string value
+   containing `{{ … }}` raises a `WARNING` issue naming the node and field.
+   `services/graph.py` already has `is_expression`, `_walk_config_values` and a
+   `WARNING` severity, and the editor already renders validation issues — so
+   this is a rule added where the rules live, visible in both the editor and
+   the publish path, and it costs no new surface.
+2. **Block publish (error, not warning).** Rejected: `{{ }}` inside a literal
+   is legitimate for some payloads — a template body being POSTed to a service
+   that does its own interpolation. Making it a hard error breaks a real case
+   to catch a likely mistake.
+3. **Auto-switch the field to Expression mode.** Rejected: it silently rewrites
+   what the user typed, and it guesses. Guessing wrong here changes a URL.
+4. **Frontend-only inline hint.** Insufficient alone — the rule would live in
+   the UI, so the API and the worker would not honour it
+   ([backend.md](../../../.claude/rules/backend.md)). Good *in addition to* 1.
+
+**Recommendation: option 1, plus the inline affordance from option 4.** The
+warning is the enforcement; the inline hint next to the Fixed/Expression toggle
+("this looks like an expression — switch to Expression mode?") is the
+convenience that stops most users reaching the warning at all.
+
+Wave 0A implements and tests this. The acceptance assertion is explicit:
+**a Fixed value containing expression syntax must not reach a SUCCEEDED run
+without the user having been told.**
 
 ---
 

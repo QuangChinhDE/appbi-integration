@@ -2,7 +2,7 @@
 
 **Answer: no. `split_in_batches` is not P0, and the matrix was wrong to say so.**
 
-Measured, not reasoned. `workflow-engine/tests/spike/fan-out.spike.test.ts`,
+Measured, not reasoned. `workflow-engine/tests/contract/fan-out.test.ts`,
 against the real pinned runtime (n8n 1.14.1), using **only the nine nodes
 certified today**. 5 of 5 assertions pass.
 
@@ -68,14 +68,24 @@ summarize are unaffected by this spike and remain uncovered by any other node.
    *an expression that is not recognised as one should be detectable, not
    silently sent as text.*
 
-## Note: this spike is now part of the standing suite
+## Promoted out of `tests/spike/`
 
-`vitest.config.ts` includes `tests/**/*.test.ts`, so this file runs with every
-engine verification — the contract suite is **73 assertions across 8 files**,
-not 68 across 7. That is deliberate and left in place: the fan-out semantics it
-pins are exactly what an engine upgrade must keep true, and they are now
-asserted rather than assumed. It is documented as a spike because of *why* it
-was written, not because it is throwaway.
+`vitest.config.ts` includes `tests/**/*.test.ts`, so this file was running with
+every engine verification from the moment it was written — a temporary
+experiment had quietly become a release gate while its name still said
+"spike".
+
+That is resolved rather than tolerated: it now lives at
+**`workflow-engine/tests/contract/fan-out.test.ts`**, with a header stating
+that an engine upgrade must keep every assertion in it true. The behaviour it
+pins is load-bearing — no product node implements fan-out, it is inherited from
+the runtime — so a contract test is where it belongs. The contract suite is
+**73 assertions across 8 files**, up from 68 across 7.
+
+The general rule this earns: a test under `tests/spike/` that the standing
+suite picks up is either promoted or renamed out of the glob. It must not stay
+ambiguous. (`tests/spike/bootstrap-probe.ts` is correctly named — no
+`.test.ts`, so it is not collected.)
 
 ## Consequence for the reference workflows
 

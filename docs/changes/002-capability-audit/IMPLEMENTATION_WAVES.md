@@ -67,11 +67,21 @@ reference to a **skipped branch**, a reference to a **nonexistent node**, a
 `null` value present in a referenced field, a nested value (`$json.a.b[0].c`),
 and mixed types.
 
-Plus one row the spike added: **an expression that is not recognised as one**.
-Writing `http://host/item/={{ $json.id }}` (the `=` mid-string rather than
-leading) sent the braces to the server as literal text and returned SUCCEEDED
-with a 200. A silent wrong result is worse than a failure, and a user will make
-this mistake.
+Plus **row 2.8, the silent-expression case**, which is a product decision
+before it is a test. Writing `http://host/item/={{ $json.id }}` (the `=`
+mid-string rather than leading) sent the braces to the server as literal text
+and returned **200 / SUCCEEDED with wrong data**. The frontend infers
+Fixed-vs-Expression from `value.startsWith('=')`, so a Fixed value carrying
+`{{ }}` is indistinguishable from an intentional literal.
+
+The chosen behaviour (reasoning in the stability matrix, "Row 2.8 in full") is
+a **graph-validation `WARNING`** in `services/graph.py` — where the rules live,
+so the API and worker honour it too — plus an inline hint beside the
+Fixed/Expression toggle. Publish is *not* blocked: `{{ }}` in a literal is
+legitimate for a templated body.
+
+**Acceptance for this row:** a Fixed value containing expression syntax must
+not reach a SUCCEEDED run without the user having been told.
 
 ### Wave 0.3 — Composition, current nodes only
 
