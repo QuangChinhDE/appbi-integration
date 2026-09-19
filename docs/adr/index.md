@@ -1004,3 +1004,78 @@ because those two functions still mean exactly what they meant before.
 Enterprise-only feature in the version this product pins (ADR-013), so
 depending on it would be the licensing problem ADR-015 exists to avoid, not a
 shortcut around building one.
+
+---
+
+## ADR-032 — The engine version history, reconciled: 1.14.1 stands, and `release-v1` is an open decision with no code
+
+**Status.** Accepted, 2026-09-19. **Supersedes the version decision in
+ADR-024** and gives the `release-v1` choice recorded in commit `10a59c5` a home
+outside a commit message. ADR-024's *reachability* analysis and its
+override-not-upgrade reasoning are untouched and still stand.
+
+**Context.** Two records in this repository disagreed about the engine version,
+and a capability audit (`docs/changes/002-capability-audit/`) initially read
+only the first and concluded there was no unfinished migration. That was wrong,
+and the contradiction is worth fixing permanently rather than per-session.
+
+**The chronology, traced.**
+
+| When | Where | Target measured | Result | Decision |
+|---|---|---|---|---|
+| 2026-09-08 | ADR-024, in the initial commit | `n8n-core@1.122.46` + `nodes-base@1.121.50` (n8n-workflow left to npm to resolve) | **4 of 5 contract files fail**; 69 advisories, 7 critical; 1065 packages vs 618; `n8n-workflow` ESM entry point does not resolve | Keep 1.14.1, fix reachable advisories with `overrides` |
+| 2026-09-18 | commit `10a59c5` message | **`release-v1`**: `n8n-core@1.122.48` / `n8n-workflow@1.120.31` / `nodes-base@1.121.53` | **65 of 68 contract tests pass**; same major; 308 nodes; +30% size | "measured and chosen", migration **unfinished** |
+
+**These are two different candidates, not one.** The later one pins
+`n8n-workflow` explicitly at `1.120.31`; the earlier one did not pin it at all,
+which is the most likely reason ADR-024 hit an unresolvable ESM entry point and
+the later attempt did not. Quoting ADR-024's "4 of 5 files fail" as the current
+state of a `release-v1` migration is therefore a category error — it describes
+a different, earlier, less careful spike.
+
+**The decision that came last is `release-v1`, and it is not implemented.**
+Searching the tree for `release-v1`, `1.122`, `1.121` or `1.120.31` finds
+nothing outside ADR-024's own table. There is no branch, no tag, no ADR and no
+code: the 65/68 migration was done in a throwaway tree and never committed.
+What survives is an intent recorded in the commit message of a vendoring script
+that was itself deliberately not run.
+
+**Decision.**
+
+1. **The runtime stays pinned at 1.14.1.** Nothing in flight depends on moving,
+   and `compatibility.yaml` / `node-lock.json` remain the release contract.
+2. **`release-v1` is recorded here as an open, preferred future target** rather
+   than as a settled migration. It is preferred because it was measured to
+   65/68 on the same major with a larger node set; it is open because the work
+   does not exist in the repository.
+3. **The three remaining failures are the gate, and two of them are
+   licensing.** Two of the three are the assertion that no Enterprise source
+   reaches the runtime. `ee_source_loaded_by_runtime` must stay false for
+   **every** delivery including internal (ADR-015), so those two are not a
+   remainder to mop up — they are a blocking condition. The migration is closer
+   than ADR-024 suggests and further than "65/68" suggests.
+4. **This ADR is the single source of truth for the version question.** A
+   future reader who finds a different number in ADR-024 or in a commit message
+   should read this table rather than re-deciding.
+
+**Why not migrate first.** The capability and stability work that matters next
+is version-independent: proving the nine certified nodes behave under real
+data, real HTTP failures and engine loss does not depend on which n8n line runs
+underneath, and its tests are written against the **normalized product DTO**,
+not against `IRun`, precisely so they survive the move. Blocking that work
+behind a migration whose remaining failures are a licensing guardrail trades
+certain progress for uncertain progress.
+
+**Revisit when** any of: a required node exists only after 1.14; a reachable
+advisory appears that an `override` cannot fix (ADR-024's own trigger); OAuth2
+becomes a pilot requirement; or durable wait/resume is scheduled.
+
+**Consequences.** The `release-v1` measurements are now recoverable from a
+tracked document. If that migration is resumed it starts as its own change
+artefact with a compatibility analysis and a green contract suite (ADR-013),
+and re-certification of the then-current node catalogue is part of its cost,
+which is an argument for keeping the catalogue small until the line is settled.
+
+**Rejected.** Deleting or editing ADR-024's table to remove the contradiction.
+The measurements in it are real and were correct for what they measured;
+rewriting history to look consistent is how the next contradiction gets built.

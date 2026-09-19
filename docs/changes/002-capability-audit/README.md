@@ -26,9 +26,38 @@ that into a real answer.
 | 3 | [ENGINE_VERSION_RECOMMENDATION.md](ENGINE_VERSION_RECOMMENDATION.md) | **Stay on 1.14.1**, with the named triggers for revisiting |
 | 4, 6 | [WORKFLOW_STABILITY_MATRIX.md](WORKFLOW_STABILITY_MATRIX.md) | 85 stability rows, each marked against the tests that exist |
 | 5 | [REFERENCE_WORKFLOWS.md](REFERENCE_WORKFLOWS.md) | Fifteen workflows as the acceptance criterion for the whole expansion |
-| 7, 8 | [IMPLEMENTATION_WAVES.md](IMPLEMENTATION_WAVES.md) | Five waves, 42–64 days, risk per wave |
+| 7, 8 | [IMPLEMENTATION_WAVES.md](IMPLEMENTATION_WAVES.md) | Six waves, ~45–69 days indicative, risk per wave. **Only Wave 0 is approved or plannable** |
+| — | [SPIKE_FANOUT_FINDINGS.md](SPIKE_FANOUT_FINDINGS.md) | Measured: basic App-to-App fan-out needs no loop node |
 
-## Three corrections to the brief
+## Review round 1 — four corrections
+
+The audit was reviewed and four things in it were wrong or unproven. All are
+fixed above; recording them here because a roadmap built on an unchecked
+premise is the thing this change exists to prevent.
+
+1. **The engine-version history was contradictory** and this audit read only
+   half of it. ADR-024 (08 Sep) rejected `core@1.122.46`; commit `10a59c5`
+   (18 Sep) measured and *chose* `release-v1` (`1.122.48 / 1.120.31 /
+   1.121.53`) at **65 of 68 tests passing**, migration unfinished. Two
+   different candidates, and the later decision was recorded only in a commit
+   message. Reconciled permanently in **ADR-032**, which supersedes ADR-024 on
+   the version question. The `1.14.1` recommendation stands, on better grounds:
+   two of the three remaining failures are the no-Enterprise-source assertion,
+   a licensing gate (ADR-015) — and nothing we want to do next is waiting on
+   the migration either way.
+2. **"`item_lists` unblocks 11 of 15 workflows" was an invented number.** The
+   real count is **5** (now 4, after the spike). Corrected, not re-derived.
+3. **`split_in_batches` was not P0.** A spike against the real runtime proved
+   basic fan-out needs no loop node at all: an array response already becomes
+   one item per element and a downstream HTTP node already runs once per item,
+   correctly paired, 100 for 100. Demoted to its own late wave.
+4. **Runtime auth support was being read as product readiness.** The matrix now
+   tracks `Runtime auth path` and `Customer credential UX` separately. Google
+   Sheets is the case in point: a service account works technically and still
+   puts a five-step GCP setup, ending in sharing a sheet with a machine email,
+   in front of a non-technical customer. **Not onboarding-ready.**
+
+## Three corrections to the original brief
 
 Each was checked against the installed runtime or the repository, not inferred.
 
@@ -41,11 +70,9 @@ Each was checked against the installed runtime or the repository, not inferred.
    The split into separate Aggregate/Sort/Limit/Split-Out nodes happened after
    1.14 — which is what your screenshot shows. One certification buys six
    operations.
-3. **There is no unfinished engine migration.** The 1.12x work you remember is
-   ADR-024's spike, and it *completed with a rejection*: 4 of 5 contract files
-   fail, 69 advisories (7 critical) against 29, 1065 packages against 618, and
-   an ESM entry point that does not resolve. Option B is not "finish it", it is
-   "start one".
+3. ~~There is no unfinished engine migration.~~ **This was wrong** — see
+   correction 1 above and ADR-032. There *is* a chosen target (`release-v1`) at
+   65/68, but the work exists nowhere in the repository.
 
 ## The main recommendation
 
@@ -60,7 +87,11 @@ are stacked on top — and right now nobody knows either way.
 
 ## Status
 
-Audit complete, awaiting your agreement on the matrix. Per your instruction, no
-node certification starts until then; after that, batches of 3–5 through
-`/engine-node` with contract tests, composition tests, real UI configuration
-and a reference workflow each.
+**Wave 0 is approved and scoped** (HTTP semantics, expressions, current-node
+composition, basic engine loss, W01–W06 + W08a, and ten named deliverables).
+No new node is certified in it.
+
+Waves 1–4 are **not** a delivery commitment. They are re-estimated from Wave 0's
+measured effort before the capability roadmap is committed. Node certification
+then proceeds in batches of 3–5 through `/engine-node`, each with contract
+tests, composition tests, real UI configuration and a reference workflow.

@@ -8,25 +8,49 @@ You were right to ask this before we certify 7 more nodes — certifying on one
 line and then migrating would mean re-certifying everything. But the premise
 needs one correction first.
 
-## There is no unfinished migration to finish
+## Correction: you were right, and this document was wrong
 
-The "research/tooling for a ~1.12x line, migration unfinished" is, as far as
-the repository goes, **a completed spike that concluded no**. What exists:
+An earlier version of this file claimed there was no unfinished migration and
+quoted "4 of 5 contract files fail" as the current state. **Both were wrong**,
+and you caught it. The full trace is now **ADR-032**, which is the single
+source of truth for this question; the short version:
 
-| Artefact | What it actually is |
-|---|---|
-| ADR-024's upgrade table | A **measured** comparison of three upgrade targets against the pin. Finished, with a decision. |
-| `workflow-engine/tests/spike/bootstrap-probe.ts` | The original Phase-A go/no-go probe for embedding `WorkflowExecute` at all. Unrelated to any upgrade. |
-| `scripts/vendor_npm.py`, `scripts/mirror_bundle.py` | Supply-chain tooling — vendoring and registry mirroring for the **current** pin. |
+| When | Where | Target | Result | Decision |
+|---|---|---|---|---|
+| 2026-09-08 | ADR-024 | `core@1.122.46` + `nodes-base@1.121.50`, n8n-workflow unpinned | 4 of 5 contract files fail | keep 1.14.1 |
+| 2026-09-18 | commit `10a59c5` | **`release-v1`**: `core@1.122.48` / `workflow@1.120.31` / `nodes-base@1.121.53` | **65 of 68 tests pass** | "measured and chosen", migration unfinished |
 
-`git log --all` and `git branch -a` show no migration branch, and no file in
-the tree references a 1.12x target as in-progress. So Option B is not
-"finish the migration"; it is "start one", and the spike already says what it
-would cost.
+**They are two different candidates.** The later one pins `n8n-workflow`
+explicitly, which is the likeliest reason it did not hit the unresolvable ESM
+entry point that sank the earlier spike. Quoting the 4-of-5 figure against
+`release-v1` was a category error on my part.
 
-## What the spike measured
+**What is true about the code:** searching the tree for `release-v1`, `1.122`,
+`1.121` or `1.120.31` finds nothing outside ADR-024's own table. No branch, no
+tag, no ADR, no code. The 65/68 migration was done in a throwaway tree and
+never committed. So the decision was taken and the work does not exist.
 
-From ADR-024, in throwaway trees rather than in the project:
+**Why the recommendation still stands**, on better grounds than before:
+
+- Two of the three remaining failures are the assertion that **no Enterprise
+  source reaches the runtime**. `ee_source_loaded_by_runtime` must stay false
+  for every delivery including internal (ADR-015), so those are a **blocking
+  licensing condition**, not a remainder to mop up.
+- The work that matters next is **version-independent**. Proving the nine
+  certified nodes behave under real data, real HTTP failures and engine loss
+  does not depend on which n8n line runs underneath, and those tests assert on
+  the normalized product DTO rather than `IRun` precisely so they survive a
+  move.
+
+So the honest framing is not "migration is a repair job" but: *the migration is
+closer than ADR-024 suggests, further than 65/68 suggests, and blocked on a
+licensing guardrail — and nothing we want to do next is waiting on it.*
+
+## What the earlier spike measured
+
+From ADR-024, in throwaway trees rather than in the project. Retained because
+the reachability analysis and the override reasoning are still correct; the
+1.12x row describes the **earlier** candidate, not `release-v1`:
 
 | Target | Contract tests | `npm audit` total | axios advisory |
 |---|---|---|---|
@@ -51,9 +75,9 @@ security outcome the upgrade was supposed to buy.
 
 | Criterion | 1.14.1 (Option A) | Migrate first (Option B) |
 |---|---|---|
-| **Compatibility** | 61 contract tests green; 9 nodes certified against it | 4 of 5 contract files fail today; ESM resolution is a build defect, not a flake |
-| **Available nodes** | All 7 in the Minimum Practical Catalogue exist and load. `itemLists@3` gives six operations in one node | Marginally more, mostly the *split* of `itemLists` into six nodes — more certification work for the same capability |
-| **Current contract failures** | **0** | **4 of 5 files** |
+| **Compatibility** | 68 contract tests green; 9 nodes certified against it | `release-v1` reached **65 of 68**, same major. Real, and not in the repository |
+| **Available nodes** | All 7 in the Minimum Practical Catalogue exist and load. `itemLists@3` gives six operations in one node | 308 nodes, and AI nodes become available. The transform pack splits into six nodes — more certification work for the same capability, but a genuinely larger ceiling |
+| **Current contract failures** | **0** | **3**, two of which are the no-Enterprise-source assertion — a licensing gate (ADR-015), not a remainder |
 | **Dependency / security surface** | 618 packages, 29 advisories, 16 of 18 audited packages never loaded (allowlist is closed), axios cleared by override | 1065 packages, 69 advisories, 7 critical |
 | **Migration effort** | none | Re-verify the compiler (ADR-023 pins execution order and condition types), re-certify all 9 nodes, re-baseline 15 golden workflows, fix the ESM build |
 | **Licensing** | Unchanged. SUL, internal delivery only; `ee_source_loaded_by_runtime: false` proven by a runtime test | **Must be re-proven.** The deep-import that keeps Enterprise `ObjectStore` out of the process is specific to this line's entry point |
@@ -66,9 +90,10 @@ instead of 9. That is the cost of deferring.
 
 It does not win **now** because:
 
-1. Migration today is not a version bump, it is a repair job — 4 of 5 contract
-   files fail before any new node is involved. Doing that first blocks all
-   capability work behind a task with no estimate.
+1. Its remaining 3 failures include the Enterprise-source guardrail, which is a
+   licensing condition rather than a bug to fix, and the work itself is not in
+   the repository — so "finish the migration" starts by reconstructing it.
+   Doing that first blocks all capability work behind a task with no estimate.
 2. The capability gap is not caused by the version. Every P0/P1 node in the
    matrix exists on 1.14.1 and loads. Nothing the pilot needs is on the other
    side of the upgrade.

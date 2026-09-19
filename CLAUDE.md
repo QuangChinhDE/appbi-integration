@@ -58,7 +58,7 @@ Cite them by number. The five violated most easily by an agent in a hurry:
    never execution input. (7, ADR-027)
 
 Full text with rationale: [docs/ai-sdlc/ARCHITECTURE_INVARIANTS.md](docs/ai-sdlc/ARCHITECTURE_INVARIANTS.md).
-Decisions and what was rejected: [docs/adr/index.md](docs/adr/index.md) — 31 ADRs.
+Decisions and what was rejected: [docs/adr/index.md](docs/adr/index.md) — 32 ADRs.
 
 ---
 

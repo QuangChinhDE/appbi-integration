@@ -31,8 +31,15 @@ is **not what the runtime says**. Reading the latest version of each node:
 | Microsoft Excel v2 | `microsoftExcelOAuth2Api` only | **Yes — blocked** |
 | Microsoft Teams v1.1 | `microsoftTeamsOAuth2Api` only | **Yes — blocked** |
 
-**Of the integration pack, OAuth2 blocks only Microsoft.** Everything else has
-a first-class non-OAuth2 credential path that n8n supports natively. The
+**Of the integration pack, OAuth2 blocks only Microsoft** *at the runtime
+layer*. Everything else has a first-class non-OAuth2 credential path that n8n
+supports natively.
+
+**That is a statement about the runtime, not about onboarding.** Section C
+tracks `Runtime auth path` and `Customer credential UX` as separate columns,
+because a service-account JSON is technically sufficient and still puts a
+five-step GCP setup in front of a non-technical customer. Do not read this
+correction as "the integration pack is ready". The
 backlog already said this about Sheets ("a service account is much cheaper and
 usually enough internally"); what is new here is that it generalises.
 
@@ -92,15 +99,31 @@ operation surface, **L** = adds durable state or a product decision first.
 
 | Capability | Node (1.14.1) | User case | Priority | Current support | Blocker | Effort |
 |---|---|---|---|---|---|---|
-| Loop over items in batches | `splitInBatches@3` | "call API B once per row, 50 at a time, without tripping rate limits" | **P0** | **None** | none *(but see the note below)* | **M** |
+| Loop over items in batches | `splitInBatches@3` | "call API B once per row, 50 at a time, without tripping rate limits" | ~~P0~~ **P2** — see the spike note | **None** | none | **M** |
 | Wait / delay | `wait@1` | "pause 30s between pages"; "resume tomorrow" | **P1 (short) / P3 (long)** | **None** | **Yes — durability.** `features.wait_resume: false`; execution state is in memory, and `execution_stale_after_seconds: 120` means the reconciler marks anything quiet for 2 minutes `ENGINE_INTERRUPTED` | **L** |
 | Branch / merge (already have) | `if`, `switch`, `filter`, `merge` | — | — | **Certified** | — | — |
 
-**`splitInBatches` note.** It loops by feeding items back into the graph, so it
-depends on the compiler's pinned execution order (ADR-023). It needs a golden
-test asserting *loop termination and per-iteration item counts*, not just a
-final result — a loop that runs twice instead of once produces plausible output.
-This is the one Tier-1-looking node with a real engine-semantics risk.
+**`splitInBatches` — demoted from P0 by measurement.** This node was listed P0
+on the assumption that App-to-App fan-out requires it. **That assumption was
+wrong**, and a spike against the real runtime settled it
+(`SPIKE_FANOUT_FINDINGS.md`, `tests/spike/fan-out.spike.test.ts`, 5/5 pass):
+
+- a JSON array response already becomes one item per element;
+- a downstream HTTP node already runs **once per item**, correctly paired;
+- 100 items produce 100 distinct requests with **no batching node at all**.
+
+So the defining "call API B once per row of API A" pattern needs neither this
+node nor `splitOut`. What `splitInBatches` is actually for is narrower —
+staying under a rate limit, a controlled loop where each iteration depends on
+the last, pacing a large fan-out — all real, none required to build a working
+integration.
+
+It also carries the highest certification risk in the catalogue: it loops by
+feeding items back into the graph, so it depends on the compiler's pinned
+execution order (ADR-023), and it needs a golden test asserting *loop
+termination and per-iteration item counts* rather than a final result — a loop
+that runs twice produces plausible output. **High risk, low necessity: it
+should not be in the first batch.**
 
 **`wait` note.** A wait longer than `execution_stale_after_seconds` is not just
 unsupported, it is actively wrong today: the run would be reconciled to
@@ -109,6 +132,35 @@ a hard cap below the stale threshold and say so in the UI, or design durable
 resume first. **Do not certify it open-ended.**
 
 ### C. Integration
+
+**Technically supported is not product-ready.** A non-OAuth2 path means the
+*runtime* can authenticate; it says nothing about whether a customer can get
+themselves connected. These two are tracked separately, because conflating them
+is how "Google Sheets works" becomes a support ticket:
+
+| Node | Runtime auth path | Customer credential UX | Onboarding verdict |
+|---|---|---|---|
+| **Postgres** | `postgres` — host/port/db/user/password/ssl | The customer's DBA already has these. Normal for an internal tool | **Ready** |
+| **MySQL** | `mySql` | same | **Ready** |
+| **Email Send** | `smtp` — host/port/user/password | An IT-provided SMTP account. Familiar | **Ready** |
+| **Slack** | `slackApi` bot token | Create a Slack app, add scopes, install to workspace, copy the bot token. Several screens of Slack admin, but it is a documented path an ops person can follow | **Acceptable with a guide** |
+| **GitHub / GitLab** | `githubApi` / `gitlabApi` PAT | Generate a PAT with scopes. Routine for a developer audience | **Acceptable** |
+| **Google Sheets** | `googleApi` service account | **Create a GCP project, enable the Sheets API, create a service account, download a JSON key, then share the target sheet with the service account's email.** Technically usable, materially different from "Connect Google account" | **NOT onboarding-ready** |
+| **Microsoft Excel / Teams** | `microsoftExcel/TeamsOAuth2Api` only | n/a — blocked at the runtime layer | **Blocked** |
+
+The Google Sheets row is the one that matters and you named it exactly. The
+service account clears the *technical* block and leaves a five-step manual
+provisioning flow, including the non-obvious final step — sharing the sheet
+with a machine email address — which is where a non-technical customer stops
+and files a ticket. **Do not call Sheets an integration win because the runtime
+supports it.** Two honest options: ship it with a written onboarding guide and
+set the expectation that it is an admin-assisted setup, or treat proper OAuth2
+as the real requirement for this connector and schedule it as such.
+
+This is also a reason to prefer **Slack** over **Sheets** for the one
+discretionary slot in the minimum catalogue, unless the pilot customer
+specifically asks for Sheets — the runtime effort is the same and the
+onboarding cost is not.
 
 | Capability | Node (1.14.1) | User case | Priority | Current support | Blocker | Effort |
 |---|---|---|---|---|---|---|
@@ -136,13 +188,23 @@ certified today + 7 new = 16.**
 
 | # | Product node | n8n binding | Why it is in the minimum |
 |---|---|---|---|
-| 1 | `item_lists` | `itemLists@3` | Six operations. Unblocks 11 of 15 reference workflows |
+| 1 | `item_lists` | `itemLists@3` | Six operations in one certification. Needed by **5 of 15** reference workflows (W07, W08, W09, W10, W15) |
 | 2 | `date_time` | `dateTime@2` | Every scheduled/reporting flow formats or compares a date |
-| 3 | `split_in_batches` | `splitInBatches@3` | The "call B for each row of A" shape — the defining App-to-App pattern |
-| 4 | `postgres` | `postgres@2.3` | The most likely internal system of record |
-| 5 | `email_send` | `emailSend@2.1` | The cheapest "tell a human" that needs no SaaS account |
-| 6 | `xml` | `xml@1` | Without it, any non-JSON partner API is unreachable |
-| 7 | `slack` **or** `google_sheets` | `slack@2.1` / `googleSheets@4.1` | **Pick one by asking the pilot customer.** Both are "M"; certifying both doubles credential surface for one capability class |
+| 3 | `postgres` | `postgres@2.3` | The most likely internal system of record |
+| 4 | `email_send` | `emailSend@2.1` | The cheapest "tell a human" that needs no SaaS account |
+| 5 | `xml` | `xml@1` | Without it, any non-JSON partner API is unreachable |
+| 6 | `slack` **or** `google_sheets` | `slack@2.1` / `googleSheets@4.1` | **Pick one by asking the pilot customer.** Both are "M"; certifying both doubles credential surface for one capability class |
+| 7 | `split_in_batches` | `splitInBatches@3` | **Demoted to last.** Rate limiting and controlled loops only — basic fan-out does not need it (spike). Highest certification risk in the set |
+
+**Correction to an earlier figure.** This table previously said `item_lists`
+"unblocks 11 of 15 reference workflows". **That number was unfounded** — the
+reference-workflow coverage table counts **5** (W07, W08, W09, W10, W15), and
+there is no defensible indirect reading that reaches 11. It is corrected rather
+than re-derived, because a priority ordering built on an invented metric is
+worse than one built on a small honest one. Five of fifteen, from one
+certification carrying six operations, is still the best ratio in the
+catalogue — the argument survives the correction, which is the only reason the
+recommendation does not change.
 
 **Deliberately excluded from the minimum:** `wait` (needs the durability
 decision), Microsoft (needs OAuth2), MySQL/GitHub/GitLab (no identified pilot
