@@ -253,10 +253,15 @@ export function ExecutionDataPanel({
                     category={nodeResult.error.category}
                     technicalMessage={nodeResult.error.technical_message}
                     traceId={execution.trace_id}
+                    /* The server says what to do about a code; this reads that
+                       answer rather than recomputing one. It used to hardcode
+                       `NODE_AUTHENTICATION_FAILED -> UPDATE_CREDENTIAL`, which
+                       meant the run panel -- where a user actually meets a
+                       failed run -- offered a next step for one code out of
+                       twenty-three, and a network failure or a timeout was a
+                       dead end (Wave 0C, D-W0-10). */
                     remediation={resolveRemediation(
-                      nodeResult.error.code === 'NODE_AUTHENTICATION_FAILED'
-                        ? 'UPDATE_CREDENTIAL'
-                        : undefined,
+                      nodeResult.error.remediation?.action,
                       { workflowId, executionId: execution.id },
                     )}
                   />

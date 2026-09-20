@@ -89,6 +89,14 @@ repeat it:
 Enforcing this needs byte counting at the socket or agent level — a design task,
 not a smallest-coherent-fix.
 
+**This is worse than an unused contract field.** `.env` sets
+`EGRESS_MAX_RESPONSE_BYTES=8388608`, and `docker-compose.yml` passes an egress
+policy to the engine on both the api and worker paths. So the deployment
+**configures a response ceiling that silently does nothing** — an operator
+reading the configuration would reasonably believe the control exists. Raise
+the severity accordingly: a limit that is present, documented and inert is a
+worse state than one that was never offered.
+
 *Test present and `it.skip`ped with this reason.*
 
 ### D-W0-05 · CONFIRMED — not fixed · A runtime expression failure silently yields null
@@ -211,6 +219,62 @@ merge shapes behave as the compiler's pinned order says they should.
 
 ---
 
+## 0C — the reference workflows, through the UI
+
+Nine assertions, built the way a user builds them — **nothing seeded through
+the API**. Eight passed once my own test mistakes were corrected. One found a
+defect that 0A could not have found, because 0A never looked at a screen.
+
+### D-W0-10 · FIXED · The run panel could act on one error code out of twenty-three
+
+**Severity: high**, and strictly worse than D-W0-09 — that one was a gap in the
+lookup table, this is the caller ignoring the table entirely.
+
+Found by *looking at the screenshot*, not by an assertion. A 401 showed a
+proper primary button (*Cập nhật thông tin xác thực*). An unreachable host
+showed the same card with an excellent message — it names the host — and **no
+button at all**, only "technical details" and "copy support info".
+
+**Root cause.** `ExecutionDataPanel.tsx` hardcoded one case:
+
+```ts
+nodeResult.error.code === 'NODE_AUTHENTICATION_FAILED' ? 'UPDATE_CREDENTIAL' : undefined
+```
+
+It had to, because the stored node error carries `code`, `category`, `message`
+and `technical_message` and **no remediation** — so the frontend had nothing to
+read and re-derived the one case somebody needed. `ERROR_UX_MATRIX` knew the
+answer for all twenty-three codes and it never reached a failed run, which is
+where a user actually meets most of them.
+
+**Fix, in the layer that owns the rule.** `remediation_for(code)` in
+`core/errors.py`, applied to the stored error in `detail_view`. The frontend
+now reads `error.remediation.action`. Recomputing the mapping in the frontend
+was rejected: `.claude/rules/frontend.md` is explicit that a rule recomputed
+there gives two answers that diverge.
+
+**Evidence.** The e2e assertion was watched failing against the pre-fix images,
+then passing after a rebuild, and the screen was looked at both times: *Kiểm
+tra endpoint* now appears where there was nothing.
+
+### What the screens actually showed
+
+Captured and read, not merely asserted:
+
+- **A failed run opens on the error tab** with a sentence, not an identifier —
+  the run panel opening on an empty Output with the error one tab away was a
+  001 defect and it has stayed fixed.
+- **Per-node item counts are visible** in two places, on the canvas card
+  (`1 item`, `0 item`) and in the run panel's step list, with durations.
+- **The 2.8 warning appears in three places at once** — an amber banner, an
+  inline hint under the field offering the switch, and a badge on the node card
+  — and Run stays enabled, which is what the spec asked for.
+- **An invalid step is refused clearly.** An Edit Fields node with no fields
+  declared blocks the run and says so in the banner, on the card and under the
+  field. My first W01 attempt failed on this and the product was right.
+
+---
+
 ## Observations, not defects
 
 **O-1 · A revoked credential is refused before dispatch, which is better than
@@ -240,8 +304,11 @@ grep -c 'FIXED ·' docs/changes/003-wave-0-current-runtime-proof/DEFECT_INVENTOR
 
 | | |
 |---|---|
-| Defects found in 0A | **9** |
-| Fixed | **7** |
+| Defects found, 0A | **9** |
+| Defects found, 0B | **0** |
+| Defects found, 0C | **1** |
+| **Total** | **10** |
+| Fixed | **8** |
 | Confirmed, not fixed (reason recorded, test present and skipped) | **2** |
 | Observations | 2 |
 | Spec expectations corrected | 1 |

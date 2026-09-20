@@ -247,6 +247,28 @@ ERROR_UX_MATRIX: dict[str, tuple[int, ErrorCategory, str, str | None]] = {
 }
 
 
+def remediation_for(code: str | None) -> dict[str, str] | None:
+    """The next action for an error code, or None when there isn't one.
+
+    The same matrix that gives an API envelope its `remediation` also has to
+    reach a *failed execution*, which is where a user actually meets most of
+    these codes. It did not: the run panel could only offer a next step for
+    NODE_AUTHENTICATION_FAILED, because the node error carried no remediation
+    and the frontend had hardcoded the one case it cared about (Wave 0C,
+    D-W0-10).
+
+    Deriving it here rather than in the frontend keeps one answer to "what
+    should the user do about this code" -- the API, the worker and the editor
+    all read the same table.
+    """
+    if not code:
+        return None
+    entry = ERROR_UX_MATRIX.get(code)
+    if entry is None or entry[3] is None:
+        return None
+    return {"action": entry[3]}
+
+
 def error_from_matrix(code: str, **kwargs: Any) -> AppError:
     """Build an AppError from the UX matrix so wording stays uniform.
 

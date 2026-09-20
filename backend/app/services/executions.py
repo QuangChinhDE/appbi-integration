@@ -30,7 +30,7 @@ from app.core.context import RequestContext
 from app.core.db import utcnow
 from app.core.errors import (
     AppError, EngineUnavailableError, NotFoundError, QuotaExceededError,
-    ValidationError, error_from_matrix,
+    ValidationError, error_from_matrix, remediation_for,
 )
 from app.core.logging import log_event
 from app.core.permissions import Action, Module
@@ -746,6 +746,21 @@ def summary_view(execution: Execution, workflow_name: str | None = None) -> dict
     }
 
 
+def _error_with_remediation(error: dict[str, Any] | None) -> dict[str, Any] | None:
+    """A stored node error, plus the next action its code implies.
+
+    The engine records code, category and message; what to *do* about a code is
+    a product rule and lives in the UX matrix. Joining them here means the run
+    panel reads an answer instead of recomputing one (Wave 0C, D-W0-10).
+    """
+    if not error:
+        return error
+    action = remediation_for(error.get("code"))
+    if action is None:
+        return error
+    return {**error, "remediation": action}
+
+
 async def detail_view(
     session: AsyncSession, ctx: RequestContext, execution: Execution
 ) -> dict[str, Any]:
@@ -788,7 +803,7 @@ async def detail_view(
             "duration_ms": row.duration_ms,
             "item_count": row.item_count,
             "truncated": row.truncated,
-            "error": row.error_json,
+            "error": _error_with_remediation(row.error_json),
             "branch_metadata": row.branch_metadata,
             "has_payload": bool(row.output_preview),
         }

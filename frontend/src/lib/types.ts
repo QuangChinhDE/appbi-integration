@@ -291,6 +291,9 @@ export interface NodeRunResult {
     category?: string;
     message?: string;
     technical_message?: string;
+    /** What to do about it, from the backend's UX matrix. Absent for a code
+        that genuinely has no next action. */
+    remediation?: { action?: string; resource_id?: string } | null;
   } | null;
   branch_metadata: Record<string, unknown>;
   has_payload: boolean;

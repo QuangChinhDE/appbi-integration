@@ -423,3 +423,66 @@ class TestSessionTokensSurviveClockSkew:
 
         with pytest.raises(UnauthorizedError):
             security.decode_session_token(token)
+
+
+class TestRemediationReachesAFailedRun:
+    """Wave 0C, D-W0-10 — the run panel could only act on one code in twenty-three.
+
+    `ERROR_UX_MATRIX` says what a user should do about each code, and that
+    answer reached API error envelopes but never a *failed execution*, which is
+    where most of these codes are actually met. The frontend had compensated by
+    hardcoding `NODE_AUTHENTICATION_FAILED -> UPDATE_CREDENTIAL`, so a timeout
+    or an unreachable host showed a message and no way forward.
+    """
+
+    def test_every_code_with_an_action_offers_it(self):
+        from app.core.errors import ERROR_UX_MATRIX, remediation_for
+
+        for code, (_status, _category, _message, action) in ERROR_UX_MATRIX.items():
+            result = remediation_for(code)
+            if action is None:
+                assert result is None, f"{code} has no action but returned {result}"
+            else:
+                assert result == {"action": action}, code
+
+    def test_the_codes_a_failed_http_step_actually_produces(self):
+        # The four the Wave 0A contract tests prove the engine emits. Each one
+        # must give the user somewhere to go.
+        from app.core.errors import remediation_for
+
+        for code in (
+            "NODE_AUTHENTICATION_FAILED",
+            "NODE_NETWORK_UNREACHABLE",
+            "NODE_TIMEOUT",
+            "NODE_CONFIGURATION_INVALID",
+        ):
+            assert remediation_for(code) is not None, code
+
+    def test_an_unknown_or_absent_code_is_honest_about_having_no_answer(self):
+        from app.core.errors import remediation_for
+
+        assert remediation_for(None) is None
+        assert remediation_for("SOMETHING_NEW") is None
+
+    def test_a_stored_node_error_is_enriched_without_being_rewritten(self):
+        from app.services.executions import _error_with_remediation
+
+        stored = {
+            "code": "NODE_NETWORK_UNREACHABLE",
+            "category": "NETWORK",
+            "message": "Không kết nối được tới 'api.acme.com'.",
+            "technical_message": "ENOTFOUND",
+        }
+        enriched = _error_with_remediation(dict(stored))
+
+        assert enriched["remediation"] == {"action": "CHECK_ENDPOINT"}
+        # Everything the engine recorded survives untouched.
+        for key, value in stored.items():
+            assert enriched[key] == value
+
+    def test_nothing_is_invented_for_an_error_that_has_no_code(self):
+        from app.services.executions import _error_with_remediation
+
+        assert _error_with_remediation(None) is None
+        assert _error_with_remediation({}) == {}
+        assert "remediation" not in _error_with_remediation({"message": "x"})
