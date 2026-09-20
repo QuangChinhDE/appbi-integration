@@ -61,6 +61,14 @@ const server = createServer((req, res) => {
 		return send(res, code, { error: `deliberate ${code}` });
 	}
 
+	// /slow?ms=N -> holds the connection open, so a run can be caught in flight
+	// and the engine killed underneath it (Wave 0D)
+	if (path === '/slow') {
+		const ms = Number(url.searchParams.get('ms') ?? 60000);
+		setTimeout(() => send(res, 200, { slow: true, waited: ms }), ms);
+		return;
+	}
+
 	// /empty -> a well-formed empty list, for the "nothing to do today" journey
 	if (path === '/empty') return send(res, 200, []);
 

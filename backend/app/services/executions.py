@@ -424,9 +424,38 @@ async def dispatch(session: AsyncSession, execution: Execution) -> None:
     try:
         ref = await adapter.execute(request)
     except EngineUnavailableError as exc:
-        # Recoverable: put it back in the queue and let the next tick try. The
-        # engine's own idempotency on execution_id makes a duplicate dispatch
-        # safe if the call actually landed.
+        # Recoverable, but not forever (Wave 0D, D-W0-11).
+        #
+        # Requeueing alone retried indefinitely: every attempt re-enters this
+        # function, which sets `last_seen_at = utcnow()` before calling the
+        # engine, so the reconciler's staleness reference was refreshed on each
+        # pass and `_interrupt_if_stale` could never fire. With the engine
+        # stopped, a run sat active for as long as anyone watched -- observed
+        # still DISPATCHING after 200s against a 120s window. ADR-010 exists to
+        # prevent exactly that, and its "never dispatched" branch was
+        # unreachable for this path.
+        #
+        # Giving up is decided here rather than in the reconciler on purpose.
+        # Widening `active_executions` to include QUEUED would let the
+        # reconciler fail *legitimately queued* work during a backlog, because
+        # a queued run older than the window is indistinguishable from a
+        # stranded one from the outside. Here we already know why it is queued.
+        waited = utcnow() - execution.queued_at
+        if waited > timedelta(seconds=settings.execution_stale_after_seconds):
+            execution.status = ExecutionStatus.FAILED_TO_START
+            execution.error_code = "ENGINE_UNAVAILABLE"
+            execution.error_category = exc.category.value
+            execution.error_summary = exc.message
+            execution.ended_at = utcnow()
+            await session.flush()
+            log_event(logger, logging.ERROR, "execution.failed_to_start",
+                      execution_id=str(execution.id), code=exc.code,
+                      waited_seconds=int(waited.total_seconds()))
+            await _on_terminal(session, execution)
+            return
+
+        # The engine's own idempotency on execution_id makes a duplicate
+        # dispatch safe if the call actually landed.
         execution.status = ExecutionStatus.QUEUED
         execution.error_code = "ENGINE_UNAVAILABLE"
         execution.error_summary = exc.message

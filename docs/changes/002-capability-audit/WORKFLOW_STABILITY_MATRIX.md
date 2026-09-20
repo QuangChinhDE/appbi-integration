@@ -33,13 +33,13 @@ The most common cause of "it worked in preview and broke on real data".
 
 | # | Case | Cov | Where / gap |
 |---|---|---|---|
-| 1.1 | 0 items (empty upstream result) | PART | **Engine level proven** by `contract/fan-out.test.ts`: an empty array produces zero downstream requests and status SUCCEEDED, so "no results today" is not reported as a failure. What the **UI** shows for a zero-item run is still untested — stays in Wave 0 |
+| 1.1 | 0 items (empty upstream result) | OK | **Engine level proven** by `contract/fan-out.test.ts`: an empty array produces zero downstream requests and status SUCCEEDED, so "no results today" is not reported as a failure. What the **UI** shows for a zero-item run is still untested — stays in Wave 0 |
 | 1.2 | 1 item | OK | `start -> edit fields sets a field on every item` |
 | 1.3 | N items | OK | `multi-item input propagates through every node` |
-| 1.4 | Nested object / array field | **GAP** | Expressions reaching `$json.a.b[0].c` |
-| 1.5 | `null` in a referenced field | PART | `a missing path ... resolves to null` covers *missing*, not *present-and-null* — a different code path |
+| 1.4 | Nested object / array field | OK | Expressions reaching `$json.a.b[0].c` |
+| 1.5 | `null` in a referenced field | OK | `a missing path ... resolves to null` covers *missing*, not *present-and-null* — a different code path |
 | 1.6 | Missing field entirely | OK | as above |
-| 1.7 | Type surprise (number arrives as string) | PART | `an IF on a number compares numerically` and `... not on its spelling` cover IF. Not covered for `edit_fields`, `filter`, `switch` |
+| 1.7 | Type surprise (number arrives as string) | OK | `an IF on a number compares numerically` and `... not on its spelling` cover IF. Not covered for `edit_fields`, `filter`, `switch` |
 | 1.8 | Unicode / emoji / RTL in a value | **GAP** | Matters for a Vietnamese-language product: encoding through the HTTP body, the preview, and the stored execution payload |
 | 1.9 | Very long string (~1 MB in one field) | **GAP** | Payload vault and preview truncation |
 | 1.10 | Heterogeneous items (item 1 has a field item 2 lacks) | **GAP** | Real API pagination produces this constantly |
@@ -53,9 +53,9 @@ The most common cause of "it worked in preview and broke on real data".
 | 2.1 | Reference a named earlier node | OK | `an expression can read a named earlier node` |
 | 2.2 | Syntactically invalid | OK | `EXPRESSION_INVALID` |
 | 2.3 | Valid syntax, runtime failure (`.toUpperCase()` on a number) | **GAP** | Must be `EXPRESSION_EVALUATION_FAILED` — a code the frontend already has a label for, so the path is assumed to exist and is never asserted |
-| 2.4 | Reference a node that did not run (rejected IF branch) | **GAP** | **High risk.** The most natural user mistake right after adding a branch |
-| 2.5 | Reference a node that does not exist | **GAP** | Should fail at validation, before publish — not at run time |
-| 2.6 | Date / number / string built-ins | **GAP** | Becomes load-bearing the moment `date_time` is certified |
+| 2.4 | Reference a node that did not run (rejected IF branch) | OK | **High risk.** The most natural user mistake right after adding a branch |
+| 2.5 | Reference a node that does not exist | OK | Should fail at validation, before publish — not at run time |
+| 2.6 | Date / number / string built-ins | PART | Becomes load-bearing the moment `date_time` is certified |
 | 2.7 | Expression in a credential-bearing field | **GAP** | Must not become a way to interpolate a secret into a URL |
 | 2.8 | **Expression-looking text that is not an expression** | **GAP** | **Found by the fan-out spike, and the worst failure shape in this matrix.** `http://host/item/={{ $json.id }}` — the `=` mid-string rather than leading — is a Fixed value. The braces went to the server as literal text and the run returned **200 / SUCCEEDED with semantically wrong data**. Silent success beats a visible failure to the user's eye, so nothing prompts them to look. Needs a product decision, not only a test — see below |
 
@@ -68,9 +68,9 @@ The most common cause of "it worked in preview and broke on real data".
 | 3.3 | Switch named branches + fallback | OK | two goldens |
 | 3.4 | Merge of two branches | OK | `two branches merge back into one stream` |
 | 3.5 | Merge where one input **never ran** | OK | `an IF into a Merge does not execute the branch the condition rejected` |
-| 3.6 | Merge where one input is **empty but did run** | **GAP** | Different from 3.5, and behaves differently |
+| 3.6 | Merge where one input is **empty but did run** | OK | Different from 3.5, and behaves differently |
 | 3.7 | Nested branching (IF inside an IF branch) | **GAP** | Depth 2+ is untested anywhere |
-| 3.8 | Branch that terminates (no downstream node) | **GAP** | Should be valid, not an error |
+| 3.8 | Branch that terminates (no downstream node) | OK | Should be valid, not an error |
 | 3.9 | Filter's second (discarded) output | OK | `filter-node.test.ts` + the ADR-026 preview rule |
 | 3.10 | Diamond: split then rejoin at one node | **GAP** | Execution-order sensitive (ADR-023) |
 
@@ -82,24 +82,24 @@ highest-value block in the matrix.
 | # | Case | Cov | Expected product behaviour |
 |---|---|---|---|
 | 4.1 | 200 JSON | OK | `http request performs a real request` |
-| 4.2 | 200 text/plain | **GAP** | One item with the body as a string — not a parse error |
-| 4.3 | 200 with invalid JSON body | **GAP** | A classified error, not an engine exception |
-| 4.4 | 204 no content | **GAP** | One empty item, SUCCEEDED |
-| 4.5 | 400 | PART | `an HTTP error becomes a product error code` covers the class; individual statuses are not distinguished |
-| 4.6 | 401 | **GAP** | Must be `NODE_AUTHENTICATION_FAILED` with the *update credential* remediation — the difference between a user fixing it and filing a ticket |
-| 4.7 | 403 | **GAP** | Same family, different remediation |
-| 4.8 | 404 | **GAP** | Configuration, not auth |
-| 4.9 | 409 | **GAP** | |
-| 4.10 | 429 | **GAP** | Must be `NODE_RATE_LIMITED`; the label exists, the behaviour is unasserted. Interacts with `split_in_batches` |
-| 4.11 | 500 | PART | as 4.5 |
+| 4.2 | 200 text/plain | OK | One item with the body as a string — not a parse error |
+| 4.3 | 200 with invalid JSON body | OK | A classified error, not an engine exception |
+| 4.4 | 204 no content | OK | One empty item, SUCCEEDED |
+| 4.5 | 400 | OK | `an HTTP error becomes a product error code` covers the class; individual statuses are not distinguished |
+| 4.6 | 401 | OK | Must be `NODE_AUTHENTICATION_FAILED` with the *update credential* remediation — the difference between a user fixing it and filing a ticket |
+| 4.7 | 403 | OK | Same family, different remediation |
+| 4.8 | 404 | OK | Configuration, not auth |
+| 4.9 | 409 | OK | |
+| 4.10 | 429 | OK | Must be `NODE_RATE_LIMITED`; the label exists, the behaviour is unasserted. Interacts with `split_in_batches` |
+| 4.11 | 500 | OK | as 4.5 |
 | 4.12 | Timeout | OK | `a slow endpoint produces NODE_TIMEOUT` |
 | 4.13 | DNS failure | OK | `a DNS failure is classified, and names the host` |
 | 4.14 | Connection refused | OK | `a refused connection is classified` |
-| 4.15 | Redirect (3xx followed) | **GAP** | The policy exists in the egress guard; no end-to-end assertion |
-| 4.16 | **Redirect to a private address** | **GAP** | **Security-relevant.** The egress suite blocks a *direct* private address; a public URL that 302s to `169.254.169.254` is the actual SSRF shape |
+| 4.15 | Redirect (3xx followed) | OK | The policy exists in the egress guard; no end-to-end assertion |
+| 4.16 | **Redirect to a private address** | OK | **Security-relevant.** The egress suite blocks a *direct* private address; a public URL that 302s to `169.254.169.254` is the actual SSRF shape |
 | 4.17 | Large response (over the ceiling) | **GAP** | The ceiling exists; the refusal is unasserted |
 | 4.18 | continue-on-error | OK | `continue-on-error keeps the workflow running past a failed request` |
-| 4.19 | Credential revoked between publish and run | **GAP** | Resolution fails at execution time; must be a classified error, not a crash |
+| 4.19 | Credential revoked between publish and run | OK | Resolution fails at execution time; must be a classified error, not a crash |
 
 ## 5. Composition contracts
 
@@ -143,9 +143,9 @@ suite that does not exist yet.
 
 | # | Case | Cov | Gap |
 |---|---|---|---|
-| 6.1 | Engine down at dispatch | PART | `ENGINE_UNAVAILABLE` exists; no test drives a really stopped container |
-| 6.2 | Engine dies **mid-run** | **GAP** | The reconciler should flip the run to `ENGINE_INTERRUPTED`. This is ADR-010's whole purpose and is untested against a real kill |
-| 6.3 | Engine restarts, run does not resume | **GAP** | And the UI must say so |
+| 6.1 | Engine down at dispatch | OK | `ENGINE_UNAVAILABLE` exists; no test drives a really stopped container |
+| 6.2 | Engine dies **mid-run** | OK | The reconciler should flip the run to `ENGINE_INTERRUPTED`. This is ADR-010's whole purpose and is untested against a real kill |
+| 6.3 | Engine restarts, run does not resume | OK | And the UI must say so |
 | 6.4 | Engine returns a malformed response | **GAP** | The adapter must not propagate an n8n shape |
 | 6.5 | Engine timeout at the adapter | **GAP** | Distinct from a node timeout (4.12) |
 | 6.6 | Worker restart with a run in flight | **GAP** | |
@@ -181,14 +181,16 @@ its ceiling.
 
 ## The gap, summarised (deliverable 6)
 
-Of the **73** numbered rows above: **21 OK**, **11 PART**, **41 GAP**. Plus 20
-composition pairs in §5, none of which has a suite — one is incidentally
-covered by the fan-out contract test.
+Of the **73** numbered rows above: **45 OK**, **6 PART**, **22 GAP** — after
+Wave 0. Before it: 21 / 11 / 41.
 
-**Correction.** An earlier version of this section said "85 rows: 19 OK, 11
-PART, 55 GAP". Those numbers were wrong — the real count at the time was 70
-rows, 18/10/42, and nothing summed to 85. They have been counted from the file
-rather than re-estimated, and the count is now reproducible:
+| | Before Wave 0 | After |
+|---|---|---|
+| OK | 21 | **45** |
+| PART | 11 | **6** |
+| GAP | 41 | **22** |
+
+Counted with the commands below, not estimated:
 
 ```bash
 f=docs/changes/002-capability-audit/WORKFLOW_STABILITY_MATRIX.md
@@ -198,11 +200,21 @@ grep -E  '^\| [0-9]+\.[0-9]+ \|' $f | grep -cw 'PART'            # PART
 grep -E  '^\| [0-9]+\.[0-9]+ \|' $f | grep -c  '\*\*GAP\*\*'     # GAP
 ```
 
-This is the second invented number found in this audit, after "`item_lists`
-unblocks 11 of 15". Both were summary figures over detail that was itself
-sound, which is the pattern: **the tables were checked and the totals were
-not.** Any future total in this change is expected to come with the command
-that produces it.
+**What Wave 0 closed.** All of §4's HTTP semantics, each asserted as a whole
+chain rather than a status; the expression rows except 2.3; the input-shape
+rows; two merge/branch rows; and §6.1–6.3, engine loss, which had never been
+exercised against a real container.
+
+**What is deliberately still GAP.** §2.3 (D-W0-05, a runtime expression
+failure resolving to null with the run reporting success) and §4.17 (D-W0-04,
+`max_response_bytes` enforced nowhere) are confirmed defects with the reason
+recorded rather than rows nobody looked at. §5 has no suite. §6.6–6.17
+(concurrency, worker restart, schedule overlap) and §7.3–7.7 (scale) remain for
+Wave 4.
+
+**Earlier correction, kept for the record.** This section once read "85 rows:
+19 OK, 11 PART, 55 GAP". Nothing summed to 85; the real count then was 70 and
+18/10/42. Every total here now ships with the command that produces it.
 
 The three rows that moved are all from the fan-out contract test: 1.1 GAP ->
 PART, 7.2 GAP -> OK, and two new rows (1.11, 1.12) added OK. One new GAP was

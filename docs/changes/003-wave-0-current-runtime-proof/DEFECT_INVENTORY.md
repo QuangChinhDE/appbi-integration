@@ -275,6 +275,73 @@ Captured and read, not merely asserted:
 
 ---
 
+## 0D — engine loss, against real containers
+
+Three scenarios, run by stopping and killing the engine container for real, and
+waiting the **configured** 120-second reconciliation window rather than a
+shortened one. This is the first time ADR-010's reconciler has ever been
+exercised; `.claude/rules/architecture.md` lists that guarantee as having no
+mechanical enforcement.
+
+**What already worked**, and is worth saying plainly because it is the harder
+half:
+
+- the engine **killed mid-run** (`docker kill`, no graceful shutdown) leaves a
+  run at `ENGINE_INTERRUPTED`, not stuck, with a usable summary — *"Engine
+  không xác nhận lần chạy này trong thời gian cho phép."*;
+- the product **stays readable** with no engine at all;
+- after the engine returns, a **new run succeeds**.
+
+### D-W0-11 · FIXED · With the engine stopped, a run never became terminal
+
+**Severity: high. This is the case ADR-010 exists to prevent.**
+
+Reproduced: engine stopped, run dispatched, and **200 seconds later against a
+120-second window the execution was still active** with `ENGINE_UNAVAILABLE`.
+
+**Root cause.** `dispatch()` sets `last_seen_at = utcnow()` before every
+attempt, and the `EngineUnavailableError` path requeues. Each retry therefore
+refreshed the reconciler's staleness reference, `utcnow() - reference` never
+grew past one poll interval, and `_interrupt_if_stale` could never fire — so
+its own `not execution.engine_ref -> FAILED_TO_START` branch, written for
+exactly this case, was **dead code** for this path.
+
+The run oscillated QUEUED ↔ DISPATCHING indefinitely. Both are ACTIVE statuses
+and **neither is RUNNING**, which is why a "not RUNNING" check sails past it —
+including the first version of this harness.
+
+**Fix.** The dispatch-failure path gives up once the wait exceeds the same
+configured window, using the existing terminal state
+(`FAILED_TO_START` / `ENGINE_UNAVAILABLE`). Brief outages still requeue, so an
+engine restart does not fail everything in flight.
+
+**Rejected: adding `QUEUED` to `active_executions`.** It looks like the more
+general fix and it is the more dangerous one — the reconciler would then fail
+**legitimately queued work during a backlog**, because from the outside a
+queued run older than the window is indistinguishable from a stranded one. At
+the dispatch site we already know *why* the run is queued.
+
+### Three harness defects, all mine
+
+Recorded because they are the reason the first two 0D runs were worthless, and
+because they are the same shape as the product defects this wave keeps finding:
+an assertion loose enough to pass on the wrong thing.
+
+1. **A wrong endpoint reported a pass.** The harness posted to
+   `/workflows/{id}/run`, which does not exist, and its condition was "any
+   4xx" — so `RESOURCE_NOT_FOUND` counted as *the engine being down was handled
+   correctly*. The check now rejects 404 explicitly.
+2. **An active status counted as terminal.** "Not RUNNING and not QUEUED" let
+   `DISPATCHING` through. It now asserts against the product's own
+   `TERMINAL_EXECUTION_STATUSES`. **This correction is what exposed D-W0-11** —
+   with the loose assertion, 0D reported 9/9 and a real ADR-010 violation went
+   unseen.
+3. **A 404 counted as engine health being reported.** Same shape again, on a
+   path that does not exist. It now calls `/api/v1/engine/status` and asserts
+   the engine is actually reported as unhealthy.
+
+---
+
 ## Observations, not defects
 
 **O-1 · A revoked credential is refused before dispatch, which is better than
@@ -307,8 +374,10 @@ grep -c 'FIXED ·' docs/changes/003-wave-0-current-runtime-proof/DEFECT_INVENTOR
 | Defects found, 0A | **9** |
 | Defects found, 0B | **0** |
 | Defects found, 0C | **1** |
-| **Total** | **10** |
-| Fixed | **8** |
+| Defects found, 0D | **1** |
+| **Total** | **11** |
+| Fixed | **9** |
+| Harness defects found and fixed (mine, not the product's) | 3 |
 | Confirmed, not fixed (reason recorded, test present and skipped) | **2** |
 | Observations | 2 |
 | Spec expectations corrected | 1 |

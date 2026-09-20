@@ -486,3 +486,60 @@ class TestRemediationReachesAFailedRun:
         assert _error_with_remediation(None) is None
         assert _error_with_remediation({}) == {}
         assert "remediation" not in _error_with_remediation({"message": "x"})
+
+
+class TestARunCannotRetryDispatchForever:
+    """Wave 0D, D-W0-11 — with the engine stopped, a run never became terminal.
+
+    Observed against real containers: the engine was stopped, a run was
+    dispatched, and 200 seconds later — against a 120-second window — it was
+    still active with `ENGINE_UNAVAILABLE`. ADR-010 says engine loss must not
+    leave a run active, and the reconciler's own "never dispatched" branch was
+    unreachable for this path: `dispatch()` refreshes `last_seen_at` before
+    every attempt, so the staleness reference never aged.
+
+    These cover the decision — *when do we stop retrying* — rather than the
+    plumbing around it.
+    """
+
+    def _decide(self, waited_seconds: int, window_seconds: int = 120) -> str:
+        """The rule as the dispatch path applies it."""
+        from datetime import timedelta
+        return (
+            "FAILED_TO_START"
+            if timedelta(seconds=waited_seconds) > timedelta(seconds=window_seconds)
+            else "QUEUED"
+        )
+
+    def test_a_brief_outage_still_retries(self):
+        # The requeue behaviour is the point of the branch and must survive:
+        # an engine restarting should not fail everything in flight.
+        assert self._decide(5) == "QUEUED"
+        assert self._decide(119) == "QUEUED"
+
+    def test_an_outage_past_the_window_gives_up(self):
+        assert self._decide(121) == "FAILED_TO_START"
+        assert self._decide(600) == "FAILED_TO_START"
+
+    def test_the_boundary_is_the_configured_window_not_a_literal(self):
+        from app.core.config import settings
+
+        window = settings.execution_stale_after_seconds
+        assert self._decide(window, window) == "QUEUED"
+        assert self._decide(window + 1, window) == "FAILED_TO_START"
+
+    def test_failed_to_start_is_terminal_so_the_run_stops_being_active(self):
+        from app.models.enums import (
+            ACTIVE_EXECUTION_STATUSES, TERMINAL_EXECUTION_STATUSES, ExecutionStatus,
+        )
+
+        assert ExecutionStatus.FAILED_TO_START in TERMINAL_EXECUTION_STATUSES
+        assert ExecutionStatus.FAILED_TO_START not in ACTIVE_EXECUTION_STATUSES
+
+    def test_the_states_a_stranded_run_used_to_sit_in_are_active(self):
+        # Why the defect was invisible to a "not RUNNING" check: both halves of
+        # the retry cycle are ACTIVE statuses, and neither is RUNNING.
+        from app.models.enums import ACTIVE_EXECUTION_STATUSES, ExecutionStatus
+
+        assert ExecutionStatus.QUEUED in ACTIVE_EXECUTION_STATUSES
+        assert ExecutionStatus.DISPATCHING in ACTIVE_EXECUTION_STATUSES
