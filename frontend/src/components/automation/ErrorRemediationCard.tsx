@@ -55,6 +55,16 @@ export function resolveRemediation(
     case 'EDIT_SCHEDULE':
     case 'EDIT_NODE':
     case 'SHOW_INVALID_NODES':
+    // Everything below lands in the editor too, and did not used to land
+    // anywhere (Wave 0A). They are not exotic codes: NODE_TIMEOUT and
+    // NODE_NETWORK_UNREACHABLE are two of the three most common ways a real
+    // integration fails, and both offered a message with no way forward while
+    // the fix -- the URL -- was one click away.
+    case 'CHECK_ENDPOINT':
+    case 'RETRY_OR_CHECK_ENDPOINT':
+    case 'OPEN_FIELD':
+    case 'REPLACE_NODE':
+    case 'CHECK_WEBHOOK_SECRET':
       return context.workflowId
         ? { label: action, href: `/workflows/${context.workflowId}` }
         : null;
@@ -70,9 +80,14 @@ export function resolveRemediation(
         ? { label: action, href: `/credentials/${context.credentialId}` }
         : null;
     default:
-      // RETRY_LATER, CONTACT_ADMIN and friends have no destination. Returning
-      // null makes the card show the message alone rather than a button that
-      // does nothing.
+      // RETRY_LATER and CONTACT_ADMIN have no destination, and that is correct:
+      // waiting and asking someone are not places the product can navigate to.
+      // Returning null makes the card show the message alone rather than a
+      // button that does nothing.
+      //
+      // Anything else reaching this branch is a gap, not a decision — a code
+      // whose remediation goes nowhere. `stabilization.test.tsx` walks the
+      // backend's own matrix and fails when a new one appears.
       return null;
   }
 }

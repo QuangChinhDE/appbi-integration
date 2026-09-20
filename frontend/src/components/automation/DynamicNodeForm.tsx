@@ -40,6 +40,16 @@ export const toExpression = (value: unknown): string =>
 export const expressionBody = (value: unknown): string =>
   isExpression(value) ? String(value).slice(1) : '';
 
+/**
+ * A fixed value that carries expression syntax and will never be evaluated.
+ *
+ * `=` marks the *whole field* as an expression, so it has to lead. Both
+ * `.../{{ $json.id }}` and `.../={{ $json.id }}` are plain strings, and both
+ * send the braces to the service verbatim.
+ */
+export const looksLikeAMissedExpression = (value: unknown): boolean =>
+  typeof value === 'string' && !isExpression(value) && /\{\{[\s\S]*?\}\}/.test(value);
+
 type Config = Record<string, unknown>;
 
 function visible(spec: FieldSpec, config: Config): boolean {
@@ -413,6 +423,20 @@ function FieldRenderer(props: FieldProps) {
         </div>
       )}
       {control}
+      {/* Wave 0A row 2.8. The mode is inferred from a leading `=`, so a Fixed
+          value holding `{{ ... }}` is a literal and the braces reach the
+          service as text — 200, SUCCEEDED, wrong data. The backend raises the
+          warning that counts (`services/graph.py`, so the API and worker honour
+          it); this offers the one-click way out before the user gets there. */}
+      {showToggle && !usingExpression && looksLikeAMissedExpression(value) && (
+        <button
+          type="button"
+          onClick={() => onChange(`${EXPRESSION_PREFIX}${String(value)}`)}
+          className="mt-1 text-left text-tiny text-warning hover:underline"
+        >
+          {t('editor.looksLikeExpression')}
+        </button>
+      )}
       {spec.description && spec.type !== 'boolean' && (
         <FieldHelp>{spec.description}</FieldHelp>
       )}

@@ -229,6 +229,8 @@ const vi: Catalog = {
   'editor.fixedValue': 'Giá trị cố định',
   'editor.useExpression': 'Dùng biểu thức',
   'editor.useFixed': 'Dùng giá trị cố định',
+  'editor.looksLikeExpression':
+    'Giá trị này trông như một biểu thức nhưng đang ở chế độ cố định — bấm để chuyển.',
   'editor.dataPicker': 'Chọn dữ liệu',
   'editor.dataPickerHelp': 'Bấm vào một field để chèn biểu thức tham chiếu.',
   'editor.dataPickerEmpty': 'Chạy workflow một lần để xem dữ liệu có thể tham chiếu.',
@@ -682,6 +684,8 @@ const en: Catalog = {
   'editor.fixedValue': 'Fixed value',
   'editor.useExpression': 'Use an expression',
   'editor.useFixed': 'Use a fixed value',
+  'editor.looksLikeExpression':
+    'This looks like an expression but the field is in fixed mode — click to switch.',
   'editor.dataPicker': 'Pick data',
   'editor.dataPickerHelp': 'Click a field to insert a reference to it.',
   'editor.dataPickerEmpty': 'Run the workflow once to see data you can reference.',

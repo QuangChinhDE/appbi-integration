@@ -218,6 +218,19 @@ export function installEgressGuard(deploymentPolicy: EgressPolicy): void {
 		});
 
 	dns.lookup = guarded;
+
+	// A response-size ceiling, which `max_response_bytes` promised in the
+	// contract and nothing enforced: an 8 MB body came back whole against a
+	// 1 MB policy. An unbounded response is a memory risk in a process that
+	// runs other tenants' workflows, and it is reachable by any workflow
+	// pointing at a URL somebody else controls.
+	//
+	// Applied as a *deployment* floor rather than per execution, deliberately.
+	// `axios.defaults` is process-wide, so mutating it when an execution scope
+	// opens would race between concurrent runs of different workflows — the
+	// per-workflow concurrency ceiling is one, the per-process one is not.
+	// This is a platform limit, which is what the compiler's own comment says
+	// these caps are.
 	log.info('egress.guard_installed', {
 		scope: 'execution',
 		default_allow_private_networks: Boolean(deploymentPolicy.allow_private_networks),

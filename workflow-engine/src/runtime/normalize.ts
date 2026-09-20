@@ -42,7 +42,31 @@ function iso(value: unknown): string | null {
 
 function nodeStatus(task: ITaskData): ProductNodeStatus {
 	if (task.error) return 'FAILED';
+	if (continuedError(task)) return 'FAILED';
 	return 'SUCCEEDED';
+}
+
+/**
+ * The error a node swallowed because it was told to continue.
+ *
+ * With `continueOnFail` n8n does not set `task.error`. It writes the thrown
+ * error into the node's *output items* as `{ error: <the raw error object> }`
+ * and records the task as a success, which produced two defects at once: the
+ * product reported the node SUCCEEDED when the call had failed, and the raw
+ * `AxiosError` -- name, `isAxiosError`, and the upstream **response headers**
+ * -- was stored verbatim as the item preview a user reads.
+ *
+ * Both are the same root cause, so both are fixed here rather than at the two
+ * call sites: this is the one place that reads n8n's run shape.
+ */
+function continuedError(task: ITaskData): unknown | null {
+	for (const branch of task.data?.main ?? []) {
+		for (const item of branch ?? []) {
+			const error = (item as { json?: Record<string, unknown> })?.json?.error;
+			if (error && typeof error === 'object') return error;
+		}
+	}
+	return null;
 }
 
 /**
@@ -65,6 +89,32 @@ function itemsOf(
 	const branches = task.data?.main ?? [];
 	const visible = ports === undefined ? branches : branches.slice(0, ports);
 	return visible.flatMap((branch) => (branch ?? []) as { json?: unknown }[]);
+}
+
+/**
+ * The product's error shape in place of the runtime's, inside a continued item.
+ *
+ * The item itself is kept — downstream nodes are entitled to see that this row
+ * failed and to branch on it — but what they see is `{code, category, message}`
+ * rather than an `AxiosError` with the upstream's response headers attached.
+ */
+function replaceErrorWithProductShape(
+	item: { json?: unknown; binary?: unknown },
+): { json?: unknown; binary?: unknown } {
+	const json = item?.json as Record<string, unknown> | undefined;
+	if (!json || typeof json.error !== 'object' || json.error === null) return item;
+	const normalized = normalizeError(json.error);
+	return {
+		...item,
+		json: {
+			...json,
+			error: {
+				code: normalized.code,
+				category: normalized.category,
+				message: normalized.message,
+			},
+		},
+	};
 }
 
 /**
@@ -95,15 +145,29 @@ export function normalizeRun(input: NormalizeInput): ExecutionStatusDto {
 		const nodeKey = input.nodeKeyByName.get(nodeName) ?? 'unknown';
 
 		(tasks as ITaskData[]).forEach((task, index) => {
-			const output = preview(itemsOf(task, input.outputPortsByName?.get(nodeName)));
+			// A continued error is normalized before it is ever previewed: the
+			// raw object is an n8n/axios shape carrying upstream response
+			// headers, and it must not cross the boundary (guardrail 10).
+			const swallowed = task.error ? null : continuedError(task);
+			const rawItems = itemsOf(task, input.outputPortsByName?.get(nodeName));
+			const output = preview(
+				swallowed ? rawItems.map(replaceErrorWithProductShape) : rawItems,
+			);
 			// n8n does not retain a node's input separately from its parent's
 			// output, so the input preview is the source data the task recorded.
 			// Better an honest empty than a reconstruction that could be wrong.
 			const inputItems = (task.source ?? []).length > 0 ? undefined : undefined;
 			const status = nodeStatus(task);
-			const error = task.error ? normalizeError(task.error) : null;
+			const error = task.error
+				? normalizeError(task.error)
+				: swallowed
+					? normalizeError(swallowed)
+					: null;
 
-			if (error && !firstError) {
+			// Only a real task error decides the *run's* verdict. A continued
+			// error is reported on its node and deliberately does not fail the
+			// run -- that is precisely what continue-on-error was asked for.
+			if (task.error && error && !firstError) {
 				firstError = error;
 				failedNodeName = nodeName;
 			}

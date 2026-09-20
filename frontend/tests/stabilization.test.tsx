@@ -18,6 +18,7 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { resolveRemediation } from '@/components/automation/ErrorRemediationCard';
+import { looksLikeAMissedExpression } from '@/components/automation/DynamicNodeForm';
 import { ApiError } from '@/lib/api';
 import { qk } from '@/lib/queryKeys';
 import { QueryProvider } from '@/providers/QueryProvider';
@@ -237,5 +238,85 @@ describe('D-P03 / D-P04 — the unfiltered workflow key is a true prefix', () =>
 
   it('does not reach another workspace', () => {
     expect(isPrefix(qk.workflows('ws-1'), qk.workflows('ws-2', { q: 'x' }))).toBe(false);
+  });
+});
+
+describe('Wave 0A row 2.8 — a fixed value that looks like an expression', () => {
+  /**
+   * The editor infers Fixed-vs-Expression from a leading `=` and nothing else,
+   * so `http://h/item/{{ $json.id }}` is a literal and the braces are sent to
+   * the service as text: 200, SUCCEEDED, semantically wrong data. Found by the
+   * Wave 0 fan-out spike, which made exactly this mistake and got a green run.
+   *
+   * The enforcement is the backend's graph WARNING; this is the affordance that
+   * stops most users reaching it. Tested as a decision, not as markup: does the
+   * predicate fire on the shapes that actually bite?
+   */
+  it('recognises the shapes that silently go out as text', () => {
+    expect(looksLikeAMissedExpression('http://h/item/{{ $json.id }}')).toBe(true);
+    // The exact shape the spike wrote: `=` present but not leading.
+    expect(looksLikeAMissedExpression('http://h/item/={{ $json.id }}')).toBe(true);
+    expect(looksLikeAMissedExpression('{{ $json.a }}')).toBe(true);
+  });
+
+  it('leaves a real expression and an ordinary value alone', () => {
+    expect(looksLikeAMissedExpression('=http://h/item/{{ $json.id }}')).toBe(false);
+    expect(looksLikeAMissedExpression('http://h/items')).toBe(false);
+    expect(looksLikeAMissedExpression('')).toBe(false);
+    expect(looksLikeAMissedExpression(undefined)).toBe(false);
+    expect(looksLikeAMissedExpression(42)).toBe(false);
+  });
+
+  it('has a label in both locales, because it is user-facing', () => {
+    expect(CATALOGS.vi).toHaveProperty('editor.looksLikeExpression');
+    expect(CATALOGS.en).toHaveProperty('editor.looksLikeExpression');
+  });
+});
+
+describe('Wave 0A — every remediation the backend can emit goes somewhere', () => {
+  /**
+   * The chain the product promises is
+   * `engine outcome -> product code -> remediation -> a place to go`, and 0A
+   * found it broken at the last link for seven of twenty-three codes. Two of
+   * them were NODE_TIMEOUT and NODE_NETWORK_UNREACHABLE — two of the three most
+   * common ways a real integration fails — offering a message and no way
+   * forward while the fix was one click away.
+   *
+   * This is the list from `backend/app/core/errors.py::ERROR_UX_MATRIX`. It is
+   * duplicated deliberately: the point is to fail when the two drift, which a
+   * shared constant could not do.
+   */
+  const BACKEND_ACTIONS = [
+    'SHOW_INVALID_NODES', 'REPLACE_NODE', 'CHOOSE_CREDENTIAL', 'UPDATE_CREDENTIAL',
+    'OPEN_FIELD', 'INSPECT_INPUT', 'RETRY_OR_CHECK_ENDPOINT', 'RETRY_LATER',
+    'EDIT_NODE', 'CHECK_ENDPOINT', 'INSPECT_NODE', 'VIEW_EXECUTION', 'RELOAD_DRAFT',
+    'PUBLISH_WORKFLOW', 'CONTACT_ADMIN', 'INSPECT_EXECUTION', 'RETRY_EXECUTION',
+    'CHECK_WEBHOOK_SECRET', 'EDIT_SCHEDULE',
+  ];
+
+  /**
+   * The only two that legitimately have nowhere to go. Waiting and asking a
+   * person are not destinations. Adding to this list is a product decision and
+   * should be argued, which is why it is spelled out rather than inferred.
+   */
+  const NO_DESTINATION_BY_DESIGN = ['RETRY_LATER', 'CONTACT_ADMIN'];
+
+  const fullContext = { workflowId: 'w1', executionId: 'e1', credentialId: 'c1' };
+  const allHandlers = { onReload: () => {}, onRetry: () => {}, onInspect: () => {} };
+
+  it.each(BACKEND_ACTIONS)('%s resolves to a destination, or is one of the two that cannot', (action) => {
+    const target = resolveRemediation(action, fullContext, allHandlers);
+
+    if (NO_DESTINATION_BY_DESIGN.includes(action)) {
+      expect(target, `${action} is listed as having no destination`).toBeNull();
+      return;
+    }
+    expect(target, `${action} is a dead end: the card shows no way forward`).not.toBeNull();
+    expect(Boolean(target!.href || target!.onClick)).toBe(true);
+  });
+
+  it.each(BACKEND_ACTIONS)('%s has a label in both locales', (action) => {
+    expect(CATALOGS.vi).toHaveProperty(`remediation.${action}`);
+    expect(CATALOGS.en).toHaveProperty(`remediation.${action}`);
   });
 });

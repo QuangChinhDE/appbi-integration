@@ -230,6 +230,20 @@ def _check_expression(value: str) -> str | None:
     return None
 
 
+_EXPRESSION_SHAPE = re.compile(r"\{\{.*?\}\}", flags=re.DOTALL)
+
+
+def _looks_like_a_missed_expression(value: Any) -> bool:
+    """A fixed value carrying expression syntax that will never be evaluated.
+
+    The editor decides Fixed-vs-Expression from the leading `=` alone, so
+    `http://host/item/{{ $json.id }}` and `http://host/item/={{ $json.id }}`
+    are both plain strings: the `=` has to lead the whole field. Both were
+    found sending the braces to the server as literal text.
+    """
+    return isinstance(value, str) and bool(_EXPRESSION_SHAPE.search(value))
+
+
 def _walk_config_values(value: Any, prefix: str = "") -> Iterable[tuple[str, Any]]:
     if isinstance(value, dict):
         for key, item in value.items():
@@ -374,6 +388,24 @@ def validate_graph(
 
         for path, value in _walk_config_values(config):
             if not is_expression(value):
+                if _looks_like_a_missed_expression(value):
+                    # Wave 0A row 2.8. A field holding `{{ ... }}` without the
+                    # leading `=` is a fixed value, so the braces are sent to
+                    # the service as literal text and the run comes back 200,
+                    # SUCCEEDED, and semantically wrong. Silent success is worse
+                    # than a failure here: nothing prompts the user to look.
+                    #
+                    # A WARNING rather than an error, because `{{ }}` inside a
+                    # literal is legitimate -- a templated body posted to a
+                    # service that interpolates it downstream. Publish is not
+                    # blocked; the user is told.
+                    result.issues.append(Issue(
+                        "EXPRESSION_NOT_ENABLED",
+                        f"Bước '{name or node_id}': giá trị này chứa cú pháp biểu thức "
+                        "nhưng đang ở chế độ giá trị cố định, nên sẽ được gửi đi "
+                        "nguyên văn. Chuyển sang chế độ biểu thức nếu muốn nó "
+                        "được tính.",
+                        node_id=node_id, field=path, severity="WARNING"))
                 continue
             problem = _check_expression(value)
             if problem:

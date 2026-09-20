@@ -7,7 +7,7 @@
  * notice drift, and a shared fixture would hide exactly the drift they are for.
  */
 
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 
 import type {
 	ExecutionRequest,
@@ -207,6 +207,37 @@ export async function startTestEndpoint(
 	const address = server.address();
 	const port = typeof address === 'object' && address ? address.port : 0;
 
+	return {
+		url: `http://127.0.0.1:${port}`,
+		requests: seen,
+		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+	};
+}
+
+/**
+ * A server the test writes the response to itself.
+ *
+ * `startTestEndpoint` always sets `content-type: application/json`, which is
+ * the right default and makes two real shapes untestable: a 204 that announces
+ * no content-type at all, and a body whose type contradicts its content. Those
+ * are exactly the cases Wave 0A found defects in.
+ */
+export async function startRawEndpoint(
+	write: (response: ServerResponse) => void,
+): Promise<TestEndpoint> {
+	const seen: TestEndpoint['requests'] = [];
+	const server: Server = createServer((incoming, outgoing) => {
+		seen.push({
+			method: incoming.method ?? 'GET',
+			path: incoming.url ?? '/',
+			headers: incoming.headers as Record<string, string>,
+			body: '',
+		});
+		write(outgoing);
+	});
+	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+	const address = server.address();
+	const port = typeof address === 'object' && address ? address.port : 0;
 	return {
 		url: `http://127.0.0.1:${port}`,
 		requests: seen,

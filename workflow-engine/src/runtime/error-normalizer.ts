@@ -94,6 +94,37 @@ export function normalizeError(error: unknown): NormalizedError {
 		};
 	}
 
+	// An expression naming a node that is not in the graph. The runtime reports
+	// `"Ghost" node doesn't exist` as a NodeOperationError, which carries
+	// neither the word "expression" nor an Expression class name, so it used to
+	// land in the generic bucket -- "a step failed" for what is a typo in a
+	// field. The fix is in the expression, so this is EXPRESSION_INVALID and its
+	// remediation opens the field.
+	if (/node doesn't exist/i.test(messageOf(raw))) {
+		return {
+			code: 'EXPRESSION_INVALID',
+			category: 'EXPRESSION',
+			message: 'Biểu thức đang tham chiếu tới một bước không có trong workflow.',
+			technical_message: technical,
+		};
+	}
+
+	// An expression reading from a node that did not run -- the branch an IF
+	// rejected, most often. Reported as `no data, execute "X" node first`.
+	//
+	// Deliberately *not* the same code as above: the expression is correct and
+	// the data is not there, so the user needs to look at the run rather than
+	// rewrite the field. Same distinction the product already draws between
+	// EXPRESSION_INVALID and EXPRESSION_EVALUATION_FAILED.
+	if (/no data, execute .* node first/i.test(messageOf(raw))) {
+		return {
+			code: 'EXPRESSION_EVALUATION_FAILED',
+			category: 'EXPRESSION',
+			message: 'Biểu thức đang đọc dữ liệu từ một bước chưa chạy trong lần chạy này.',
+			technical_message: technical,
+		};
+	}
+
 	// Expressions are a product-facing surface (ADR-008), so their failures get
 	// their own code and their own remediation ("inspect the input").
 	if (className.includes('Expression') || lowered.includes('expression')) {
@@ -114,6 +145,30 @@ export function normalizeError(error: unknown): NormalizedError {
 			code: 'CREDENTIAL_REQUIRED',
 			category: 'CONFIGURATION',
 			message: 'Bước này cần thông tin xác thực nhưng chưa có.',
+			technical_message: technical,
+		};
+	}
+
+	// The service answered, and the answer could not be read as JSON.
+	//
+	// Three very different-looking situations arrive here as one message: a 200
+	// with an empty body, a 204 that still carries `content-type:
+	// application/json`, and a genuinely malformed body. All three used to fall
+	// through to NODE_EXECUTION_FAILED -- "a step failed" -- which tells the
+	// reader nothing and hides that the fix is one field away.
+	//
+	// The node's `response_format` defaults to AUTO, which makes the runtime
+	// parse anything announcing itself as JSON. n8n's own `neverError` flag
+	// would suppress the throw, but it also suppresses erroring on 4xx/5xx, so
+	// turning it on would silently undo the authentication and rate-limit
+	// classification below. Naming the problem is the honest fix; the user sets
+	// Response format to Text and moves on.
+	if (lowered.includes('invalid json in response body')) {
+		return {
+			code: 'NODE_CONFIGURATION_INVALID',
+			category: 'CONFIGURATION',
+			message: 'Dịch vụ trả về nội dung không phải JSON hợp lệ. '
+				+ "Nếu dịch vụ trả về dạng khác, đổi 'Response format' của bước này sang Text.",
 			technical_message: technical,
 		};
 	}

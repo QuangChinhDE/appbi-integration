@@ -382,3 +382,60 @@ class TestGraphHash:
         }
         second = {"nodes": list(reversed(first["nodes"])), "connections": first["connections"]}
         assert graph_hash(first) == graph_hash(second)
+
+
+class TestExpressionSyntaxInAFixedValue:
+    """Wave 0A row 2.8 — `{{ }}` in a field that is not in expression mode.
+
+    The editor decides Fixed-vs-Expression from a leading `=` and nothing else,
+    so a value carrying `{{ $json.id }}` without it is a literal. The braces go
+    to the service as text, the call returns 200, and the run is SUCCEEDED with
+    semantically wrong data — the failure shape that prompts nobody to look.
+
+    Found by the Wave 0 fan-out spike, which made exactly this mistake and got
+    a green run out of it.
+    """
+
+    def _graph(self, url: str) -> dict:
+        return {
+            "nodes": [
+                node("start_1", "manual_trigger", "Start"),
+                node("http_1", "http_request", "Call", {"method": "GET", "url": url}),
+            ],
+            "connections": [link("start_1", "http_1")],
+        }
+
+    @pytest.mark.parametrize("url", [
+        "http://api.test/item/{{ $json.id }}",
+        # The exact shape the spike wrote: an `=` that does not lead the field
+        # is not an expression marker, it is just a character in a URL.
+        "http://api.test/item/={{ $json.id }}",
+    ])
+    def test_it_warns_rather_than_letting_the_braces_go_out_as_text(self, definitions, url):
+        result = validate_graph(self._graph(url), definitions)
+
+        assert "EXPRESSION_NOT_ENABLED" in codes(result)
+        issue = next(i for i in result.issues if i.code == "EXPRESSION_NOT_ENABLED")
+        assert issue.node_id == "http_1"
+        assert issue.field == "url"
+        assert issue.severity == "WARNING"
+
+    def test_publish_is_not_blocked_by_it(self, definitions):
+        # `{{ }}` inside a literal is legitimate — a templated body posted to a
+        # service that does its own interpolation. Warn, do not refuse.
+        result = validate_graph(self._graph("http://api.test/item/{{ id }}"), definitions)
+
+        assert result.ok, [i.as_dict() for i in result.issues]
+        assert result.errors == []
+
+    def test_a_real_expression_is_left_alone(self, definitions):
+        result = validate_graph(
+            self._graph("=http://api.test/item/{{ $json.id }}"), definitions,
+        )
+
+        assert "EXPRESSION_NOT_ENABLED" not in codes(result)
+
+    def test_an_ordinary_value_is_left_alone(self, definitions):
+        result = validate_graph(self._graph("http://api.test/items"), definitions)
+
+        assert "EXPRESSION_NOT_ENABLED" not in codes(result)
