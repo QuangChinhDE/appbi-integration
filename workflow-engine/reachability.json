@@ -1,5 +1,5 @@
 {
-  "measuredAt": "2026-09-20T03:11:01.344Z",
+  "measuredAt": "2026-09-20T03:17:17.492Z",
   "note": "Written by tests/contract/reachability.test.ts. Consumed by scripts/sbom.py to build the VEX. Do not edit by hand.",
   "reachable": [
     "@n8n/client-oauth2",

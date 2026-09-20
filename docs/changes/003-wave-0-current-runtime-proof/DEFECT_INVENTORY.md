@@ -178,6 +178,39 @@ these five before the fix.*
 
 ---
 
+## 0B — composition of the current nine nodes
+
+**Zero defects. Eight pairs, every one correct on the first run.**
+
+That is a real result and worth stating plainly rather than burying: the nine
+certified nodes compose correctly at the engine level. `contract/composition.test.ts`
+asserts the item count at **every node** in each graph, not the final output,
+because a branch that drops or duplicates a row produces a plausible final
+result either way.
+
+| Pair | Asserted |
+|---|---|
+| `http -> edit_fields` | 5 in, 5 out, every item modified |
+| `http -> if` | 5 split 3/2, and the specific ids on each side |
+| `if -> merge` | 3 + 2 back to 5 — not 10, not 3 |
+| `switch -> merge` | three named branches plus fallback, counted separately |
+| `filter -> edit_fields` | 6 in, 3 kept; the discarded array never reaches downstream (ADR-026) |
+| **filter to zero** | SUCCEEDED, no error code, and the downstream node invents no item |
+| `continue-on-error -> downstream` | run succeeds, failed row carried in the product's vocabulary |
+| multi-item through branch and back | 20 in, 10/10, 20 out, **every id exactly once** |
+
+Two caveats, so this is not read as more than it is. It is an **engine-level**
+result: whether the UI displays these counts correctly is 0C's question, and
+the run panel is where a wrong count would actually be seen. And three of the
+eight only pass because of fixes made in 0A — the `continue-on-error` pair
+asserts D-W0-03's normalized error shape.
+
+One thing this checkpoint did *not* find, which is worth noting because it was
+the likeliest place for it: no ADR-023 execution-order surprise. The diamond and
+merge shapes behave as the compiler's pinned order says they should.
+
+---
+
 ## Observations, not defects
 
 **O-1 · A revoked credential is refused before dispatch, which is better than
